@@ -72,6 +72,47 @@ function astrosync() {
   echo "Script completed at: $(date)"
 }
 
+# Find files larger than 5 GB, sorted by size
+big5() {
+  local dir="${1:-$HOME}"
+
+  echo "Scanning: $dir"
+  echo "Showing files > 5 GB (may take a bit if dir is large)..."
+  echo
+
+  find "$dir" -type f -size +5G -print0 2>/dev/null \
+    | xargs -0 ls -lh 2>/dev/null \
+    | sort -k5 -h
+}
+
+
+# Aggressive dev-cache + Docker cleanup
+purge_dev_caches() {
+  echo "=== Docker prune (images, containers, volumes, build cache) ==="
+  docker system prune -a --volumes -f
+
+  echo
+  echo "=== Deleting large dev/browser caches under ~/Library/Caches ==="
+
+  rm -rf \
+    "$HOME/Library/Caches/com.spotify.client" \
+    "$HOME/Library/Caches/Homebrew" \
+    "$HOME/Library/Caches/pip" \
+    "$HOME/Library/Caches/JetBrains" \
+    "$HOME/Library/Caches/BraveSoftware" \
+    "$HOME/Library/Caches/go-build" \
+    "$HOME/Library/Caches/Google" \
+    "$HOME/Library/Caches/Firefox" \
+    "$HOME/Library/Caches/Cypress" \
+    "$HOME/Library/Caches/Sublime Text 3"
+
+  echo
+  echo "=== Cache size after purge ==="
+  du -sh "$HOME/Library/Caches" 2>/dev/null || echo "No Caches dir?"
+}
+
+
+
 # NVM configuration
 export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
@@ -82,3 +123,14 @@ source $PERSONAL_HOME_DIR/powerlevel10k/powerlevel10k.zsh-theme
 
 # To customize prompt, run `p10k configure` or edit ~/.p10k.zsh.
 [[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh
+
+export PATH="$HOME/scripts:$PATH"
+
+# ============================================
+# DOTFILES MANAGEMENT
+# ============================================
+export DOTFILES="$HOME/dotfiles"
+alias dotfiles="$DOTFILES/scripts/sync-dotfiles.sh"
+alias dotbackup="$DOTFILES/scripts/sync-dotfiles.sh push"
+alias dotrestore="$DOTFILES/scripts/sync-dotfiles.sh restore"
+alias dotstatus="$DOTFILES/scripts/sync-dotfiles.sh status"

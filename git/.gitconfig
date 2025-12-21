@@ -1,0 +1,25 @@
+[user]
+	name = Pieter de Jong
+	email = pieter.a.dejong@gmail.com
+
+[core]
+	editor = 'subl --new-window --wait'
+	excludesfile = /Users/pieterdejong/.gitignore_global
+
+[alias]
+    st = status -sb
+    cm  = commit -m
+    p  = push
+    ci = commit -v
+    d = diff
+    lastcommit = log -1 HEAD --stat
+    ll = log --oneline
+    co = checkout
+    br = branch
+    unstage = reset HEAD --
+    undo = reset --soft HEAD~1
+    last = log -1 HEAD
+	se = !git rev-list --all | xargs git grep -F
+	contrib = shortlog -e --summary --numbered
+[web]
+    browser = google-chrome

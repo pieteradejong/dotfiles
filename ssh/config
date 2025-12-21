@@ -1,0 +1,9 @@
+Host *
+  AddKeysToAgent yes
+  UseKeychain yes
+  IdentityFile ~/.ssh/id_ed25519
+Host siteground
+  HostName ssh.pieter.am
+  User u945-kdlrkbibgf6x
+  Port 18765
+  IdentityFile ~/.ssh/siteground_private

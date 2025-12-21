@@ -1,0 +1,184 @@
+# ============================================
+# SECRETS & CREDENTIALS - NEVER COMMIT
+# ============================================
+
+# Secret file patterns
+*.secret
+*.secret.*
+*.private
+*.confidential
+*.local
+!*.local.template
+
+# Environment files
+.env*
+!.env.template
+!.env.example
+.envrc
+.direnv/
+
+# Keys and certificates
+*.key
+*.pem
+*.p12
+*.pfx
+*.crt
+*.cer
+*.gpg
+*.asc
+
+# SSH keys - CRITICAL
+id_rsa*
+id_ed25519*
+id_ecdsa*
+id_dsa*
+*.pub
+known_hosts
+authorized_keys
+
+# Credential patterns
+*password*
+*token*
+*credential*
+*api_key*
+*apikey*
+*secret_key*
+*access_key*
+*auth.json
+*.secrets.json
+*.secrets.yaml
+*.secrets.yml
+
+# Cloud provider credentials
+.aws/credentials
+.boto
+.s3cfg
+gcloud/
+.azure/
+.config/gcloud/
+
+# Package manager auth (may contain tokens)
+.npmrc.local
+.pypirc
+.gem/credentials
+
+# Database
+*.sql
+*.sqlite
+*.db
+
+# ============================================
+# SHELL HISTORY - CONTAINS TYPED COMMANDS
+# ============================================
+
+.bash_history
+.zsh_history
+.sh_history
+.node_repl_history
+.python_history
+.irb_history
+.psql_history
+.mysql_history
+.rediscli_history
+.lesshst
+.wget-hsts
+
+# ============================================
+# macOS
+# ============================================
+
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
+
+# ============================================
+# Windows
+# ============================================
+
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# ============================================
+# Linux
+# ============================================
+
+*~
+.directory
+.Trash-*
+
+# ============================================
+# EDITORS & IDEs
+# ============================================
+
+# VSCode
+.vscode/
+!.vscode.config.md
+
+# JetBrains
+.idea/
+*.iml
+
+# Vim/Neovim
+*.swp
+*.swo
+*.swn
+.netrwhist
+Session.vim
+.vim/undodir/
+
+# Emacs
+*~
+\#*\#
+.#*
+*.elc
+
+# Sublime
+*.sublime-workspace
+*.sublime-project
+
+# ============================================
+# BACKUP & TEMPORARY FILES
+# ============================================
+
+*.backup
+*.bak
+*.orig
+*.old
+*.tmp
+*.temp
+.cache/
+cache/
+*.log
+logs/
+
+# ============================================
+# OPTIONAL: UNCOMMENT IF NEEDED
+# ============================================
+
+# Homebrew Brewfile.lock (if you want reproducible installs, keep it)
+# Brewfile.lock.json
+
+# Node modules (shouldn't be in dotfiles, but just in case)
+# node_modules/
+
+# Python
+# __pycache__/
+# *.pyc
+# .venv/
+tools/.npmrc

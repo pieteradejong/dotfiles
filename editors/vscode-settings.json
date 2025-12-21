@@ -1,0 +1,37 @@
+{
+    "files.exclude": {
+        "**/.classpath": true,
+        "**/.project": true,
+        "**/.settings": true,
+        "**/.factorypath": true
+    },
+    "editor.suggestSelection": "first",
+    "vsintellicode.modify.editor.suggestSelection": "automaticallyOverrodeDefaultValue",
+    "markdown.extension.preview.autoShowPreviewToSide": true,
+    "[python]": {
+        "editor.formatOnType": true
+    },
+    "redhat.telemetry.enabled": false,
+    "editor.inlineSuggest.enabled": true,
+    "projectManager.git.baseFolders": [
+        "/Users/pieterdejong/dev"
+    ],
+    "workbench.iconTheme": "vscode-icons",
+    "vsicons.dontShowNewVersionMessage": true,
+    "[typescript]": {
+        "editor.defaultFormatter": "rvest.vs-code-prettier-eslint"
+    },
+    "workbench.editor.enablePreview": false,
+    "window.zoomLevel": 1,
+    "augment.advanced": {
+
+    },
+    "github.copilot.enable": {
+        "*": false,
+        "plaintext": false,
+        "markdown": false,
+        "scminput": false
+    },
+    "diffEditor.codeLens": true,
+    "lldb.suppressUpdateNotifications": true
+}
