@@ -73,8 +73,17 @@ do_status() {
 }
 
 do_push() {
-    do_backup; log ""; log "${BLUE}Committing and pushing...${NC}"; cd "$DOTFILES_DIR"
-    git add -A; git commit -m "backup $(date '+%Y-%m-%d %H:%M')" || warn "Nothing to commit"; git push && success "Pushed to remote"
+    do_backup || true  # Don't exit if backup has warnings
+    log ""; log "${BLUE}Committing and pushing...${NC}"; cd "$DOTFILES_DIR"
+    git add -A
+    staged_changes=$(git diff --staged --quiet 2>/dev/null && echo "0" || echo "1")
+    unstaged_changes=$(git diff --quiet 2>/dev/null && echo "0" || echo "1")
+    if [ "$staged_changes" = "0" ] && [ "$unstaged_changes" = "0" ]; then
+        warn "Nothing to commit"
+    else
+        git commit -m "backup $(date '+%Y-%m-%d %H:%M')" && success "Committed changes" || fail "Commit failed"
+    fi
+    git push && success "Pushed to remote" || warn "Push failed or nothing to push"
 }
 
 do_extensions() {
