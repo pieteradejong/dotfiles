@@ -51,6 +51,7 @@ alias todos='subl $PERSONAL_HOME_DIR/notes/todos.txt'
 alias csprimer='cd $PERSONAL_HOME_DIR/dev/projects/csprimer'
 alias cards='cd $PERSONAL_HOME_DIR/dev/projects/pytestbook/code && source ../venv/bin/activate'
 
+
 # Functions
 function emailcopy() {
   echo -n $PERSONAL_EMAIL | pbcopy
@@ -135,3 +136,4 @@ alias dotfiles="$DOTFILES/scripts/sync-dotfiles.sh"
 alias dotbackup="$DOTFILES/scripts/sync-dotfiles.sh push"
 alias dotrestore="$DOTFILES/scripts/sync-dotfiles.sh restore"
 alias dotstatus="$DOTFILES/scripts/sync-dotfiles.sh status"
+alias dottest="$DOTFILES/scripts/test-dotfiles-setup.sh"

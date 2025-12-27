@@ -10,6 +10,7 @@ BACKUP_ROOT="$HOME/.dotfiles-backup"
 PASS_COUNT=0
 FAIL_COUNT=0
 WARN_COUNT=0
+VERBOSE=false
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -21,15 +22,21 @@ NC='\033[0m'
 
 header() { echo ""; echo -e "${BOLD}${CYAN}══════════════════════════════════════════════════════${NC}"; echo -e "${BOLD}${CYAN}  $1${NC}"; echo -e "${BOLD}${CYAN}══════════════════════════════════════════════════════${NC}"; }
 subheader() { echo ""; echo -e "${BLUE}── $1 ──${NC}"; }
-pass() { echo -e "  ${GREEN}✓ PASS${NC}: $1"; ((PASS_COUNT++)); }
-fail() { echo -e "  ${RED}✗ FAIL${NC}: $1"; ((FAIL_COUNT++)); }
-warn() { echo -e "  ${YELLOW}⚠ WARN${NC}: $1"; ((WARN_COUNT++)); }
+pass() { echo -e "  ${GREEN}✓ PASS${NC}: $1"; ((PASS_COUNT++)) || true; return 0; }
+fail() { echo -e "  ${RED}✗ FAIL${NC}: $1"; ((FAIL_COUNT++)) || true; return 0; }
+warn() { echo -e "  ${YELLOW}⚠ WARN${NC}: $1"; ((WARN_COUNT++)) || true; return 0; }
 info() { echo -e "  ${BLUE}→${NC} $1"; }
 
 test_directory_structure() {
     header "TEST 1: Directory Structure"
     subheader "Checking ~/dotfiles exists"
-    [ -d "$DOTFILES_DIR" ] && pass "~/dotfiles directory exists" || { fail "~/dotfiles NOT found"; return 1; }
+    if [ -d "$DOTFILES_DIR" ]; then
+        pass "~/dotfiles directory exists"
+        [ "$VERBOSE" = true ] && info "Path: $DOTFILES_DIR"
+    else
+        fail "~/dotfiles NOT found"
+        return 1
+    fi
     
     subheader "Checking subdirectories"
     for dir in shell git editors ssh tools macos scripts; do
@@ -213,10 +220,30 @@ print_summary() {
 }
 
 main() {
+    # Parse command line arguments FIRST
+    for arg in "$@"; do
+        case "$arg" in
+            --help|-h)
+                echo "Usage: $0 [--help] [--verbose]"
+                echo "Runs comprehensive dotfiles test suite"
+                exit 0
+                ;;
+            --verbose|-v)
+                VERBOSE=true
+                ;;
+            *)
+                echo "Unknown option: $arg" >&2
+                echo "Use --help for usage information" >&2
+                exit 1
+                ;;
+        esac
+    done
+    
     echo ""
     echo -e "${BOLD}${CYAN}╔══════════════════════════════════════════════════════╗${NC}"
     echo -e "${BOLD}${CYAN}║     DOTFILES TEST SUITE - $(date '+%Y-%m-%d %H:%M')          ║${NC}"
     echo -e "${BOLD}${CYAN}╚══════════════════════════════════════════════════════╝${NC}"
+    [ "$VERBOSE" = true ] && info "Verbose mode enabled"
     
     test_directory_structure
     test_required_files
