@@ -116,7 +116,13 @@ do_restore() {
     if [ "$DRY_RUN" = true ]; then
         log ""; log "[DRY-RUN] Restore preview complete. No changes were made."
     else
-        log ""; log "Restore complete! Run: source ~/.zshrc"
+        log ""; log "Restore complete!"
+        # Source zshrc in this subshell (won't affect parent shell)
+        if [ -f ~/.zshrc ]; then
+            log ""; log "${BLUE}Sourcing ~/.zshrc...${NC}"
+            source ~/.zshrc 2>/dev/null && success "Sourced ~/.zshrc" || warn "Could not source ~/.zshrc"
+        fi
+        log ""; log "${YELLOW}Note:${NC} For your current terminal session, run: ${GREEN}source ~/.zshrc${NC} or open a new terminal"
     fi
 }
 
