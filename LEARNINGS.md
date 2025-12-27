@@ -20,6 +20,7 @@ alias dotfiles="$DOTFILES/scripts/sync-dotfiles.sh"
 alias dotbackup="$DOTFILES/scripts/sync-dotfiles.sh push"
 alias dotrestore="$DOTFILES/scripts/sync-dotfiles.sh restore"
 alias dotstatus="$DOTFILES/scripts/sync-dotfiles.sh status"
+alias dothelp="$DOTFILES/scripts/dothelp.sh"
 alias dottest="$DOTFILES/scripts/test-dotfiles-setup.sh"
 ```
 
@@ -177,7 +178,8 @@ dottest --verbose
 │   └── .nvmrc
 ├── scripts/        # Management scripts
 │   ├── sync-dotfiles.sh      # Main sync script
-│   └── test-dotfiles-setup.sh # Test suite
+│   ├── test-dotfiles-setup.sh # Test suite
+│   └── dothelp.sh            # Help command
 └── macos/          # macOS-specific configs
 ```
 
@@ -201,6 +203,58 @@ dottest --verbose
 
 **Solution**: Ensure functions return 0 explicitly: `return 0;`
 
+### Issue: `dotbackup` not committing all files
+**Problem**: After running `dotbackup`, uncommitted files remained (e.g., new `scripts/dothelp.sh`, modified `shell/.zshrc`).
+
+**Root Cause**: 
+1. With `set -euo pipefail`, if `do_backup` returns non-zero (even for warnings), the script exits before reaching commit/push code
+2. The commit check logic was flawed - `git diff --staged --quiet` returns non-zero when there ARE staged changes, which with `set -e` causes script to exit
+
+**Original (broken) code**:
+```bash
+do_push() {
+    do_backup; log ""; log "${BLUE}Committing and pushing...${NC}"; cd "$DOTFILES_DIR"
+    git add -A; git commit -m "backup $(date '+%Y-%m-%d %H:%M')" || warn "Nothing to commit"; git push && success "Pushed to remote"
+}
+```
+
+**Solution**:
+1. Added `|| true` after `do_backup` to prevent script exit on warnings
+2. Fixed commit check logic to properly handle exit codes:
+```bash
+do_push() {
+    do_backup || true  # Don't exit if backup has warnings
+    log ""; log "${BLUE}Committing and pushing...${NC}"; cd "$DOTFILES_DIR"
+    git add -A
+    staged_changes=$(git diff --staged --quiet 2>/dev/null && echo "0" || echo "1")
+    unstaged_changes=$(git diff --quiet 2>/dev/null && echo "0" || echo "1")
+    if [ "$staged_changes" = "0" ] && [ "$unstaged_changes" = "0" ]; then
+        warn "Nothing to commit"
+    else
+        git commit -m "backup $(date '+%Y-%m-%d %H:%M')" && success "Committed changes" || fail "Commit failed"
+    fi
+    git push && success "Pushed to remote" || warn "Push failed or nothing to push"
+}
+```
+
+**Key Learning**:
+- With `set -euo pipefail`, any non-zero exit code causes script to exit
+- Use `|| true` after commands that might fail but shouldn't stop execution
+- `git diff --quiet` returns non-zero when there ARE differences - capture exit code in variable instead of using directly in conditionals
+- Always test commit logic with actual staged/unstaged changes
+
+## Sync Script Improvements
+
+### dothelp Command
+Added `dothelp` command to provide comprehensive help for all dotfiles commands:
+- **Location**: `~/dotfiles/scripts/dothelp.sh`
+- **Purpose**: Shows all commands, their usage, workflow examples, file locations, and troubleshooting
+- **Usage**: `dothelp` (or `~/dotfiles/scripts/dothelp.sh`)
+- **Features**:
+  - Colorized output matching test script style
+  - Sections for main commands, subcommands, workflows, file locations, troubleshooting
+  - Clear explanations of when to use each command
+
 ## Future Improvements
 
 - [ ] Add `dottest` alias to `.zshrc` template in repo
@@ -211,3 +265,12 @@ dottest --verbose
 
 ## Date
 Last updated: 2025-12-27
+
+## Additional Notes
+
+### Understanding `dotbackup` Behavior
+- `dotbackup` copies files FROM live locations TO repo (one-way sync)
+- It then commits ALL changes in the repo (including new files like `dothelp.sh`)
+- If you modify files directly in the repo, `dotbackup` will overwrite them with live versions
+- Best practice: Edit live files, then run `dotbackup` to sync to repo
+- For new repo-only files (like scripts), commit them separately or they'll be included in the next `dotbackup` commit
