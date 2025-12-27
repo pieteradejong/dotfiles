@@ -1,0 +1,147 @@
+# Cursor AI Rules for Dotfiles Backup & Reproducible System Configuration
+
+## Project Context
+You are working on a **dotfiles backup and reproducible system configuration repository**. This repository enables rapid restoration of development environments on new machines by maintaining version-controlled copies of system configuration files.
+
+## Repository Purpose
+- **Backup**: Copy-based workflow that backs up live configs to the repo
+- **Reproducibility**: Restore complete development environment on new machines
+- **Version Control**: Track configuration changes over time
+- **Security**: Never commit secrets, credentials, or sensitive data
+
+## Core Workflow Model
+
+### Copy-Based System (NOT Symlinks)
+This repository uses a **copy-based workflow**, not symlinks:
+- **Live files**: `~/.zshrc`, `~/.gitconfig`, etc. (what the system actually uses)
+- **Repo files**: `~/dotfiles/shell/.zshrc`, `~/dotfiles/git/.gitconfig`, etc. (version controlled)
+- **Sync direction**:
+  - `dotbackup` → copies live → repo → commits → pushes
+  - `dotrestore` → copies repo → live (with safety backup first)
+
+### Key Commands
+- `dotbackup` - Backup local configs to repo and push to GitHub
+- `dotrestore` - Restore configs from repo to local (with confirmation)
+- `dotstatus` - Check sync status between local and repo
+- `dotfiles extensions` - Install editor extensions from lists
+- `dottest` - Run comprehensive test suite
+
+## Directory Structure
+
+```
+dotfiles/
+├── shell/          # Shell configs (.zshrc, .p10k.zsh, .zprofile)
+├── git/            # Git configs (.gitconfig, .gitignore_global)
+├── editors/        # Editor settings (VS Code, Cursor) + extension lists
+├── ssh/            # SSH config (NEVER keys)
+├── tools/          # Tool configs (Brewfile, .npmrc, .nvmrc, docker-config.json)
+├── macos/          # macOS-specific configs (iTerm2, Rectangle plists)
+├── scripts/        # Management scripts (sync-dotfiles.sh, test-dotfiles-setup.sh)
+└── docs/           # Documentation
+```
+
+## Security Model
+
+### Never Commit
+- SSH keys (`id_rsa*`, `id_ed25519*`, `*.pem`, `*.key`)
+- Credentials (`*.secret`, `*token*`, `*password*`, `.env*`)
+- Shell history (`.zsh_history`, `.bash_history`)
+- Personal API keys or tokens
+
+### Safe to Commit
+- Configuration templates
+- Public settings (editor preferences, aliases)
+- Extension lists
+- Tool version files (`.nvmrc`, `Brewfile`)
+
+## Script Conventions
+
+### Shell Script Standards
+- Use `set -euo pipefail` for strict error handling
+- Use `$HOME` or `$DOTFILES` variables, never hardcoded paths
+- Always create safety backups before destructive operations
+- Use colored output for user feedback (GREEN=success, YELLOW=warning, RED=error)
+- Log all operations to `~/.dotfiles-backup/sync.log`
+
+### Function Patterns
+```bash
+safe_copy() { [ -f "$1" ] && cp "$1" "$2" && success "$(basename "$1")" && return 0; return 1; }
+log() { mkdir -p "$BACKUP_ROOT"; echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >> "$LOG_FILE"; echo -e "$1"; }
+```
+
+## When Modifying Scripts
+
+### Adding New Config Files
+1. Add to `do_backup()` function to copy from live location
+2. Add to `do_restore()` function to copy to live location
+3. Add to `do_status()` function to check sync status
+4. Update test script if needed
+5. Document in README
+
+### Backup Function Requirements
+- Use `safe_copy()` helper (handles missing files gracefully)
+- Group by category (Shell, Git, Editors, Tools, macOS)
+- Use `ensure_dirs()` before copying
+- Log all operations
+
+### Restore Function Requirements
+- **Always** create safety backup first: `pre-restore-TIMESTAMP/`
+- Require user confirmation before overwriting
+- Set proper file permissions (e.g., SSH config = 600)
+- Create directories if needed
+
+## Testing
+
+### Test Script Philosophy
+- Comprehensive validation of setup
+- Check file existence, permissions, sync status
+- Security checks (no sensitive files)
+- Git repository status
+- Use colored output (PASS/FAIL/WARN)
+- Support `--verbose` flag for detailed output
+
+## Documentation Standards
+
+### README Requirements
+- Quick start (clone, restore, reload)
+- Workflow explanation (backup vs restore)
+- Command reference
+- File structure overview
+- Security warnings
+- Troubleshooting
+
+### Code Comments
+- Explain complex logic
+- Document function purposes
+- Note any platform-specific behavior
+- Include usage examples
+
+## AI Assistant Guidelines
+
+### When Suggesting Changes
+- **Preserve copy-based workflow** - never suggest symlinks
+- **Maintain security** - never suggest committing secrets
+- **Keep idempotent** - scripts should be safe to run multiple times
+- **Add safety backups** - before any destructive operation
+- **Use existing patterns** - follow `safe_copy()`, `log()`, `success()` patterns
+
+### When Writing Scripts
+- Include error handling with `set -euo pipefail`
+- Provide colored output for user feedback
+- Create backups before modifying files
+- Test on clean environments when possible
+- Document what each script does
+
+### Code Review Focus
+- Security vulnerabilities (exposed secrets, permissions)
+- Hardcoded paths (use `$HOME` or variables)
+- Missing error handling
+- Missing safety backups
+- Breaking the copy-based workflow model
+
+## Remember
+This repository is about **backup and reproducibility**. Every change should:
+- **Maintain the copy-based workflow** (not symlinks)
+- **Preserve security** (never commit sensitive data)
+- **Enable rapid restoration** on new machines
+- **Track configuration changes** over time
