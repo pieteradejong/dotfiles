@@ -35,7 +35,8 @@ alias mongod-stop='brew services stop mongodb-community'
 
 # General aliases
 alias src=source
-alias brewnew='brew update && brew upgrade && brew cleanup && brew doctor'
+# alias brewnew='brew update && brew upgrade && brew cleanup && brew doctor'
+alias brewnew='brew update && brew upgrade && brew cleanup --prune=all && brew autoremove && brew doctor'
 alias pip='pip3'
 alias pipupgrade="pip list --outdated | grep -Ev \"Package|^-\" | awk '{print $1}'| while IFS= read -r line ; do pip3 install \"$line\" -U ; done"
 alias ls='ls -lah --color=auto'
