@@ -1,0 +1,33 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(sw_vers:*)",
+      "Bash(uname:*)",
+      "Bash(which:*)",
+      "Bash(echo:*)",
+      "Bash(cat:*)",
+      "Bash(ls:*)",
+      "Bash(pwd:*)",
+      "Bash(env:*)",
+      "Bash(printenv:*)",
+      "Bash(whoami:*)",
+      "Bash(hostname:*)",
+      "Bash(df:*)",
+      "Bash(du:*)",
+      "Bash(ps:*)",
+      "Bash(top:*)",
+      "Bash(brew:*)",
+      "Bash(brew list:*)",
+      "Bash(brew info:*)",
+      "Bash(git:*)",
+      "Bash(git log:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(node:*)",
+      "Bash(python3:*)",
+      "Bash(pip3 list:*)",
+      "Bash(npm list:*)",
+      "Bash(npx:*)"
+    ]
+  }
+}
