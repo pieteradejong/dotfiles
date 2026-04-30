@@ -168,6 +168,21 @@ dottest --verbose
 ### Issue: Restore overwrote my changes
 **Solution**: Check `~/.dotfiles-backup/pre-restore-*/` for safety backups
 
+## 🚧 Known TODOs
+
+Items identified in the last audit that still need to be done:
+
+- [ ] **`shell/.zshrc` — add secrets sourcing**: Add `[ -f ~/.zshrc.secrets ] && source ~/.zshrc.secrets` at the bottom of `shell/.zshrc`
+- [ ] **Rename secrets template**: Rename `shell/zshrc.secret.template` → `shell/.zshrc.secrets.template` (add leading dot, fix plural) to match the filename it's a template for
+- [ ] **`.gitignore` — add missing patterns**: Add explicit entries for `.zshrc.secrets`, `.zshrc.local`, and `*secret*` glob (currently has `*.secret` but not `*secret*`)
+- [ ] ~~**Create `install.sh`**~~: Skipped — `sync-dotfiles.sh restore` already handles file placement; a separate `install.sh` adds no real value
+- [ ] **README — expand secrets pattern section**: Document the `.zshrc.secrets` pattern (what it is, how to set it up, what goes in it)
+- [ ] **README — add recovery section**: Add a dedicated section explaining how to recover from a broken shell config using `dotrestore`
+- [ ] **Clean up `~/config`**: The `~/config` directory still exists as a separate git repo; determine if it's superseded and remove or archive it
+- [ ] **Remove stray `.gitignore_global` at repo root**: `~/dotfiles/.gitignore_global` is a duplicate of `git/.gitignore_global` — delete the root copy and commit
+- [ ] **Commit `SETUP.md`**: `SETUP.md` is untracked — either commit it or add it to `.gitignore`
+- [ ] **Add Docker integration test**: Create `scripts/test/assertions.sh` — run via `docker run --rm -v ~/dotfiles:/dotfiles debian:bookworm-slim bash -c "apt-get install -qq -y zsh git && /dotfiles/scripts/test/assertions.sh"`. No custom Dockerfile or image build. Assertions to cover: files land in expected locations after `sync-dotfiles.sh restore`, `.zshrc` sources without errors, `dotbackup`/`dotrestore`/`dotstatus` aliases resolve in zsh, `.zshrc.secrets` is absent (not committed). macOS-specific items (Homebrew, iTerm2/Rectangle plists) are explicitly out of scope for this test.
+
 ## 📚 Documentation
 
 - [LEARNINGS.md](LEARNINGS.md) - Key learnings and best practices
