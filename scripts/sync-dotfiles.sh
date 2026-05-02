@@ -105,6 +105,7 @@ do_restore() {
     safe_copy "$EDITORS_DIR/vscode-settings.json" ~/Library/Application\ Support/Code/User/settings.json
     safe_copy "$EDITORS_DIR/cursor-settings.json" ~/Library/Application\ Support/Cursor/User/settings.json
     log ""; log "${BLUE}macOS:${NC}"
+    [ "$DRY_RUN" = false ] && mkdir -p ~/Library/Preferences
     safe_copy "$MACOS_DIR/com.googlecode.iterm2.plist" ~/Library/Preferences/com.googlecode.iterm2.plist
     if [ -f "$MACOS_DIR/rectangle.plist" ]; then
         if [ "$DRY_RUN" = true ]; then
