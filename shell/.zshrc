@@ -1,6 +1,3 @@
-# Load private/secret configuration first
-[[ -f ~/.zshrc.secret ]] && source ~/.zshrc.secret
-
 # Enable Powerlevel10k instant prompt. Should stay close to the top of ~/.zshrc.
 # Initialization code that may require console input (password prompts, [y/n]
 # confirmations, etc.) must go above this block; everything else may go below.
@@ -138,3 +135,6 @@ alias dotrestore="$DOTFILES/scripts/sync-dotfiles.sh restore"
 alias dotstatus="$DOTFILES/scripts/sync-dotfiles.sh status"
 alias dottest="$DOTFILES/scripts/test-dotfiles-setup.sh"
 alias dothelp="$DOTFILES/scripts/dothelp.sh"
+
+# Load private/secret configuration if present (never committed)
+[ -f ~/.zshrc.secrets ] && source ~/.zshrc.secrets

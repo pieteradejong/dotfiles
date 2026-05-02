@@ -5,6 +5,11 @@
 # Secret file patterns
 *.secret
 *.secret.*
+*.secrets
+.zshrc.secrets
+.zshrc.local
+*secret*
+!*secret*.template
 *.private
 *.confidential
 *.local
