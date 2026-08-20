@@ -104,6 +104,8 @@ This repository uses a **copy-based workflow** (not symlinks):
 
 ## 🔒 Security
 
+**This repo is public on GitHub.** Anything committed here is world-readable and stays recoverable from git history even if later deleted from the working tree — treat every commit as permanent and public.
+
 ### Never Committed
 
 - SSH keys (`id_rsa*`, `id_ed25519*`, `*.pem`, `*.key`)
@@ -112,6 +114,18 @@ This repository uses a **copy-based workflow** (not symlinks):
 - Personal API keys or tokens
 
 The `.gitignore` file blocks 25+ sensitive file patterns. **Always verify before committing.**
+
+### Last audit — 2026-08-20
+
+Full-history scan (all commits, all files) for realistic secret patterns
+(GitHub PATs, Anthropic/OpenAI/AWS keys, Slack tokens, PEM private keys):
+**clean, nothing ever leaked.** No private key has ever been committed
+(confirmed via `git log --all -- "*id_ed25519*" "*siteground_private*"`).
+
+Two pre-existing, already-public privacy items were found (not secrets —
+nothing here grants access on its own) and are tracked in Known TODOs below:
+- `git/.gitconfig` — real full name + personal email (also visible via commit author metadata regardless)
+- `ssh/config` — real personal domain and a real hosting account username (private key correctly excluded)
 
 ## 🛠️ What Gets Backed Up
 
@@ -187,6 +201,8 @@ Items identified in the last audit that still need to be done:
 - [ ] **Remove stray `.gitignore_global` at repo root**: `~/dotfiles/.gitignore_global` is a duplicate of `git/.gitignore_global` — delete the root copy and commit
 - [ ] **Commit `SETUP.md`**: `SETUP.md` is untracked — either commit it or add it to `.gitignore`
 - [ ] **Add Docker integration test**: Create `scripts/test/assertions.sh` — run via `docker run --rm -v ~/dotfiles:/dotfiles debian:bookworm-slim bash -c "apt-get install -qq -y zsh git && /dotfiles/scripts/test/assertions.sh"`. No custom Dockerfile or image build. Assertions to cover: files land in expected locations after `sync-dotfiles.sh restore`, `.zshrc` sources without errors, `dotbackup`/`dotrestore`/`dotstatus` aliases resolve in zsh, `.zshrc.secrets` is absent (not committed). macOS-specific items (Homebrew, iTerm2/Rectangle plists) are explicitly out of scope for this test.
+- [ ] **`ssh/config` — decide on hostname/account exposure**: Real personal domain and a real hosting account username are public in this file (private key itself is correctly gitignored, never committed). Decide whether to redact/genericize or accept as low-risk since it's key-auth only.
+- [ ] **`git/.gitconfig` — decide on identity exposure**: Real full name and personal email are committed here (also independently visible via commit author metadata on every commit regardless, so redacting this file alone wouldn't fully address it).
 
 ## 📚 Documentation
 
