@@ -73,11 +73,15 @@ dotfiles/
 │   └── docker-config.json
 ├── macos/          # macOS-specific configs
 │   ├── com.googlecode.iterm2.plist
-│   └── rectangle.plist
+│   ├── rectangle.plist
+│   └── com.pieterdejong.weeklycleanup.plist   # LaunchAgent: weekly cache/trash cleanup
 ├── scripts/        # Management scripts
 │   ├── sync-dotfiles.sh      # Main sync script
-│   └── test-dotfiles-setup.sh
+│   ├── test-dotfiles-setup.sh
+│   ├── mac-maintenance.sh          # System stats report (manual copy, not sync'd)
+│   └── weekly-disk-cleanup.sh      # Weekly cache/trash cleanup (manual copy, not sync'd)
 └── docs/           # Documentation
+    └── weekly-cleanup.md    # Weekly disk cleanup: setup, schedule, known limitations
 ```
 
 ## 🔄 How It Works
@@ -133,6 +137,7 @@ The `.gitignore` file blocks 25+ sensitive file patterns. **Always verify before
 ### macOS
 - iTerm2 preferences
 - Rectangle window manager settings
+- Weekly disk cleanup LaunchAgent schedule (see [docs/weekly-cleanup.md](docs/weekly-cleanup.md))
 
 ## 📝 Maintenance
 
@@ -188,6 +193,7 @@ Items identified in the last audit that still need to be done:
 - [LEARNINGS.md](LEARNINGS.md) - Key learnings and best practices
 - [docs/devprocess.md](docs/devprocess.md) - Development process notes
 - [docs/reinstall-commands.md](docs/reinstall-commands.md) - Commands to reconstruct system
+- [docs/weekly-cleanup.md](docs/weekly-cleanup.md) - Weekly disk cleanup automation (npm/pip cache, Docker prune, Trash)
 
 ## 📄 License
 

@@ -64,6 +64,7 @@ do_backup() {
     else
         defaults export com.knollsoft.Rectangle "$MACOS_DIR/rectangle.plist" 2>/dev/null && success "rectangle.plist"
     fi
+    safe_copy ~/Library/LaunchAgents/com.pieterdejong.weeklycleanup.plist "$MACOS_DIR/com.pieterdejong.weeklycleanup.plist" || true
     if [ "$DRY_RUN" = true ]; then
         log ""; log "[DRY-RUN] Backup preview complete. No changes were made."
     else
@@ -113,6 +114,13 @@ do_restore() {
         else
             defaults import com.knollsoft.Rectangle "$MACOS_DIR/rectangle.plist" 2>/dev/null && success "rectangle.plist"
         fi
+    fi
+    if [ "$DRY_RUN" = false ]; then
+        mkdir -p ~/Library/LaunchAgents
+        safe_copy "$MACOS_DIR/com.pieterdejong.weeklycleanup.plist" ~/Library/LaunchAgents/com.pieterdejong.weeklycleanup.plist
+        log "  ${YELLOW}Note:${NC} run 'launchctl load ~/Library/LaunchAgents/com.pieterdejong.weeklycleanup.plist' to activate"
+    else
+        log "  [DRY-RUN] Would copy: com.pieterdejong.weeklycleanup.plist (not loaded automatically)"
     fi
     if [ "$DRY_RUN" = true ]; then
         log ""; log "[DRY-RUN] Restore preview complete. No changes were made."
