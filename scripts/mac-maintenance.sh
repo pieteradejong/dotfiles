@@ -24,4 +24,10 @@ free_pages=$(vm_stat | awk '/Pages free/ {print $3}' | tr -d '.')
 inactive_pages=$(vm_stat | awk '/Pages inactive/ {print $3}' | tr -d '.')
 free_gb=$(echo "scale=2; ($free_pages + $inactive_pages) * $page_size / 1073741824" | bc)
 echo "Approximate available memory: ${free_gb} GB" | tee -a "$LOG_FILE"
+echo "" | tee -a "$LOG_FILE"
+
+echo "--- LIBRARY CACHES CLEANUP ---" | tee -a "$LOG_FILE"
+echo "Before: $(du -sh "$HOME/Library/Caches" 2>/dev/null | cut -f1)" | tee -a "$LOG_FILE"
+rm -rf "$HOME/Library/Caches"/* 2>/dev/null || true
+echo "After:  $(du -sh "$HOME/Library/Caches" 2>/dev/null | cut -f1)" | tee -a "$LOG_FILE"
 

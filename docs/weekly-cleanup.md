@@ -108,6 +108,14 @@ steps will effectively be a no-op until Full Disk Access is granted, and
 you can always run `zsh ~/scripts/weekly-disk-cleanup.sh` by hand (in a
 terminal) any time for the full effect.
 
+## Related: manual maintenance script
+
+`~/scripts/mac-maintenance.sh` is a separate, manually-run script (not
+scheduled) that reports uptime/memory and, as of 2026-08-24, also clears
+`~/Library/Caches` (15G reclaimed the first time it ran — general app
+caches that had never been part of this automated job). See
+[`mac-maintenance.md`](./mac-maintenance.md).
+
 ## Deliberately left out of automation
 
 These came up in the same disk-space review but are too consequential to
