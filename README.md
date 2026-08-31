@@ -115,6 +115,23 @@ This repository uses a **copy-based workflow** (not symlinks):
 
 The `.gitignore` file blocks 25+ sensitive file patterns. **Always verify before committing.**
 
+### Secrets pattern
+
+Anything that shouldn't be public (API keys, personal tokens, etc.) goes in
+`~/.zshrc.secrets` — a file that lives outside this repo and is never
+committed:
+
+1. Copy the template: `cp shell/.zshrc.secrets.template ~/.zshrc.secrets`
+2. Fill in real values in `~/.zshrc.secrets` (exports, aliases — anything
+   you don't want public).
+3. `shell/.zshrc` sources it automatically if present:
+   `[ -f ~/.zshrc.secrets ] && source ~/.zshrc.secrets` — no per-machine
+   setup needed beyond creating the file.
+4. `.gitignore` blocks `.zshrc.secrets`, `.zshrc.local`, and any
+   `*secret*`-matching filename (except `*.template` files, which are meant
+   to be committed as examples) — so `dotbackup` can never accidentally
+   commit it.
+
 ### Last audit — 2026-08-20
 
 Full-history scan (all commits, all files) for realistic secret patterns
@@ -187,22 +204,48 @@ dottest --verbose
 ### Issue: Restore overwrote my changes
 **Solution**: Check `~/.dotfiles-backup/pre-restore-*/` for safety backups
 
+## 🩹 Recovery
+
+If `~/.zshrc` (or another tracked config) gets broken — a bad edit, a
+misconfigured tool that clobbered it, whatever — restore the last known-good
+version from this repo:
+
+```bash
+dotrestore
+# equivalent to: ~/dotfiles/scripts/sync-dotfiles.sh restore
+```
+
+This copies every file from `~/dotfiles` back to its live location in `~`,
+after first snapshotting whatever is currently live into
+`~/.dotfiles-backup/pre-restore-<timestamp>/` — so a bad restore is itself
+recoverable. A fresh shell (or `source ~/.zshrc`) picks up the restored
+config immediately; `dotrestore` also sources `~/.zshrc` automatically at
+the end of the run.
+
+If `dotrestore` itself won't run because the shell is too broken to load the
+`dotrestore` alias, run the underlying script directly:
+
+```bash
+zsh ~/dotfiles/scripts/sync-dotfiles.sh restore
+```
+
 ## 🚧 Known TODOs
 
-Items identified in the last audit that still need to be done:
+Items identified in the last audit — most are now done; a couple were
+deliberately decided against or accepted as-is rather than "fixed":
 
-- [ ] **`shell/.zshrc` — add secrets sourcing**: Add `[ -f ~/.zshrc.secrets ] && source ~/.zshrc.secrets` at the bottom of `shell/.zshrc`
-- [ ] **Rename secrets template**: Rename `shell/zshrc.secret.template` → `shell/.zshrc.secrets.template` (add leading dot, fix plural) to match the filename it's a template for
-- [ ] **`.gitignore` — add missing patterns**: Add explicit entries for `.zshrc.secrets`, `.zshrc.local`, and `*secret*` glob (currently has `*.secret` but not `*secret*`)
+- [x] **`shell/.zshrc` — add secrets sourcing**: `[ -f ~/.zshrc.secrets ] && source ~/.zshrc.secrets` is present at the bottom of `shell/.zshrc`
+- [x] **Rename secrets template**: `shell/.zshrc.secrets.template` (leading dot, plural) matches the filename it's a template for
+- [x] **`.gitignore` — add missing patterns**: `.zshrc.secrets`, `.zshrc.local`, and `*secret*` are all covered
 - [ ] ~~**Create `install.sh`**~~: Skipped — `sync-dotfiles.sh restore` already handles file placement; a separate `install.sh` adds no real value
-- [ ] **README — expand secrets pattern section**: Document the `.zshrc.secrets` pattern (what it is, how to set it up, what goes in it)
-- [ ] **README — add recovery section**: Add a dedicated section explaining how to recover from a broken shell config using `dotrestore`
-- [ ] **Clean up `~/config`**: The `~/config` directory still exists as a separate git repo; determine if it's superseded and remove or archive it
-- [ ] **Remove stray `.gitignore_global` at repo root**: `~/dotfiles/.gitignore_global` is a duplicate of `git/.gitignore_global` — delete the root copy and commit
-- [ ] **Commit `SETUP.md`**: `SETUP.md` is untracked — either commit it or add it to `.gitignore`
-- [ ] **Add Docker integration test**: Create `scripts/test/assertions.sh` — run via `docker run --rm -v ~/dotfiles:/dotfiles debian:bookworm-slim bash -c "apt-get install -qq -y zsh git && /dotfiles/scripts/test/assertions.sh"`. No custom Dockerfile or image build. Assertions to cover: files land in expected locations after `sync-dotfiles.sh restore`, `.zshrc` sources without errors, `dotbackup`/`dotrestore`/`dotstatus` aliases resolve in zsh, `.zshrc.secrets` is absent (not committed). macOS-specific items (Homebrew, iTerm2/Rectangle plists) are explicitly out of scope for this test.
-- [ ] **`ssh/config` — decide on hostname/account exposure**: Real personal domain and a real hosting account username are public in this file (private key itself is correctly gitignored, never committed). Decide whether to redact/genericize or accept as low-risk since it's key-auth only.
-- [ ] **`git/.gitconfig` — decide on identity exposure**: Real full name and personal email are committed here (also independently visible via commit author metadata on every commit regardless, so redacting this file alone wouldn't fully address it).
+- [x] **README — expand secrets pattern section**: See [Secrets pattern](#secrets-pattern) above
+- [x] **README — add recovery section**: See [Recovery](#-recovery) below
+- [x] **Clean up `~/config`**: Reviewed file-by-file (2026-08-31) — everything was superseded or stale (old `.cursorrules`, a ~2019 package list, generic editor snippets, unused `.bashrc`, a one-off license-generator script). Nothing migrated; the directory was renamed to `~/config.archived-2026-08-31` rather than deleted.
+- [x] **Remove stray `.gitignore_global` at repo root**: Deleted; `git/.gitignore_global` remains the real one
+- [x] **Commit `SETUP.md`**: Now tracked
+- [x] **Add Docker integration test**: `scripts/test/assertions.sh` exists and runs via `docker run --rm -v ~/dotfiles:/dotfiles debian:bookworm-slim bash -c "apt-get install -qq -y zsh git && /dotfiles/scripts/test/assertions.sh"`
+- [ ] **`ssh/config` — hostname/account exposure**: Reviewed 2026-08-31 — **accepted as-is**. Real personal domain and hosting account username are public in this file, but it's key-auth only (private key correctly gitignored, never committed) and grants nothing on its own.
+- [ ] **`git/.gitconfig` — identity exposure**: Reviewed 2026-08-31 — **accepted as-is**. Real full name and personal email are committed here, but commit author metadata already exposes both on every commit regardless, so redacting this file alone wouldn't change the actual exposure.
 
 ## 📚 Documentation
 
@@ -210,6 +253,7 @@ Items identified in the last audit that still need to be done:
 - [docs/devprocess.md](docs/devprocess.md) - Development process notes
 - [docs/reinstall-commands.md](docs/reinstall-commands.md) - Commands to reconstruct system
 - [docs/weekly-cleanup.md](docs/weekly-cleanup.md) - Weekly disk cleanup automation (npm/pip cache, Docker prune, Trash)
+- [docs/mac-maintenance.md](docs/mac-maintenance.md) - Manual health/cleanup script (uptime, memory, Library/Caches)
 
 ## 📄 License
 
