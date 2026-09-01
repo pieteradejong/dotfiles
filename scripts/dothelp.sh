@@ -3,7 +3,7 @@
 # dothelp.sh
 # Shows help for all dotfiles management commands
 
-DOTFILES_DIR="$HOME/dotfiles"
+DOTFILES_DIR="$HOME/dev/dotfiles"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -131,7 +131,7 @@ main() {
     echo -e "  ${GREEN}dottest${NC}"
     echo ""
     info "Set up on a new Mac:"
-    echo -e "  1. Clone repo: ${GREEN}git clone <repo-url> ~/dotfiles${NC}"
+    echo -e "  1. Clone repo: ${GREEN}git clone <repo-url> ~/dev/dotfiles${NC}"
     echo -e "  2. Restore configs: ${GREEN}dotrestore${NC}"
     echo -e "  3. Reload shell: ${GREEN}source ~/.zshrc${NC}"
     echo -e "  4. Install extensions: ${GREEN}dotfiles extensions${NC}"
@@ -147,7 +147,7 @@ main() {
     echo -e "  ${BLUE}~/.ssh/config${NC}"
     echo ""
     info "Repo location (version controlled):"
-    echo -e "  ${BLUE}~/dotfiles/${NC}"
+    echo -e "  ${BLUE}~/dev/dotfiles/${NC}"
     echo ""
     info "Backup location (safety backups):"
     echo -e "  ${BLUE}~/.dotfiles-backup/${NC}"

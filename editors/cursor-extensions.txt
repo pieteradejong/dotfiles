@@ -2,6 +2,8 @@ afractal.node-essentials
 alefragnani.bookmarks
 alefragnani.project-manager
 anysphere.cursorpyright
+anysphere.remote-containers
+anysphere.remote-ssh
 astro-build.astro-vscode
 augment.vscode-augment
 be5invis.vscode-icontheme-nomo-dark
@@ -27,6 +29,7 @@ ibm.output-colorizer
 jasonnutter.search-node-modules
 juanblanco.solidity
 kamikillerto.vscode-colorize
+mermaidchart.vscode-mermaid-chart
 mhutchie.git-graph
 mikestead.dotenv
 ms-azuretools.vscode-docker

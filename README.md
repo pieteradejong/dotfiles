@@ -4,22 +4,31 @@
 
 A copy-based dotfiles management system that backs up your live configuration files and enables rapid restoration on new machines. Perfect for maintaining consistent development environments across work and personal machines.
 
+## 🎯 Purpose
+
+This repo exists so the entire computer — dev environment, shell, editor
+config, tool versions, macOS app settings — can be reproduced from
+scratch on a new machine, using nothing but `git clone` and this repo.
+If this Mac dies or gets replaced, cloning the repo and running
+`dotrestore` should get a new one back to a working state without
+hunting through memory for what was configured where.
+
 ## 🚀 Quick Start
 
 ### On a New Machine
 
 ```bash
 # 1. Clone the repository
-git clone git@github.com:YOUR_USERNAME/dotfiles.git ~/dotfiles
+git clone git@github.com:YOUR_USERNAME/dotfiles.git ~/dev/dotfiles
 
 # 2. Restore all configurations
-~/dotfiles/scripts/sync-dotfiles.sh restore
+~/dev/dotfiles/scripts/sync-dotfiles.sh restore
 
 # 3. Reload shell
 source ~/.zshrc
 
 # 4. Install Homebrew packages (if on macOS)
-brew bundle install --file=~/dotfiles/tools/Brewfile
+brew bundle install --file=~/dev/dotfiles/tools/Brewfile
 
 # 5. Install editor extensions
 dotfiles extensions
@@ -78,7 +87,7 @@ dotfiles/
 ├── scripts/        # Management scripts
 │   ├── sync-dotfiles.sh      # Main sync script
 │   ├── test-dotfiles-setup.sh
-│   ├── mac-maintenance.sh          # System stats report (manual copy, not sync'd)
+│   ├── mac-maintenance.sh          # System stats report (only copy, run from here)
 │   └── weekly-disk-cleanup.sh      # Weekly cache/trash cleanup (manual copy, not sync'd)
 └── docs/           # Documentation
     └── weekly-cleanup.md    # Weekly disk cleanup: setup, schedule, known limitations
@@ -91,7 +100,7 @@ dotfiles/
 This repository uses a **copy-based workflow** (not symlinks):
 
 - **Live files**: `~/.zshrc`, `~/.gitconfig`, etc. (what your system uses)
-- **Repo files**: `~/dotfiles/shell/.zshrc`, `~/dotfiles/git/.gitconfig`, etc. (version controlled)
+- **Repo files**: `~/dev/dotfiles/shell/.zshrc`, `~/dev/dotfiles/git/.gitconfig`, etc. (version controlled)
 - **Sync direction**:
   - `dotbackup` → copies live → repo → commits → pushes
   - `dotrestore` → copies repo → live (with safety backup first)
@@ -212,10 +221,10 @@ version from this repo:
 
 ```bash
 dotrestore
-# equivalent to: ~/dotfiles/scripts/sync-dotfiles.sh restore
+# equivalent to: ~/dev/dotfiles/scripts/sync-dotfiles.sh restore
 ```
 
-This copies every file from `~/dotfiles` back to its live location in `~`,
+This copies every file from `~/dev/dotfiles` back to its live location in `~`,
 after first snapshotting whatever is currently live into
 `~/.dotfiles-backup/pre-restore-<timestamp>/` — so a bad restore is itself
 recoverable. A fresh shell (or `source ~/.zshrc`) picks up the restored
@@ -226,7 +235,7 @@ If `dotrestore` itself won't run because the shell is too broken to load the
 `dotrestore` alias, run the underlying script directly:
 
 ```bash
-zsh ~/dotfiles/scripts/sync-dotfiles.sh restore
+zsh ~/dev/dotfiles/scripts/sync-dotfiles.sh restore
 ```
 
 ## 🚧 Known TODOs
@@ -243,7 +252,7 @@ deliberately decided against or accepted as-is rather than "fixed":
 - [x] **Clean up `~/config`**: Reviewed file-by-file (2026-08-31) — everything was superseded or stale (old `.cursorrules`, a ~2019 package list, generic editor snippets, unused `.bashrc`, a one-off license-generator script). Nothing migrated; the directory was renamed to `~/config.archived-2026-08-31` rather than deleted.
 - [x] **Remove stray `.gitignore_global` at repo root**: Deleted; `git/.gitignore_global` remains the real one
 - [x] **Commit `SETUP.md`**: Now tracked
-- [x] **Add Docker integration test**: `scripts/test/assertions.sh` exists and runs via `docker run --rm -v ~/dotfiles:/dotfiles debian:bookworm-slim bash -c "apt-get install -qq -y zsh git && /dotfiles/scripts/test/assertions.sh"`
+- [x] **Add Docker integration test**: `scripts/test/assertions.sh` exists and runs via `docker run --rm -v ~/dev/dotfiles:/dotfiles debian:bookworm-slim bash -c "apt-get install -qq -y zsh git && /dotfiles/scripts/test/assertions.sh"`
 - [ ] **`ssh/config` — hostname/account exposure**: Reviewed 2026-08-31 — **accepted as-is**. Real personal domain and hosting account username are public in this file, but it's key-auth only (private key correctly gitignored, never committed) and grants nothing on its own.
 - [ ] **`git/.gitconfig` — identity exposure**: Reviewed 2026-08-31 — **accepted as-is**. Real full name and personal email are committed here, but commit author metadata already exposes both on every commit regardless, so redacting this file alone wouldn't change the actual exposure.
 

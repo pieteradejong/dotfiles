@@ -42,5 +42,6 @@
     "update.releaseTrack": "dev",
     "update.mode": "silentlyApplyOnQuit",
     "cursor.composer.shouldChimeAfterChatFinishes": true,
-    "cursor.composer.usageSummaryDisplay": "always"
+    "cursor.composer.usageSummaryDisplay": "always",
+    "window.autoDetectColorScheme": false
 }

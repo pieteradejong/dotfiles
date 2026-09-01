@@ -28,6 +28,12 @@ echo "" | tee -a "$LOG_FILE"
 
 echo "--- LIBRARY CACHES CLEANUP ---" | tee -a "$LOG_FILE"
 echo "Before: $(du -sh "$HOME/Library/Caches" 2>/dev/null | cut -f1)" | tee -a "$LOG_FILE"
-rm -rf "$HOME/Library/Caches"/* 2>/dev/null || true
+# Moved (not deleted) into ~/.Trash so weekly-disk-cleanup.sh's existing
+# 7-day Trash purge is what actually reclaims the space — gives a restore
+# window instead of an immediate, permanent rm -rf.
+QUARANTINE_DIR="$HOME/.Trash/mac-maintenance-caches-$(date +%Y%m%d-%H%M%S)"
+mkdir -p "$QUARANTINE_DIR"
+mv "$HOME/Library/Caches"/* "$QUARANTINE_DIR"/ 2>/dev/null || true
+echo "Moved to: $QUARANTINE_DIR (purged after 7 days by weekly-disk-cleanup.sh)" | tee -a "$LOG_FILE"
 echo "After:  $(du -sh "$HOME/Library/Caches" 2>/dev/null | cut -f1)" | tee -a "$LOG_FILE"
 

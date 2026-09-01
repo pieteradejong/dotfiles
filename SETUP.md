@@ -4,14 +4,14 @@
 
 I have two local repos that need to be resolved into one:
 
-- `~/dotfiles` — my active repo (currently private). Organized into `shell/`, `git/`, `editors/`,
+- `~/dev/dotfiles` — my active repo (currently private). Organized into `shell/`, `git/`, `editors/`,
   `scripts/`, `tools/`, `macos/`, `ssh/`. Has working aliases: `dotbackup`, `dotrestore`,
   `dotstatus`. This is the one we're keeping.
-- `~/config` — a stale public repo, last touched ~June 2025. Largely superseded by `~/dotfiles`
+- `~/config` — a stale public repo, last touched ~June 2025. Largely superseded by `~/dev/dotfiles`
   but may contain unique files: `.cursorrules`, `LEARNINGS.md`, `docs/`, `.eslintrc.json`.
 
 **End state:**
-- `~/dotfiles` is the single source of truth, public on GitHub, fully safe to share
+- `~/dev/dotfiles` is the single source of truth, public on GitHub, fully safe to share
 - Secrets are gitignored and sourced from a local-only `~/.zshrc.secrets` file
 - `~/config` is archived/superseded
 - A new machine can be bootstrapped from a single `git clone` + `./install.sh`
@@ -23,18 +23,18 @@ I have two local repos that need to be resolved into one:
 Run the following and report all findings:
 
 ```bash
-echo "=== DOTFILES STRUCTURE ===" && find ~/dotfiles -not -path '*/.git/*' -type f | sort
-echo "=== DOTFILES GIT ===" && cd ~/dotfiles && git log --oneline -5 && git status && git remote -v
+echo "=== DOTFILES STRUCTURE ===" && find ~/dev/dotfiles -not -path '*/.git/*' -type f | sort
+echo "=== DOTFILES GIT ===" && cd ~/dev/dotfiles && git log --oneline -5 && git status && git remote -v
 echo "=== CONFIG REPO ===" && (ls -la ~/config 2>/dev/null && cd ~/config && git log --oneline -5 && git status && git remote -v) || echo "~/config not found"
 echo "=== ALIASES ===" && type dotbackup dotrestore dotstatus 2>&1
-echo "=== STRAY FILES AT ROOT ===" && ls -la ~/dotfiles/.*  2>/dev/null | grep -v "^total\|^\.\.\?\s"
+echo "=== STRAY FILES AT ROOT ===" && ls -la ~/dev/dotfiles/.*  2>/dev/null | grep -v "^total\|^\.\.\?\s"
 ```
 
 Then run a secrets scan across all tracked files:
 
 ```bash
 grep -rn -E "(API_KEY|SECRET|TOKEN|PASSWORD|PRIVATE|ssh-rsa|ghp_|sk-[a-zA-Z0-9]{20,}|xox[bpoa]-)" \
-  ~/dotfiles \
+  ~/dev/dotfiles \
   --include="*.zsh" --include="*.sh" --include="*.json" --include="*.conf" \
   --include="*.md" --include="*.toml" --include="*.env" --include="*.txt" \
   --exclude-dir=".git"
@@ -43,7 +43,7 @@ grep -rn -E "(API_KEY|SECRET|TOKEN|PASSWORD|PRIVATE|ssh-rsa|ghp_|sk-[a-zA-Z0-9]{
 Also scan for sensitive files:
 
 ```bash
-find ~/dotfiles -not -path '*/.git/*' \
+find ~/dev/dotfiles -not -path '*/.git/*' \
   \( -name "*.env" -o -name "*secret*" -o -name "*private*" -o -name "*.pem" -o -name "*.key" \) \
   2>/dev/null
 ```
@@ -54,10 +54,10 @@ find ~/dotfiles -not -path '*/.git/*' \
 
 ## Step 1 — Migrate unique content from ~/config
 
-Diff `~/config` against `~/dotfiles`. For each file that exists in `~/config` but is absent
-from or meaningfully different in `~/dotfiles`, propose:
+Diff `~/config` against `~/dev/dotfiles`. For each file that exists in `~/config` but is absent
+from or meaningfully different in `~/dev/dotfiles`, propose:
 
-1. Where it belongs in the `~/dotfiles` structure
+1. Where it belongs in the `~/dev/dotfiles` structure
 2. Whether to copy it as-is or merge it
 
 Files to check specifically: `.cursorrules`, `LEARNINGS.md`, `docs/`, `.eslintrc.json`,
@@ -72,11 +72,11 @@ Once confirmed: copy the files, stage, and commit with message `chore: migrate u
 ## Step 2 — Fix known issues
 
 ### 2a. Stray `.gitignore_global` at repo root
-If `~/dotfiles/.gitignore_global` exists as an untracked file and
-`~/dotfiles/git/.gitignore_global` already has the real one, delete the stray root copy.
+If `~/dev/dotfiles/.gitignore_global` exists as an untracked file and
+`~/dev/dotfiles/git/.gitignore_global` already has the real one, delete the stray root copy.
 
 ### 2b. Secrets sourcing in .zshrc
-Confirm that `~/dotfiles/shell/.zshrc` (or whichever file is the active zshrc) has this
+Confirm that `~/dev/dotfiles/shell/.zshrc` (or whichever file is the active zshrc) has this
 at the bottom:
 
 ```bash
@@ -86,7 +86,7 @@ at the bottom:
 If it's missing, add it.
 
 ### 2c. `.gitignore` completeness
-Confirm `~/dotfiles/.gitignore` includes at minimum:
+Confirm `~/dev/dotfiles/.gitignore` includes at minimum:
 
 ```
 .zshrc.secrets
@@ -103,7 +103,7 @@ Confirm `~/dotfiles/.gitignore` includes at minimum:
 Add any missing entries.
 
 ### 2d. `.zshrc.secrets.template`
-If `~/dotfiles/shell/.zshrc.secrets.template` doesn't exist:
+If `~/dev/dotfiles/shell/.zshrc.secrets.template` doesn't exist:
 - Read `~/.zshrc.secrets` (local only — never commit it) and extract key names only
 - Create the template with empty values, e.g.:
   ```bash
@@ -122,7 +122,7 @@ Commit Step 2 changes with message `chore: secrets pattern, gitignore, zshrc sou
 
 ## Step 3 — Verify and fix install.sh
 
-`~/dotfiles/install.sh` must:
+`~/dev/dotfiles/install.sh` must:
 - Symlink all tracked dotfiles to their correct `~` locations
 - Back up any pre-existing file before overwriting (timestamped to `~/.dotfiles-backup/`)
 - Be fully idempotent (safe to run multiple times without side effects)
@@ -189,7 +189,7 @@ Confirm by printing the public repo URL.
 
 ## Step 6 — Archive ~/config
 
-After `~/dotfiles` is confirmed public:
+After `~/dev/dotfiles` is confirmed public:
 
 1. Update `~/config/README.md` to say it's been superseded, with a link to the new repo
 2. Commit and push that to the `~/config` remote

@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-DOTFILES_DIR="$HOME/dotfiles"
+DOTFILES_DIR="$HOME/dev/dotfiles"
 BACKUP_ROOT="$HOME/.dotfiles-backup"
 LOG_FILE="$BACKUP_ROOT/sync.log"
 SHELL_DIR="$DOTFILES_DIR/shell"

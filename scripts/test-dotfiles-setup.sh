@@ -5,7 +5,7 @@
 
 set -u
 
-DOTFILES_DIR="$HOME/dotfiles"
+DOTFILES_DIR="$HOME/dev/dotfiles"
 BACKUP_ROOT="$HOME/.dotfiles-backup"
 PASS_COUNT=0
 FAIL_COUNT=0

@@ -6,65 +6,128 @@ tap "plasma-umass/scalene"
 tap "redis-stack/redis-stack"
 tap "romkatv/powerlevel10k"
 tap "supabase/tap"
+tap "xcodesorg/made"
+# Cryptography and SSL/TLS Toolkit
 brew "openssl@3"
+# Tool for generating GNU Standards-compliant Makefiles
 brew "automake"
+# Official Amazon AWS command-line interface
 brew "awscli"
+# Python code formatter
 brew "black"
+# Resource monitor. C++ version and continuation of bashtop and bpytop
 brew "btop"
+# Command-line interface for Cabal and Hackage
 brew "cabal-install"
+# Package compiler and linker metadata toolkit
 brew "pkgconf"
+# Cross-platform make
 brew "cmake"
+# GNU File, Shell, and Text utilities
 brew "coreutils"
+# Lightweight unit testing framework for C
 brew "cunit"
-brew "rtmpdump"
+# Command-line tool to interact with exercism.io
 brew "exercism"
+# XML 1.0 parser
+brew "expat"
+# Play, record, convert, and stream select audio and video codecs
 brew "ffmpeg"
+# Play, record, convert, and stream audio and video
 brew "ffmpeg@6"
+# GitHub command-line tool
 brew "gh"
+# Distributed revision control system
 brew "git"
+# Quickly rewrite git repository history
+brew "git-filter-repo"
+# Open-source build automation tool based on the Groovy and Kotlin DSL
 brew "gradle"
+# Graph visualization software from AT&T and Bell Labs
 brew "graphviz"
+# Improved top (interactive process viewer)
 brew "htop"
-brew "python@3.12"
+# Tools and libraries to manipulate images in select formats
 brew "imagemagick"
+# C library for encoding, decoding, and manipulating JSON
 brew "jansson"
+# Lightweight and flexible command-line JSON processor
 brew "jq"
+# Open-source distributed event streaming platform
 brew "kafka"
+# Multi-platform support library with a focus on asynchronous I/O
 brew "libuv"
+# Java-based project management
 brew "maven"
+# NCurses Disk Usage
 brew "ncdu"
+# Small build system for use with gyp or CMake
 brew "ninja"
+# Open-source, cross-platform JavaScript runtime environment
 brew "node"
-brew "ollama"
+# Create, run, and share large language models (LLMs)
+brew "ollama", restart_service: :changed
+# Open source computer vision library
 brew "opencv"
+# Outputs current CPU temperature for OSX
+brew "osx-cpu-temp"
+# 7-Zip (high compression file archiver) implementation
 brew "p7zip"
+# Swiss-army knife of markup format conversion
 brew "pandoc"
+# General-purpose scripting language
 brew "php"
+# Object-relational database system
 brew "postgresql@17"
+# Theme for zsh
 brew "powerlevel10k"
+# Framework for managing multi-language pre-commit hooks
 brew "pre-commit"
+# Interpreted, interactive, object-oriented programming language
+brew "python@3.12"
+# Messaging and streaming broker
 brew "rabbitmq"
+# Rsync for cloud storage
+brew "rclone"
+# Persistent key-value database, with built-in net interface
 brew "redis"
+# Tool for downloading RTMP streaming media
+brew "rtmpdump"
+# Extremely fast Python linter, written in Rust
 brew "ruff"
-brew "sbt"
+# Unsupervised text tokenizer and detokenizer
 brew "sentencepiece"
+# Contract-oriented programming language
 brew "solidity"
+# Tool to create intelligent and beautiful documentation
 brew "sphinx-doc"
+# Command-line tool to customize Spotify client
 brew "spicetify-cli"
+# Header-only C++ library for printing colored messages
 brew "termcolor"
+# Display directories as trees (with optional color/HTML output)
 brew "tree"
+# Internet file retriever
 brew "wget"
+# Modular BSD reimplementation of NASM
 brew "yasm"
+# Feature-rich command-line audio/video downloader
 brew "yt-dlp"
+# Centralized server for distributed coordination of services
 brew "zookeeper"
+# UNIX shell (command interpreter)
 brew "zsh"
-brew "hashicorp/tap/terraform"
-brew "plasma-umass/scalene/scalene", args: ["HEAD"]
-brew "supabase/tap/supabase"
+# Install and switch between multiple versions of Xcode
+brew "xcodesorg/made/xcodes", trusted: true
+# Browser for SQLite databases
 cask "db-browser-for-sqlite"
+# Control your tools with a few keystrokes
 cask "raycast"
+# Move and resize windows using keyboard shortcuts or snap areas
 cask "rectangle"
-cask "redis-stack-server"
+# Installs a Redis server with additional database capabilities
+cask "redis-stack/redis-stack/redis-stack-server"
+# Rust-based terminal
 cask "warp"
 vscode "afractal.node-essentials"
 vscode "alefragnani.bookmarks"
@@ -139,5 +202,5 @@ vscode "wallabyjs.quokka-vscode"
 vscode "wix.vscode-import-cost"
 vscode "yoavbls.pretty-ts-errors"
 vscode "yzhang.markdown-all-in-one"
-go "golang.org/x/tools/gopls"
-go "honnef.co/go/tools/cmd/staticcheck"
+npm "@anthropic-ai/claude-code"
+npm "vercel"

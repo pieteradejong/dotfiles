@@ -18,8 +18,7 @@ backups kept in sync via `dotbackup` / `dotrestore`.
 
 `sync-dotfiles.sh backup`/`restore` handles the plist automatically
 (added to the macOS section alongside iTerm2/Rectangle). The script itself
-is copied manually when edited, same as `mac-maintenance.sh` — there's no
-automatic sync for `scripts/`.
+is copied manually when edited — there's no automatic sync for `scripts/`.
 
 ## What runs, and why it's safe
 
@@ -110,10 +109,10 @@ terminal) any time for the full effect.
 
 ## Related: manual maintenance script
 
-`~/scripts/mac-maintenance.sh` is a separate, manually-run script (not
-scheduled) that reports uptime/memory and, as of 2026-08-24, also clears
-`~/Library/Caches` (15G reclaimed the first time it ran — general app
-caches that had never been part of this automated job). See
+`~/dev/dotfiles/scripts/mac-maintenance.sh` is a separate, manually-run script
+(not scheduled) that reports uptime/memory and, as of 2026-08-24, also
+clears `~/Library/Caches` (15G reclaimed the first time it ran — general
+app caches that had never been part of this automated job). See
 [`mac-maintenance.md`](./mac-maintenance.md).
 
 ## Deliberately left out of automation
