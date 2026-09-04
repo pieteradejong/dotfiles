@@ -243,9 +243,9 @@ zsh ~/dev/dotfiles/scripts/sync-dotfiles.sh restore
 Items identified in the last audit — most are now done; a couple were
 deliberately decided against or accepted as-is rather than "fixed":
 
-- [x] **`shell/.zshrc` — add secrets sourcing**: `[ -f ~/.zshrc.secrets ] && source ~/.zshrc.secrets` is present at the bottom of `shell/.zshrc`
-- [x] **Rename secrets template**: `shell/.zshrc.secrets.template` (leading dot, plural) matches the filename it's a template for
-- [x] **`.gitignore` — add missing patterns**: `.zshrc.secrets`, `.zshrc.local`, and `*secret*` are all covered
+- [ ] **Secrets filename mismatch — singular vs plural** ⚠️ *regressed 2026-09-01*: The live (and now tracked) `shell/.zshrc` sources `~/.zshrc.secret` (**singular**, line 2), which is the file that actually exists and holds the real values. But `shell/.zshrc.secrets.template`, the [Secrets pattern](#secrets-pattern) section above, and `scripts/test/assertions.sh:56` all reference `.zshrc.secrets` (**plural**) — so **that assertion currently fails**. Not a security hole: `.gitignore` covers both via `*secret*`, and no secrets file has ever been committed. Fix by picking one name — aligning the docs/template/test to the singular reality is the lower-risk direction, since it doesn't touch a live file holding real credentials.
+- [ ] **`shell/.zshrc` sources a dead path**: `[[ -f ~/scripts/ollm.zsh ]] && source ~/scripts/ollm.zsh` — `~/scripts/` no longer exists (contents moved to `~/dev/projects/scripts/`), so this is a silent no-op. Update the path to `~/dev/projects/scripts/ollm.zsh` in the *live* `~/.zshrc`, then `dotbackup`.
+- [x] **`.gitignore` — add missing patterns**: `.zshrc.secrets`, `.zshrc.local`, and `*secret*` are all covered (verified 2026-09-04)
 - [ ] ~~**Create `install.sh`**~~: Skipped — `sync-dotfiles.sh restore` already handles file placement; a separate `install.sh` adds no real value
 - [x] **README — expand secrets pattern section**: See [Secrets pattern](#secrets-pattern) above
 - [x] **README — add recovery section**: See [Recovery](#-recovery) below

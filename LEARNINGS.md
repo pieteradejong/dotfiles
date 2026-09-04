@@ -198,6 +198,29 @@ dottest --verbose
 2. Source `.zshrc`: `source ~/.zshrc`
 3. If missing, run `dotrestore` to restore from repo
 
+### Issue: Edits made in the repo silently disappear after `dotbackup`
+
+**Problem**: On 2026-08-31, `shell/.zshrc` was edited *in the repo* to source
+`~/.zshrc.secrets`. The next `dotbackup` (2026-09-01) reverted it, and the
+change was gone with no warning — while the README still claimed it was done.
+
+**Root cause**: This repo is **copy-based, and `dotbackup` only flows one way
+— live → repo.** It copies `~/.zshrc` over `shell/.zshrc` wholesale. Any edit
+made to the repo copy that was not *also* made to the live file in `~` is
+overwritten the next time you back up. The repo copy is a backup artifact,
+not a source you edit.
+
+**Solution**: Edit the **live** file in `~`, then run `dotbackup` to
+propagate it into the repo. If you've already edited the repo copy, either
+re-apply the change to the live file, or run `dotrestore` to push the repo
+version out to `~` *before* the next backup — but note `dotrestore`
+overwrites live files, so check `dotstatus` first.
+
+**Watch for**: a repo-side edit plus a doc update describing it as done. The
+doc survives (docs aren't overwritten by `dotbackup`), the actual change
+doesn't — leaving documentation that confidently describes a state the repo
+is no longer in. Verify against the live file, not the README.
+
 ### Issue: Test script shows both PASS and FAIL
 **Cause**: Function doesn't explicitly return 0, causing `||` branch to execute.
 
