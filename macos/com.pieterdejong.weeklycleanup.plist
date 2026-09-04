@@ -7,7 +7,7 @@
 
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/pieterdejong/scripts/weekly-disk-cleanup.sh</string>
+        <string>/Users/pieterdejong/dev/projects/scripts/weekly-disk-cleanup.sh</string>
     </array>
 
     <key>StartCalendarInterval</key>

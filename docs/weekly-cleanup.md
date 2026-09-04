@@ -13,7 +13,7 @@ backups kept in sync via `dotbackup` / `dotrestore`.
 
 | Live location | Backed up here |
 |---|---|
-| `~/scripts/weekly-disk-cleanup.sh` | [`scripts/weekly-disk-cleanup.sh`](../scripts/weekly-disk-cleanup.sh) |
+| `~/dev/projects/scripts/weekly-disk-cleanup.sh` | [`scripts/weekly-disk-cleanup.sh`](../scripts/weekly-disk-cleanup.sh) |
 | `~/Library/LaunchAgents/com.pieterdejong.weeklycleanup.plist` | [`macos/com.pieterdejong.weeklycleanup.plist`](../macos/com.pieterdejong.weeklycleanup.plist) |
 
 `sync-dotfiles.sh backup`/`restore` handles the plist automatically
@@ -70,7 +70,7 @@ pick it up automatically next time it runs).
 ```zsh
 launchctl unload ~/Library/LaunchAgents/com.pieterdejong.weeklycleanup.plist
 rm ~/Library/LaunchAgents/com.pieterdejong.weeklycleanup.plist
-rm ~/scripts/weekly-disk-cleanup.sh
+rm ~/dev/projects/scripts/weekly-disk-cleanup.sh
 ```
 (and remove the copies from `dotfiles/scripts/` and `dotfiles/macos/` if
 retiring it for good.)
@@ -104,7 +104,7 @@ script run on this Mac, not just this one — a broader grant than "just
 this job." If that's not worth it, the job still safely runs npm cache
 cleanup and the Docker check every week; only the Trash and pip cache
 steps will effectively be a no-op until Full Disk Access is granted, and
-you can always run `zsh ~/scripts/weekly-disk-cleanup.sh` by hand (in a
+you can always run `zsh ~/dev/projects/scripts/weekly-disk-cleanup.sh` by hand (in a
 terminal) any time for the full effect.
 
 ## Related: manual maintenance script

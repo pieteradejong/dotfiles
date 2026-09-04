@@ -24,7 +24,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | pnpm | 10.26.1 | Node.js (prefer when already in use in a project) |
 | yarn | 1.22.22 | Node.js (use only if project already uses it) |
 | pip / pip3 | 26.1 | Python packages |
-| cargo | 1.72.0 | Rust crates |
 | gem | 3.0.3.1 | Ruby gems |
 
 Prefer `brew` for system-level installs. For Node projects, default to `npm` unless the project already uses `pnpm` or `yarn`. Never mix package managers within a single project.
@@ -36,7 +35,6 @@ Prefer `brew` for system-level installs. For Node projects, default to `npm` unl
 | Node.js | 22.16.0 | managed via nvm 0.40.3 |
 | Python | 3.14.4 | `/opt/homebrew/bin/python3` |
 | Go | 1.20.3 | system |
-| Rust | 1.72.0 | via cargo |
 | Swift | 6.2.1 | Xcode toolchain |
 | Ruby | 2.6.10 | system (macOS built-in) |
 | Java | OpenJDK 17.0.1 | system |
