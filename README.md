@@ -263,6 +263,7 @@ deliberately decided against or accepted as-is rather than "fixed":
 - [docs/reinstall-commands.md](docs/reinstall-commands.md) - Commands to reconstruct system
 - [docs/weekly-cleanup.md](docs/weekly-cleanup.md) - Weekly disk cleanup automation (npm/pip cache, Docker prune, Trash)
 - [docs/mac-maintenance.md](docs/mac-maintenance.md) - Manual health/cleanup script (uptime, memory, Library/Caches)
+- [docs/maintenance-audit-2026-09.md](docs/maintenance-audit-2026-09.md) - Full record of the Aug/Sep 2026 cleanup, `~/config` retirement, and security/privacy audit
 
 ## 📄 License
 
