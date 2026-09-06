@@ -258,6 +258,7 @@ deliberately decided against or accepted as-is rather than "fixed":
 
 ## 📚 Documentation
 
+- [docs/system-overview.md](docs/system-overview.md) - **Start here** - what this repo is for, where everything lives, the maintenance model, and run history
 - [LEARNINGS.md](LEARNINGS.md) - Key learnings and best practices
 - [docs/devprocess.md](docs/devprocess.md) - Development process notes
 - [docs/reinstall-commands.md](docs/reinstall-commands.md) - Commands to reconstruct system
