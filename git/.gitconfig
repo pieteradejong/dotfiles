@@ -1,10 +1,10 @@
 [user]
 	name = Pieter de Jong
-	email = pieter.a.dejong@gmail.com
+	email = 1856262+pieteradejong@users.noreply.github.com
 
 [core]
 	editor = 'subl --new-window --wait'
-	excludesfile = /Users/pieterdejong/.gitignore_global
+	excludesfile = ~/.gitignore_global
 
 [alias]
     st = status -sb
@@ -23,3 +23,9 @@
 	contrib = shortlog -e --summary --numbered
 [web]
     browser = google-chrome
+[hook "security-gate-commit"]
+	event = pre-commit
+	command = ~/dev/dotfiles/security/gate.sh pre-commit
+[hook "security-gate-push"]
+	event = pre-push
+	command = ~/dev/dotfiles/security/gate.sh pre-push

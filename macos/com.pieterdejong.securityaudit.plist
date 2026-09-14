@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Weekly security & privacy audit: scripts/security-audit.sh, Sundays 10:00.
+  Install:   cp macos/com.pieterdejong.securityaudit.plist ~/Library/LaunchAgents/
+             launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.pieterdejong.securityaudit.plist
+  Run now:   launchctl kickstart gui/$(id -u)/com.pieterdejong.securityaudit
+  If the Mac is asleep at 10:00, launchd runs the job once on wake.
+  The script path goes through $HOME so no absolute home path is published here.
+  Documented in docs/maintenance.md.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.pieterdejong.securityaudit</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>-c</string>
+        <string>exec "$HOME/dev/dotfiles/scripts/security-audit.sh" &gt;&gt; "$HOME/Library/Logs/security-audit/launchd.out" 2&gt;&amp;1</string>
+    </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Weekday</key>
+        <integer>0</integer>
+        <key>Hour</key>
+        <integer>10</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+    <key>RunAtLoad</key>
+    <false/>
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>Nice</key>
+    <integer>10</integer>
+    <key>LowPriorityIO</key>
+    <true/>
+</dict>
+</plist>

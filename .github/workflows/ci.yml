@@ -1,0 +1,64 @@
+# dotfiles CI. This repo is PUBLIC; its private companion lives at private/ on
+# disk only. These jobs are the server-side layer behind the local gate:
+#
+#   gitleaks       full-history secret scan (the same reusable job other repos call)
+#   private-guard  private/ must never be tracked, nor any submodule/gitlink
+#   tests          ./test.sh — gate, guard hook, sweep, audit, dotaudit, shellcheck
+
+name: ci
+
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: "0 6 * * 1"   # weekly full sweep, Mondays 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gitleaks:
+    uses: ./.github/workflows/gitleaks-reusable.yml
+    with:
+      policy-ref: ${{ github.sha }}
+
+  private-guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: private/ is not tracked, and no gitlinks exist
+        run: |
+          set -euo pipefail
+          if git ls-tree -r --name-only HEAD | grep -qE '^private(/|$)'; then
+            echo "::error::private/ is tracked in HEAD — the private companion repo must never enter public dotfiles"; exit 1
+          fi
+          if git ls-tree -r HEAD | awk '$1 == "160000"' | grep -q .; then
+            echo "::error::a gitlink (submodule) is tracked — not allowed in this repo"; exit 1
+          fi
+      - name: private/ never appeared in any commit (full history)
+        run: |
+          set -euo pipefail
+          if git log --all --format= --name-only | grep -qE '^private(/|$)'; then
+            echo "::error::private/ appears in history — treat as published and follow the leak procedure"; exit 1
+          fi
+
+  tests:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Install tools
+        run: brew install git gitleaks shellcheck jq pre-commit
+      - name: Run all tests
+        run: |
+          export PATH="$(brew --prefix)/bin:$PATH"
+          git config --global user.name ci
+          git config --global user.email ci@users.noreply.github.com
+          ./test.sh

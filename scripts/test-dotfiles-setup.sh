@@ -197,6 +197,50 @@ test_security() {
     fi
 }
 
+test_dev_audit() {
+    header "TEST 10: dev-audit"
+
+    subheader "Files present"
+    for f in scripts/dev-audit.sh scripts/audit/lib.sh scripts/audit/skiplist.example.conf \
+             scripts/audit/render-report.sh docs/dev-audit.md; do
+        [ -f "$DOTFILES_DIR/$f" ] && pass "Exists: $f" || fail "Missing: $f"
+    done
+    for m in 10-git-hygiene 20-policy 30-privacy 40-disk 50-gate; do
+        [ -f "$DOTFILES_DIR/scripts/audit/$m.sh" ] && pass "Exists: audit/$m.sh" \
+            || fail "Missing: audit/$m.sh"
+    done
+
+    subheader "Syntax"
+    for f in "$DOTFILES_DIR"/scripts/dev-audit.sh "$DOTFILES_DIR"/scripts/audit/*.sh; do
+        [ -f "$f" ] || continue
+        bash -n "$f" 2>/dev/null && pass "Parses: $(basename "$f")" \
+            || fail "Syntax error: $(basename "$f")"
+    done
+
+    # The audit scripts must actually be trackable. .gitignore ignores
+    # *secret*, *token*, *password*, *credential* and *api_key* as globs, so a
+    # module named 30-secrets.sh would be silently untracked and would vanish
+    # on the next clone. See docs/dev-audit.md Gotchas.
+    subheader "Audit scripts are not caught by .gitignore"
+    ignored=0
+    for f in "$DOTFILES_DIR"/scripts/dev-audit.sh "$DOTFILES_DIR"/scripts/audit/*; do
+        [ -e "$f" ] || continue
+        if git -C "$DOTFILES_DIR" check-ignore -q "$f" 2>/dev/null; then
+            fail "IGNORED by .gitignore, would not be committed: $(basename "$f")"
+            ignored=$((ignored + 1))
+        fi
+    done
+    [ "$ignored" -eq 0 ] && pass "All audit scripts are trackable"
+
+    # The inverse: audit output must NEVER be trackable in this public repo.
+    subheader "Audit output is ignored"
+    for f in reports/x.md audit-reports/findings-2026-01-01.tsv audit-2026-01-01.md; do
+        git -C "$DOTFILES_DIR" check-ignore -q "$f" 2>/dev/null \
+            && pass "Ignored: $f" \
+            || fail "NOT ignored - findings could be published: $f"
+    done
+}
+
 test_backup_dir() {
     header "TEST 9: Backup Directory"
     if [ -d "$BACKUP_ROOT" ]; then
@@ -254,6 +298,7 @@ main() {
     test_git_status
     test_security
     test_backup_dir
+    test_dev_audit
     print_summary
     
     [ "$FAIL_COUNT" -eq 0 ]

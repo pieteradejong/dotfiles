@@ -29,5 +29,18 @@
       "Bash(npm list:*)",
       "Bash(npx:*)"
     ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/dev/dotfiles/claude/hooks/guard-git-bypass.sh"
+          }
+        ]
+      }
+    ]
   }
 }

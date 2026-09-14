@@ -1,0 +1,76 @@
+# Reusable gitleaks scan — the standard secret-scanning CI job for every repo.
+#
+# Call it from any repo's workflow:
+#
+#   jobs:
+#     gitleaks:
+#       uses: pieteradejong/dotfiles/.github/workflows/gitleaks-reusable.yml@main
+#
+# It scans the FULL git history (not just the diff), with the same shared ruleset
+# the local commit/push gate uses (security/gitleaks.toml from this repo), so a
+# repo's own .gitleaks.toml cannot allowlist its way past it. The gitleaks
+# binary is downloaded from the official release and verified against a pinned
+# SHA-256 before it runs. Findings are redacted in logs.
+#
+# Policy: docs/policy/security-and-privacy.md § Secret scanning in CI.
+
+name: gitleaks (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      gitleaks-version:
+        description: gitleaks release to run
+        type: string
+        default: "8.30.1"
+      gitleaks-sha256:
+        description: SHA-256 of gitleaks_<version>_linux_x64.tar.gz (must match gitleaks-version)
+        type: string
+        default: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
+      policy-ref:
+        description: ref of pieteradejong/dotfiles whose security/gitleaks.toml is used
+        type: string
+        default: main
+
+permissions:
+  contents: read
+
+jobs:
+  gitleaks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository (full history)
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Fetch shared gitleaks policy
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: pieteradejong/dotfiles
+          ref: ${{ inputs.policy-ref }}
+          path: .gitleaks-policy
+          sparse-checkout: security/gitleaks.toml
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: Install gitleaks (SHA-256 verified)
+        env:
+          VERSION: ${{ inputs.gitleaks-version }}
+          SHA256: ${{ inputs.gitleaks-sha256 }}
+        run: |
+          set -euo pipefail
+          f="gitleaks_${VERSION}_linux_x64.tar.gz"
+          curl -sSfL -o "$RUNNER_TEMP/$f" "https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/$f"
+          echo "${SHA256}  $RUNNER_TEMP/$f" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/$f" -C "$RUNNER_TEMP" gitleaks
+          "$RUNNER_TEMP/gitleaks" version
+
+      - name: Scan full history
+        run: |
+          "$RUNNER_TEMP/gitleaks" git \
+            --config .gitleaks-policy/security/gitleaks.toml \
+            --redact --no-banner --exit-code 1 \
+            --log-opts="--all" .

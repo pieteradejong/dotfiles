@@ -1,4 +1,5 @@
 {
+    "git.path": "/opt/homebrew/bin/git",
     "files.exclude": {
         "**/.classpath": true,
         "**/.project": true,

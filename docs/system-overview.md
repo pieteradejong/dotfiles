@@ -3,8 +3,8 @@
 > Purpose: The one-page answer to "what is this repo for, what runs on a
 > schedule, and where does everything actually live." Ties together the
 > per-topic docs rather than replacing them — each section links to the
-> detailed file. For the historical "what happened and why" record, see
-> [`maintenance-audit-2026-09.md`](./maintenance-audit-2026-09.md).
+> detailed file. Everything scheduled, in detail: [`maintenance.md`](./maintenance.md).
+> The rules: [`policy/`](./policy/). The reasoning: [`design-decisions.md`](./design-decisions.md).
 
 ## 1. Why this repo exists
 
@@ -51,6 +51,10 @@ Paths changed on 2026-09-01; these are current.
 | `mac-maintenance.sh` | `~/dev/dotfiles/scripts/` | **repo only** — single copy, run directly from here |
 | `weekly-disk-cleanup.sh` | `~/dev/projects/scripts/` | live copy; launchd runs this path. Repo holds a manual backup copy |
 | LaunchAgent plist | `~/Library/LaunchAgents/com.pieterdejong.weeklycleanup.plist` | backed up to `macos/` and synced by `dotbackup` |
+| Security audit plist | `~/Library/LaunchAgents/com.pieterdejong.securityaudit.plist` | repo is the source (`macos/`); installed by copying |
+| Security gate | `~/dev/dotfiles/security/gate.sh` | **repo only** — `~/.gitconfig` points at it in place |
+| Private companion repo | `~/dev/dotfiles/private/` | separate private repo, gitignored here |
+| Audit reports | `~/dev/audit-reports/` | never inside a git repo |
 | Secrets | `~/.zshrc.secret` | outside the repo, mode `0600`, never committed |
 
 Most of the repo is **copy-based, not symlinked** — live files in `~` are
@@ -60,14 +64,13 @@ of the repo, so there is nothing to keep in sync.
 
 ## 3. Maintenance model
 
-Two scripts, deliberately different in kind:
+| | `security-audit.sh` | `weekly-disk-cleanup.sh` | `mac-maintenance.sh` |
+|---|---|---|---|
+| **Trigger** | Automatic — launchd, Sundays 10:00 | Automatic — launchd, Sundays 09:00 | Manual — you run it |
+| **Scope** | gate, every repo, GitHub settings, uncloned repos, loose credentials | npm/pip cache, Docker prune, Trash >7 days | Uptime, memory report, `~/Library/Caches` |
+| **Risk posture** | Read-only; report outside git | Only reclaims what regenerates or was already discarded | Reporting + cache quarantine |
 
-| | `weekly-disk-cleanup.sh` | `mac-maintenance.sh` |
-|---|---|---|
-| **Trigger** | Automatic — launchd, Sundays 09:00 | Manual — you run it |
-| **Scope** | npm/pip cache, Docker prune, Trash >7 days | Uptime, memory report, `~/Library/Caches` |
-| **Risk posture** | Only reclaims what regenerates or was already discarded | Reporting + cache quarantine |
-| **Docs** | [`weekly-cleanup.md`](./weekly-cleanup.md) | [`mac-maintenance.md`](./mac-maintenance.md) |
+All three, plus the per-commit security gate: [`maintenance.md`](./maintenance.md).
 
 ### The goal for `mac-maintenance.sh`
 
@@ -128,8 +131,8 @@ explicitly shared.
 | Doc | What it covers |
 |---|---|
 | [README](../README.md) | Quick start, commands, security posture, live TODO list |
-| [`mac-maintenance.md`](./mac-maintenance.md) | The manual script in detail |
-| [`weekly-cleanup.md`](./weekly-cleanup.md) | The scheduled job, its launchd setup, Full Disk Access limitation |
-| [`maintenance-audit-2026-09.md`](./maintenance-audit-2026-09.md) | Aug/Sep 2026 cleanup, `~/config` retirement, security audit, open fallout |
+| [`maintenance.md`](./maintenance.md) | Every scheduled job, the manual script, Full Disk Access limitation, monthly checklist |
+| [`policy/`](./policy/) | Security & privacy, repo standards, AI instruction files, backups |
+| [`design-decisions.md`](./design-decisions.md) | Why the gate, weekly audit and public/private split work as they do |
 | [LEARNINGS.md](../LEARNINGS.md) | Reusable gotchas — including the one-way `dotbackup` hazard |
 | [`reinstall-commands.md`](./reinstall-commands.md) | Commands to reconstruct the system |

@@ -63,15 +63,13 @@ function githubcopy() {
   echo "GitHub profile URL copied to clipboard."
 }
 
+# Thin wrapper around the project's deploy.sh -- the single deploy
+# implementation (config validation, build gate, rsync exit-code check).
+# Do not reimplement rsync here: a previous standalone version omitted the
+# trailing slash on the source path and would have relocated the whole site
+# into public_html/dist/ under `rsync --delete`.
 function astrosync() {
-  echo "Script started at: $(date)"
-  cd $ASTRO_PROJECT_HOMEDIR
-  npm run astro build
-  rsync -av --delete -e \
-    "ssh -i $ASTRO_SYNC_SSH_KEY -p 18765" \
-    $ASTRO_SYNC_SOURCE \
-    $ASTRO_SYNC_HOST:$ASTRO_SYNC_DEST
-  echo "Script completed at: $(date)"
+  ( cd "$ASTRO_PROJECT_HOMEDIR" && ./deploy.sh )
 }
 
 # Find files larger than 5 GB, sorted by size
@@ -368,9 +366,8 @@ source $PERSONAL_HOME_DIR/powerlevel10k/powerlevel10k.zsh-theme
 # To customize prompt, run `p10k configure` or edit ~/.p10k.zsh.
 [[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh
 
-export PATH="$HOME/scripts:$PATH"
+export PATH="$HOME/dev/projects/scripts:$PATH"
 
-[[ -f ~/scripts/ollm.zsh ]] && source ~/scripts/ollm.zsh
 
 # ============================================
 # DOTFILES MANAGEMENT
@@ -382,6 +379,7 @@ alias dotrestore="$DOTFILES/scripts/sync-dotfiles.sh restore"
 alias dotstatus="$DOTFILES/scripts/sync-dotfiles.sh status"
 alias dottest="$DOTFILES/scripts/test-dotfiles-setup.sh"
 alias dothelp="$DOTFILES/scripts/dothelp.sh"
+alias dotaudit="$DOTFILES/scripts/dev-audit.sh"
 
 # Added by cua-driver-rs installer — see https://github.com/trycua/cua
 export PATH="/Users/pieterdejong/.local/bin:$PATH"

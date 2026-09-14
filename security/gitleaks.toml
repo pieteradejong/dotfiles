@@ -1,0 +1,11 @@
+# gitleaks configuration shared by the commit/push gate (security/gate.sh),
+# dotaudit, and the reusable CI workflow.
+#
+# The gate passes this file with an explicit -c, so a repo's own .gitleaks.toml
+# cannot quietly allowlist its way past the gate. Extend the default ruleset;
+# never replace it.
+
+title = "dotfiles security gate"
+
+[extend]
+useDefault = true

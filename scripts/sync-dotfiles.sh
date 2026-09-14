@@ -18,6 +18,7 @@ RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[0;33m'; BLUE='\033[0;34m'; NC
 log() { mkdir -p "$BACKUP_ROOT"; echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >> "$LOG_FILE"; echo -e "$1"; }
 success() { log "${GREEN}✓${NC} $1"; }
 warn() { log "${YELLOW}⚠${NC} $1"; }
+fail() { log "${RED}✗${NC} $1"; exit 1; }
 safe_copy() {
     [ ! -f "$1" ] && return 1
     if [ "$DRY_RUN" = true ]; then
@@ -29,15 +30,73 @@ safe_copy() {
 }
 ensure_dirs() { mkdir -p "$SHELL_DIR" "$GIT_DIR" "$EDITORS_DIR" "$SSH_DIR" "$TOOLS_DIR" "$MACOS_DIR" "$SCRIPTS_DIR" "$BACKUP_ROOT"; }
 
+# --- Sanitizers -------------------------------------------------------------
+# This repo is PUBLIC. Two of the files backed up here carry values that must
+# not be published: ~/.ssh/config names a real host, account and port, and
+# ~/.gitconfig has held a real email and an absolute /Users/<name>/ path.
+# Backing them up verbatim is how they got here (SECURITY_AUDIT_2026-09-07
+# §2.2, §2.4, §2.5), and redacting the committed copies alone does not hold:
+# the next `sync backup` would copy the real values straight back in.
+#
+# So sanitizing happens on the way IN, at the copy itself. These filters match
+# by directive name and never contain a real value — they live in the public
+# repo too, and a sanitizer that embeds the secret defeats itself.
+sanitize_ssh_config() {
+    sed -E \
+        -e 's/^([[:space:]]*HostName[[:space:]]+).*$/\1<HOSTNAME>/' \
+        -e 's/^([[:space:]]*User[[:space:]]+).*$/\1<USERNAME>/' \
+        -e 's/^([[:space:]]*Port[[:space:]]+).*$/\1<PORT>/'
+}
+
+# Only rewrites absolute home paths; the committer email is expected to be the
+# GitHub noreply address, which is safe to publish and stays readable.
+sanitize_gitconfig() {
+    sed -E -e 's#/Users/[^/[:space:]]+/#~/#g'
+}
+
+# Scoped registry lines (@<org>:registry=...) name the orgs whose private
+# packages this machine can install — a client relationship, not a setting.
+sanitize_npmrc() {
+    sed -E -e '/^@[^:]+:registry[[:space:]]*=/d'
+}
+
+# safe_copy, but the source passes through $3 on the way to the destination.
+sanitize_copy() {
+    [ ! -f "$1" ] && return 1
+    if [ "$DRY_RUN" = true ]; then
+        log "  [DRY-RUN] Would copy (sanitized): $(basename "$1")"
+        return 0
+    fi
+    "$3" < "$1" > "$2" && success "$(basename "$1") (sanitized)" && return 0
+    return 1
+}
+
+# Restore direction for a file whose repo copy is a redacted TEMPLATE. Writing
+# it over a live file would replace a working config with placeholders, so an
+# existing file always wins and the user is told where the template is.
+install_template() {
+    [ ! -f "$1" ] && return 1
+    if [ -f "$2" ]; then
+        warn "$(basename "$2") exists - left untouched (repo copy is a redacted template: $1)"
+        return 0
+    fi
+    if [ "$DRY_RUN" = true ]; then
+        log "  [DRY-RUN] Would install template: $(basename "$1")"
+        return 0
+    fi
+    cp "$1" "$2" && warn "$(basename "$2") installed from template - fill in the <PLACEHOLDER> values" && return 0
+    return 1
+}
+
 do_backup() {
     log ""; log "========================================"; log "BACKUP: Local → Repo"; log "========================================"
     ensure_dirs
     log ""; log "${BLUE}Shell:${NC}"
     safe_copy ~/.zshrc "$SHELL_DIR/.zshrc" || true; safe_copy ~/.p10k.zsh "$SHELL_DIR/.p10k.zsh" || true; safe_copy ~/.zprofile "$SHELL_DIR/.zprofile" || true
     log ""; log "${BLUE}Git:${NC}"
-    safe_copy ~/.gitconfig "$GIT_DIR/.gitconfig" || true; safe_copy ~/.gitignore_global "$GIT_DIR/.gitignore_global" || true
+    sanitize_copy ~/.gitconfig "$GIT_DIR/.gitconfig" sanitize_gitconfig || true; safe_copy ~/.gitignore_global "$GIT_DIR/.gitignore_global" || true
     log ""; log "${BLUE}SSH:${NC}"
-    safe_copy ~/.ssh/config "$SSH_DIR/config" || true
+    sanitize_copy ~/.ssh/config "$SSH_DIR/config" sanitize_ssh_config || true
     log ""; log "${BLUE}Editors:${NC}"
     safe_copy ~/Library/Application\ Support/Code/User/settings.json "$EDITORS_DIR/vscode-settings.json" || true
     safe_copy ~/Library/Application\ Support/Cursor/User/settings.json "$EDITORS_DIR/cursor-settings.json" || true
@@ -49,7 +108,7 @@ do_backup() {
         command -v cursor &>/dev/null && cursor --list-extensions > "$EDITORS_DIR/cursor-extensions.txt" 2>/dev/null && success "cursor-extensions.txt"
     fi
     log ""; log "${BLUE}Tools:${NC}"
-    safe_copy ~/.npmrc "$TOOLS_DIR/.npmrc" || true; safe_copy ~/.docker/config.json "$TOOLS_DIR/docker-config.json" || true
+    sanitize_copy ~/.npmrc "$TOOLS_DIR/.npmrc" sanitize_npmrc || true; safe_copy ~/.docker/config.json "$TOOLS_DIR/docker-config.json" || true
     if [ "$DRY_RUN" = true ]; then
         command -v node &>/dev/null && log "  [DRY-RUN] Would export: .nvmrc"
         command -v brew &>/dev/null && log "  [DRY-RUN] Would export: Brewfile"
@@ -97,7 +156,7 @@ do_restore() {
     else
         mkdir -p ~/.ssh && chmod 700 ~/.ssh
     fi
-    safe_copy "$SSH_DIR/config" ~/.ssh/config
+    install_template "$SSH_DIR/config" ~/.ssh/config
     [ "$DRY_RUN" = false ] && chmod 600 ~/.ssh/config 2>/dev/null
     log ""; log "${BLUE}Editors:${NC}"
     if [ "$DRY_RUN" = false ]; then
@@ -129,7 +188,8 @@ do_restore() {
         # Source zshrc in this subshell (won't affect parent shell)
         if [ -f ~/.zshrc ]; then
             log ""; log "${BLUE}Sourcing ~/.zshrc...${NC}"
-            source ~/.zshrc 2>/dev/null && success "Sourced ~/.zshrc" || warn "Could not source ~/.zshrc"
+            # shellcheck source=/dev/null
+            if source ~/.zshrc 2>/dev/null; then success "Sourced ~/.zshrc"; else warn "Could not source ~/.zshrc"; fi
         fi
         log ""; log "${YELLOW}Note:${NC} For your current terminal session, run: ${GREEN}source ~/.zshrc${NC} or open a new terminal"
     fi
@@ -137,7 +197,12 @@ do_restore() {
 
 do_status() {
     log ""; log "STATUS: Local vs Repo"
-    check() { [ ! -f "$2" ] && [ ! -f "$3" ] && return; [ ! -f "$2" ] && warn "$1: missing locally" && return; [ ! -f "$3" ] && warn "$1: not in repo" && return; diff -q "$2" "$3" >/dev/null 2>&1 && success "$1: in sync" || warn "$1: DIFFERS"; }
+    check() {
+        [ ! -f "$2" ] && [ ! -f "$3" ] && return
+        [ ! -f "$2" ] && warn "$1: missing locally" && return
+        [ ! -f "$3" ] && warn "$1: not in repo" && return
+        if diff -q "$2" "$3" >/dev/null 2>&1; then success "$1: in sync"; else warn "$1: DIFFERS"; fi
+    }
     check ".zshrc" ~/.zshrc "$SHELL_DIR/.zshrc"; check ".p10k.zsh" ~/.p10k.zsh "$SHELL_DIR/.p10k.zsh"; check ".gitconfig" ~/.gitconfig "$GIT_DIR/.gitconfig"
 }
 
@@ -156,9 +221,12 @@ do_push() {
     if [ "$staged_changes" = "0" ] && [ "$unstaged_changes" = "0" ]; then
         warn "Nothing to commit"
     else
-        git commit -m "backup $(date '+%Y-%m-%d %H:%M')" && success "Committed changes" || fail "Commit failed"
+        # The global security gate runs on this commit and push. If it blocks,
+        # stop: a backup that silently skipped the push is worse than a loud one.
+        if git commit -m "backup $(date '+%Y-%m-%d %H:%M')"; then success "Committed changes"
+        else fail "Commit failed (security gate?) - nothing pushed"; fi
     fi
-    git push && success "Pushed to remote" || warn "Push failed or nothing to push"
+    if git push; then success "Pushed to remote"; else fail "Push failed (security gate?)"; fi
 }
 
 do_extensions() {

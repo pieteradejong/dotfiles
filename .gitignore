@@ -1,4 +1,12 @@
 # ============================================
+# PRIVATE COMPANION REPO - NEVER COMMIT
+# ============================================
+# private/ is a separate, private git repo cloned in place. It holds the
+# registers, decisions and reports that name real repos and exposures. This
+# rule is layer one; security/gate.sh and CI refuse it independently.
+/private/
+
+# ============================================
 # SECRETS & CREDENTIALS - NEVER COMMIT
 # ============================================
 
@@ -71,6 +79,23 @@ gcloud/
 *.sql
 *.sqlite
 *.db
+
+# ============================================
+# AUDIT OUTPUT - NAMES PRIVATE PATHS AND FINDINGS
+# ============================================
+# dev-audit.sh writes findings outside this repo by default (~/dev/audit-reports/)
+# and refuses to write into any git repo. These rules are the second layer, in
+# case a report is ever produced in here by hand or with --out .
+reports/
+audit-reports/
+*.report.md
+findings-*.tsv
+audit-????-??-??.md
+
+# Security review write-ups: they quote the real host, account and email
+# verbatim, which is exactly what this public repo must not carry.
+security-review-*.md
+docs/security-review-*.md
 
 # ============================================
 # SHELL HISTORY - CONTAINS TYPED COMMANDS

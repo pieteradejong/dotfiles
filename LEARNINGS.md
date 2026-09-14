@@ -297,3 +297,56 @@ Last updated: 2025-12-27
 - If you modify files directly in the repo, `dotbackup` will overwrite them with live versions
 - Best practice: Edit live files, then run `dotbackup` to sync to repo
 - For new repo-only files (like scripts), commit them separately or they'll be included in the next `dotbackup` commit
+
+### Issue: An audit reported 94 repos and there were 115
+
+**Problem**: On 2026-09-07, `dev-audit.sh` was found to be scanning 94 of the
+115 git repos under `~/dev`. One of the 21 it never saw, a third-party client repo
+cloned under a grouping directory, tracks a live `.env.production` with database,
+signing, payment and cloud credentials in it — committed long before, and present
+in every audit run made since the tool was written.
+
+**Root cause**: `list_repos()` used `find -maxdepth 3`, which reaches
+`projects/<repo>/.git` but not `projects/<group>/<repo>/.git`. Everything
+organised one level deeper — the eight `templates/<stack>/<repo>` sources, every
+client/org grouping directory, and a nested private repo — was outside the sweep.
+
+**The part that made it worse**: `list_non_repo_project_dirs()` tested only for
+`$d/.git` directly beneath `projects/<dir>`, so those grouping directories were
+reported as `not-a-repo` WARN. The report did not merely omit them — it
+positively asserted there was no version control under a path holding five
+repos. A silent omission invites a second look; a confident wrong answer does
+not.
+
+**Key learning**: a depth or count bound inside a *discovery* function is not a
+tuning knob, it is a correctness bound on every result the tool produces — and
+its failure mode is a report that looks complete. When a sweep reports N items,
+check N against an independent count before trusting anything it says. Two
+lines: `find … -name .git -type d | wc -l` against the tool's own total.
+
+**Solution**: `maxdepth 5` (115 repos; 4 would do, 5 is headroom), and grouping
+directories that contain a repo further down are no longer reported at all.
+
+### Issue: A secret scanner that only reads HEAD
+
+**Problem**: Every privacy check in `dev-audit.sh` worked from `git ls-files`,
+which is the current commit. A credential committed and later deleted was
+reported as clean.
+
+**Root cause**: "Tracked files only" was adopted for a good reason — scanning the
+working tree buries the signal under every project's local, correct, untracked
+`.env` — and then quietly generalised into "HEAD only," which does not follow
+from it. Deleting a secret and committing the deletion *is* the most common
+response to noticing one, and it changes nothing about what a public repo will
+hand to anyone who asks for the history.
+
+**Key learning**: for anything published, the unit of exposure is the history,
+not the checkout. A check that reads `HEAD` answers "is it there now," when the
+question is "was it ever there." And note what the fix is *not*: a history
+finding cannot be resolved by deleting the file. It needs a history rewrite, or
+— cheaper and always the first question — treating the credential as disclosed
+and rotating it.
+
+**Solution**: `dotaudit --history`, plus `gitleaks` in full-history mode. Off by
+default because it walks every commit in every repo; findings are prefixed
+`history-` so they never blur with a currently-tracked file.

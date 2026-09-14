@@ -56,6 +56,12 @@ dotrestore   # Restore from repo (with safety backup)
 | `dotstatus` | Check sync status between local and repo |
 | `dotfiles extensions` | Install VS Code/Cursor extensions from lists |
 | `dottest` | Run comprehensive test suite |
+| `dotaudit` | Read-only audit of every git repo under `~/dev` (see [docs/dev-audit.md](docs/dev-audit.md)) |
+| `./test.sh` | Every test in this repo: shellcheck, the security gate, its tools, `dotaudit` (CI runs exactly this) |
+| `security/gate.sh status` | Is the commit/push security gate installed and intact? |
+| `security/gate.sh scan-tree` | What would the gate say about everything `git add -A` would commit? |
+| `scripts/security-audit.sh` | The weekly security & privacy audit, on demand (see [docs/maintenance.md](docs/maintenance.md)) |
+| `scripts/github-security-sweep.sh` | GitHub secret scanning / push protection / Dependabot alerts on every owned repo (dry run by default) |
 
 ## 📁 Repository Structure
 
@@ -83,14 +89,46 @@ dotfiles/
 ├── macos/          # macOS-specific configs
 │   ├── com.googlecode.iterm2.plist
 │   ├── rectangle.plist
-│   └── com.pieterdejong.weeklycleanup.plist   # LaunchAgent: weekly cache/trash cleanup
+│   ├── com.pieterdejong.weeklycleanup.plist   # LaunchAgent: weekly cache/trash cleanup
+│   └── com.pieterdejong.securityaudit.plist   # LaunchAgent: weekly security & privacy audit
+├── security/       # The commit/push security gate (runs in every repo on this machine)
+│   ├── gate.sh                     # pre-commit | pre-push | scan-tree | status
+│   ├── patterns.sh                 # what must never be published — shared with dotaudit
+│   ├── gitleaks.toml               # shared gitleaks config (gate, dotaudit, CI)
+│   └── lib/visibility.sh           # is this push going somewhere public?
+├── claude/
+│   └── hooks/guard-git-bypass.sh   # Claude Code hook: the assistant cannot bypass the gate
 ├── scripts/        # Management scripts
-│   ├── sync-dotfiles.sh      # Main sync script
+│   ├── sync-dotfiles.sh            # Main sync script
 │   ├── test-dotfiles-setup.sh
 │   ├── mac-maintenance.sh          # System stats report (only copy, run from here)
-│   └── weekly-disk-cleanup.sh      # Weekly cache/trash cleanup (manual copy, not sync'd)
-└── docs/           # Documentation
-    └── weekly-cleanup.md    # Weekly disk cleanup: setup, schedule, known limitations
+│   ├── weekly-disk-cleanup.sh      # STALE DUPLICATE - the live copy is in
+│   │                               # ~/dev/projects/scripts/, which is what launchd runs
+│   ├── security-audit.sh           # weekly full security & privacy audit
+│   ├── github-security-sweep.sh    # GitHub-side settings for every owned repo
+│   ├── dev-audit.sh                # `dotaudit`: read-only audit of all ~/dev git repos
+│   ├── test-dev-audit.sh           # its test suite
+│   ├── test-security-gate.sh       # the gate's test suite
+│   ├── test-security-tools.sh      # guard hook, sweep, weekly audit, dotaudit gate module
+│   └── audit/                      # dotaudit's checks - see docs/dev-audit.md
+│       ├── lib.sh                  #   git_ro(), findings, repo discovery
+│       ├── skiplist.example.conf   #   format only; the real list is in private/
+│       ├── 10-git-hygiene.sh       #   unpushed work, no remote, bloat
+│       ├── 20-policy.sh            #   LICENSE, .gitignore, CI
+│       ├── 30-privacy.sh           #   secrets/personal data in TRACKED files
+│       ├── 40-disk.sh              #   large files, rebuildable dirs, backup gaps
+│       ├── 50-gate.sh              #   the gate is registered, intact, not bypassed
+│       └── render-report.sh        #   TSV -> markdown
+├── .github/workflows/
+│   ├── ci.yml                      # gitleaks + private/ guard + ./test.sh
+│   └── gitleaks-reusable.yml       # the secret-scanning job every repo calls
+├── docs/           # Documentation
+│   ├── policy/                     # the rules: security & privacy, repo standards, AI instructions, backups
+│   ├── design-decisions.md         # why the gate, audit and public/private split work as they do
+│   ├── maintenance.md              # everything scheduled, and the monthly manual checklist
+│   └── dev-audit.md                # dotaudit: checks, design rules, gotchas
+├── test.sh         # runs every test suite
+└── private/        # NOT PART OF THIS REPO — a separate private repo cloned in place, gitignored
 ```
 
 ## 🔄 How It Works
@@ -115,6 +153,17 @@ This repository uses a **copy-based workflow** (not symlinks):
 
 **This repo is public on GitHub.** Anything committed here is world-readable and stays recoverable from git history even if later deleted from the working tree — treat every commit as permanent and public.
 
+The rules live in [docs/policy/security-and-privacy.md](docs/policy/security-and-privacy.md); the
+reasoning in [docs/design-decisions.md](docs/design-decisions.md). In short:
+
+- **Every commit and push on this machine passes the security gate** (`security/gate.sh`,
+  registered in `~/.gitconfig`): secrets, key and `.env` files and files over 50 MB are
+  blocked everywhere; personal data is blocked on the way to a public remote.
+- **Private material lives in `private/`**, a separate private repo cloned in place. It is
+  gitignored, refused by the gate at commit and push, and refused again by CI.
+- **CI** runs a full-history gitleaks scan, the `private/` guard and `./test.sh` on every push.
+- **Weekly**, `scripts/security-audit.sh` audits every repo, GitHub's settings and this machine.
+
 ### Never Committed
 
 - SSH keys (`id_rsa*`, `id_ed25519*`, `*.pem`, `*.key`)
@@ -122,7 +171,8 @@ This repository uses a **copy-based workflow** (not symlinks):
 - Shell history (`.zsh_history`, `.bash_history`)
 - Personal API keys or tokens
 
-The `.gitignore` file blocks 25+ sensitive file patterns. **Always verify before committing.**
+The `.gitignore` blocks these by name (layer one); the gate checks content and names
+independently (layer two).
 
 ### Secrets pattern
 
@@ -141,17 +191,10 @@ committed:
    to be committed as examples) — so `dotbackup` can never accidentally
    commit it.
 
-### Last audit — 2026-08-20
+### Audits
 
-Full-history scan (all commits, all files) for realistic secret patterns
-(GitHub PATs, Anthropic/OpenAI/AWS keys, Slack tokens, PEM private keys):
-**clean, nothing ever leaked.** No private key has ever been committed
-(confirmed via `git log --all -- "*id_ed25519*" "*siteground_private*"`).
-
-Two pre-existing, already-public privacy items were found (not secrets —
-nothing here grants access on its own) and are tracked in Known TODOs below:
-- `git/.gitconfig` — real full name + personal email (also visible via commit author metadata regardless)
-- `ssh/config` — real personal domain and a real hosting account username (private key correctly excluded)
+Continuous: the weekly audit report in `~/dev/audit-reports/` (never committed). History of
+past findings is kept in the private companion repo, not here.
 
 ## 🛠️ What Gets Backed Up
 
@@ -177,7 +220,7 @@ nothing here grants access on its own) and are tracked in Known TODOs below:
 ### macOS
 - iTerm2 preferences
 - Rectangle window manager settings
-- Weekly disk cleanup LaunchAgent schedule (see [docs/weekly-cleanup.md](docs/weekly-cleanup.md))
+- Weekly disk cleanup and weekly security audit LaunchAgents (see [docs/maintenance.md](docs/maintenance.md))
 
 ## 📝 Maintenance
 
@@ -253,8 +296,8 @@ deliberately decided against or accepted as-is rather than "fixed":
 - [x] **Remove stray `.gitignore_global` at repo root**: Deleted; `git/.gitignore_global` remains the real one
 - [x] **Commit `SETUP.md`**: Now tracked
 - [x] **Add Docker integration test**: `scripts/test/assertions.sh` exists and runs via `docker run --rm -v ~/dev/dotfiles:/dotfiles debian:bookworm-slim bash -c "apt-get install -qq -y zsh git && /dotfiles/scripts/test/assertions.sh"`
-- [ ] **`ssh/config` — hostname/account exposure**: Reviewed 2026-08-31 — **accepted as-is**. Real personal domain and hosting account username are public in this file, but it's key-auth only (private key correctly gitignored, never committed) and grants nothing on its own.
-- [ ] **`git/.gitconfig` — identity exposure**: Reviewed 2026-08-31 — **accepted as-is**. Real full name and personal email are committed here, but commit author metadata already exposes both on every commit regardless, so redacting this file alone wouldn't change the actual exposure.
+- [x] **`ssh/config` — hostname/account exposure**: the 2026-08-31 "accept as-is" was reversed. The file is now a placeholder template, `sync-dotfiles.sh backup` sanitizes it on the way in, and the gate blocks the real values. Earlier history is not rewritten (see design decision D11).
+- [x] **`git/.gitconfig` — identity exposure**: reversed likewise — noreply address, home paths sanitized on backup; the gate blocks non-noreply authors on public pushes.
 
 ## 📚 Documentation
 
@@ -262,9 +305,10 @@ deliberately decided against or accepted as-is rather than "fixed":
 - [LEARNINGS.md](LEARNINGS.md) - Key learnings and best practices
 - [docs/devprocess.md](docs/devprocess.md) - Development process notes
 - [docs/reinstall-commands.md](docs/reinstall-commands.md) - Commands to reconstruct system
-- [docs/weekly-cleanup.md](docs/weekly-cleanup.md) - Weekly disk cleanup automation (npm/pip cache, Docker prune, Trash)
-- [docs/mac-maintenance.md](docs/mac-maintenance.md) - Manual health/cleanup script (uptime, memory, Library/Caches)
-- [docs/maintenance-audit-2026-09.md](docs/maintenance-audit-2026-09.md) - Full record of the Aug/Sep 2026 cleanup, `~/config` retirement, and security/privacy audit
+- [docs/policy/](docs/policy/) - The rules: security & privacy, repo standards, AI instruction files, backups
+- [docs/design-decisions.md](docs/design-decisions.md) - Why the security gate, weekly audit and public/private split are built as they are
+- [docs/maintenance.md](docs/maintenance.md) - Every scheduled job (security audit, disk cleanup, docs backup), the manual script, and the monthly checklist
+- [docs/dev-audit.md](docs/dev-audit.md) - `dotaudit`: what each check means
 
 ## 📄 License
 
