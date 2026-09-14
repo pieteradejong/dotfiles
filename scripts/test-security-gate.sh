@@ -76,7 +76,10 @@ export PATH="$T/bin:$PATH"
 answer() { echo "$1" > "$T/gh-answer"; rm -rf "$SECURITY_GATE_CACHE_DIR"; }
 answer PRIVATE
 
-rnd() { LC_ALL=C tr -dc "$1" < /dev/urandom | head -c "$2"; }
+# Bounded input on purpose: `tr < /dev/urandom | head` relies on SIGPIPE to stop
+# tr, and CI runners that ignore SIGPIPE leave it spinning forever (it hung the
+# first CI run for 20 minutes). 8 KB of random bytes yields ~1.9 KB of [A-Za-z0-9].
+rnd() { head -c 8192 /dev/urandom | LC_ALL=C tr -dc "$1" | head -c "$2"; }
 gen_pat() { local s; s="ghp_$(rnd 'A-Za-z0-9' 36)"; echo "$s" >> "$SECRETS"; printf '%s' "$s"; }
 gen_aws() { local s; s="AKIA$(rnd 'A-Z2-7' 16)"; echo "$s" >> "$SECRETS"; printf '%s' "$s"; }
 gen_key() { printf -- '-----BEGIN OPENSSH PRIVATE KEY-----\n%s\n%s\n%s\n-----END OPENSSH PRIVATE KEY-----\n' "$(rnd 'A-Za-z0-9+/' 70)" "$(rnd 'A-Za-z0-9+/' 70)" "$(rnd 'A-Za-z0-9+/' 70)"; }

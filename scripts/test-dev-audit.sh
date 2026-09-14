@@ -191,7 +191,8 @@ build_fixtures() {
   # fixture is for. Generated at runtime: a literal token in this file would be
   # found by the very scanners this repo runs on itself (the gate, CI gitleaks).
   d="$(mkrepo gitleaks-bait)"
-  GITLEAKS_BAIT="ghp_$(LC_ALL=C tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 36)"
+  # Bounded read: an unbounded `tr < /dev/urandom` never exits where SIGPIPE is ignored (CI).
+  GITLEAKS_BAIT="ghp_$(head -c 8192 /dev/urandom | LC_ALL=C tr -dc 'A-Za-z0-9' | head -c 36)"
   printf 'TOKEN = "%s"\n' "$GITLEAKS_BAIT" > "$d/app.py"
   commit_all "$d"
 

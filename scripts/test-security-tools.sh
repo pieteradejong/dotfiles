@@ -167,6 +167,10 @@ printf 'recovery\n' > "$A/dev/github-recovery-codes.txt"
 git init -q "$A/dev/projects/app"
 printf 'x\n' > "$A/dev/projects/app/deploy.key"
 printf 'KEY=\n' > "$A/dev/projects/app/.env.example"
+mkdir -p "$A/dev/templates/stack/variant" "$A/dev/templates/loose"
+printf '.env\n.env.*\n!.env.template\n' > "$A/dev/templates/stack/.gitignore"
+printf 'SECRET=x\n' > "$A/dev/templates/stack/variant/.env.production"
+printf 'SECRET=x\n' > "$A/dev/templates/loose/.env"
 cat > "$A/home/.gitconfig" <<EOF
 [user]
     email = t@users.noreply.github.com
@@ -187,6 +191,11 @@ report="$(first "$A"/out/security-audit-*.md)"
 grep -q 'FAIL\*\* outside any repo.*github-recovery-codes.txt' "$report" 2>/dev/null && pass "loose credential file outside any repo is a FAIL" || fail "loose file outside repo not reported"
 grep -q 'WARN\*\* untracked and NOT ignored.*projects/app/deploy.key' "$report" 2>/dev/null && pass "untracked, unignored key inside a repo is a WARN" || fail "untracked key not reported"
 grep -q '\.env\.example' "$report" 2>/dev/null && fail ".env.example was reported" || pass ".env.example is not reported"
+grep -q '^- outside any repo, but ignored by templates/stack/.gitignore.*templates/stack/variant/.env.production' "$report" 2>/dev/null \
+  && pass "env file outside a repo but covered by an ancestor .gitignore is info, not FAIL" || fail "covered env file not reported as info"
+grep -q 'FAIL\*\* outside any repo.*templates/loose/.env' "$report" 2>/dev/null \
+  && pass "env file outside a repo with no covering .gitignore is a FAIL" || fail "uncovered env file not a FAIL"
+[ -z "$(find "$A/dev/templates" -name '.git' 2>/dev/null)" ] && pass "gitignore coverage check writes nothing into the scanned tree" || fail "a .git appeared under the scanned tree"
 grep -q '## 3. GitHub repo settings' "$report" 2>/dev/null && pass "report has the GitHub settings section" || fail "GitHub section missing"
 grep -q 'skipped (--quick)' "$report" 2>/dev/null && pass "--quick skips the slow steps and says so" || fail "--quick not reflected"
 grep -q 'SSH keys on the account: 2' "$report" 2>/dev/null && pass "account section lists SSH key count" || fail "account section missing SSH keys"

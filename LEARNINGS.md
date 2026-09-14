@@ -350,3 +350,25 @@ and rotating it.
 **Solution**: `dotaudit --history`, plus `gitleaks` in full-history mode. Off by
 default because it walks every commit in every repo; findings are prefixed
 `history-` so they never blur with a currently-tracked file.
+
+### Issue: A test suite hung for 20 minutes in CI and never locally
+
+**Problem**: The first CI run of `./test.sh` was cancelled at its 20-minute
+timeout, stuck at the very first gate test. Locally the whole suite takes about
+two minutes.
+
+**Root cause**: fixture secrets were generated with
+`tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 36`. That idiom only terminates
+because `head` exits and `tr` is killed by SIGPIPE on its next write. The CI
+runner starts jobs with SIGPIPE ignored, so `tr` got EPIPE instead, kept reading
+an infinite `/dev/urandom`, and the orphan was still spinning when the job was
+cancelled.
+
+**Fix**: bound the input, not just the output:
+`head -c 8192 /dev/urandom | tr -dc 'A-Za-z0-9' | head -c 36`.
+
+**Reproduce locally before pushing**: `(trap '' PIPE; ./test.sh)` runs every
+suite with SIGPIPE ignored, the way the runner does.
+
+**Lesson**: any pipeline reading an endless source and relying on a downstream
+`head` to stop it is environment-dependent. Bound the source.

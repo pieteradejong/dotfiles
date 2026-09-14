@@ -34,7 +34,7 @@ Read-only toward every repo. Why it is built this way: [design decisions D15](de
 | 3 | GitHub settings | `github-security-sweep.sh --check` | an owned repo lacks secret scanning, push protection or Dependabot alerts — run `github-security-sweep.sh --apply` |
 | 4 | Uncloned repos | mirrors every owned GitHub repo with no local clone into `~/.cache/security-audit/mirrors/`, then runs gitleaks over full history and looks for the private personal values | a secret or personal value is in a repo nobody has looked at locally |
 | 5 | Bypasses | `SECURITY_GATE_BYPASS` uses in the last 7 days, with reasons | confirm each reason still holds |
-| 6 | Loose files | credential-shaped files (`*.pem`, `*.key`, `.env*`, recovery codes, …) outside any repo, or untracked and not ignored inside one | move it to the password manager, or add it to `.gitignore` |
+| 6 | Loose files | credential-shaped files (`*.pem`, `*.key`, `.env*`, recovery codes, …) outside any repo (FAIL), or untracked and not ignored inside one (WARN). A file outside any repo that a `.gitignore` in its directory or an ancestor already ignores — generated env files in `templates/`, say — is listed as info | move it to the password manager, or add it to `.gitignore` |
 | 7 | Account | SSH keys on the GitHub account, `gh` token scopes | remove any key you cannot place |
 
 The report lands in `~/dev/audit-reports/` (mode 600, never inside a git repo) with the

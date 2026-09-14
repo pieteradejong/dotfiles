@@ -167,7 +167,11 @@ else
     n="$(num "$(grep -c '"RuleID"' "$rpt" 2>/dev/null)")"
     [ "${n:-0}" -gt 0 ] && fail_ "$slug ($vis): gitleaks reports ${n} secret(s) in history — rotate, then decide on the repo"
     if [ -s "$WORK/pp" ]; then
-      n="$(num "$(git -C "$m" log -p --all --no-color 2>/dev/null | grep -cF -f "$WORK/pp")")"
+      # Content only (--format=): commit author/committer headers would match the
+      # personal email on every old commit — that exposure is already known and
+      # deliberately left in history (design decision D11), and counting it here
+      # buries a value that was actually written into a file.
+      n="$(num "$(git -C "$m" log -p --all --no-color --format= 2>/dev/null | grep -cF -f "$WORK/pp")")"
       if [ "${n:-0}" -gt 0 ]; then
         if [ "$vis" = PUBLIC ]; then fail_ "$slug (PUBLIC): ${n} line(s) in history contain a private personal value"
         else warn_ "$slug (PRIVATE): ${n} line(s) in history contain a private personal value"; fi
@@ -200,7 +204,26 @@ find "$DEV_ROOT" -maxdepth 5 \( -name node_modules -o -name .git -o -name .venv 
      -o -name 'id_rsa*' -o -name 'id_ed25519*' -o -name 'id_ecdsa*' -o -name '.env' -o -name '.env.*' \
      -o -iname '*credentials*.json' -o -name '*.kdbx' -o -name '.netrc' -o -name '.pypirc' \) -print 2>/dev/null \
   | LC_ALL=C sort > "$WORK/loose"
-n_out=0; n_untracked=0
+n_out=0; n_untracked=0; n_covered=0
+git init -q --bare "$WORK/empty.git"
+
+# covered_by_gitignore <file> — for a file outside any repo (template sources,
+# loose project dirs): would a .gitignore in its directory or an ancestor below
+# DEV_ROOT ignore it once that directory becomes, or is copied into, a repo?
+# Uses a throwaway empty git dir, so nothing is written next to the file.
+covered_by_gitignore() {
+  local f="$1" dir
+  dir="$(dirname "$f")"
+  while [ "${#dir}" -gt "${#DEV_ROOT}" ]; do
+    if [ -f "$dir/.gitignore" ] && ( cd "$dir" && git --git-dir="$WORK/empty.git" --work-tree=. \
+         check-ignore -q --no-index -- "${f#"$dir"/}" ) 2>/dev/null; then
+      printf '%s' "${dir#"$DEV_ROOT"/}"; return 0
+    fi
+    dir="$(dirname "$dir")"
+  done
+  return 1
+}
+
 while IFS= read -r f; do
   rel="${f#"$DEV_ROOT"/}"
   is_example_path "$rel" && continue
@@ -209,13 +232,18 @@ while IFS= read -r f; do
   [ "$skip" = 1 ] && continue
   d="$(dirname "$f")"
   if ! git --no-optional-locks -C "$d" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-    fail_ "outside any repo, no version control and no guard: $rel"; n_out=$((n_out + 1))
+    if cov="$(covered_by_gitignore "$f")"; then
+      info_ "outside any repo, but ignored by $cov/.gitignore (a scaffold or git init there won't commit it): $rel"
+      n_covered=$((n_covered + 1))
+    else
+      fail_ "outside any repo, no version control and no guard: $rel"; n_out=$((n_out + 1))
+    fi
   elif ! git --no-optional-locks -C "$d" ls-files --error-unmatch "$(basename "$f")" >/dev/null 2>&1 \
        && ! git --no-optional-locks -C "$d" check-ignore -q "$(basename "$f")" 2>/dev/null; then
     warn_ "untracked and NOT ignored — one \`git add -A\` from being committed: $rel"; n_untracked=$((n_untracked + 1))
   fi
 done < "$WORK/loose"
-[ "$n_out" = 0 ] && [ "$n_untracked" = 0 ] && info_ "none"
+[ "$n_out" = 0 ] && [ "$n_untracked" = 0 ] && [ "$n_covered" = 0 ] && info_ "none"
 
 # --- 7. account ---------------------------------------------------------------------------------------
 section "7. GitHub account"
