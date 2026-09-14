@@ -142,7 +142,10 @@ unstage_all
 # ================================================================================
 header "pre-commit: forbidden files"
 newrepo files
-for f in .env config/.env.production id_rsa certs/server.pem keys/app.key .deploy-env .netrc home/.pypirc; do
+# .env.test, tests/… and fixture/… paths: a path containing "test" must not exempt a real
+# key or env file from the file-name rules (a blind spot until 2026-09-14).
+for f in .env config/.env.production id_rsa certs/server.pem keys/app.key .deploy-env .netrc home/.pypirc \
+         .env.test tests/fixtures/id_rsa config/test/.env spec/keys/deploy.key; do
   mkdir -p "$(dirname "$f")"; echo x > "$f"; git add -f "$f"
   expect 1 "$f is blocked" git commit -qm "add $f"
   unstage_all
@@ -194,6 +197,14 @@ out_lacks 'home-path' "security-gate:allow silences personal-data rules on that 
 mkdir -p tests; printf 'email = "someone@company.io"\n' > tests/fixture_users.py; git add tests
 expect 0 "test fixture with personal data commits" git commit -qm fixture
 out_lacks 'WARN' "test/fixture paths are exempt from personal-data rules"
+
+printf '{"deprecated": "unsupported, contact real.maintainer@npmjs-mail.io"}\n' > package-lock.json; git add package-lock.json
+expect 0 "lockfile with a third-party maintainer email commits" git commit -qm lock
+out_lacks 'email' "dependency lockfiles are exempt from personal-data rules"
+printf '{"resolved": "https://registry.example", "token": "%s"}\n' "$(gen_pat)" > yarn.lock; git add yarn.lock
+expect 1 "a secret inside a lockfile is still blocked" git commit -qm locksecret
+out_has 'BLOCK gitleaks' "gitleaks still scans lockfiles"
+unstage_all
 
 printf 'x\n' > note.txt; git add note.txt
 expect 0 "non-noreply author: commit proceeds" git -c user.email=someone@company.io commit -qm author

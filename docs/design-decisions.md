@@ -97,6 +97,15 @@ as its fallback). trufflehog / detect-secrets (not installed; no clear gain for 
 **Cost.** Inline `gitleaks:allow` comments are still honored — an escape hatch visible in
 review, standard across tools.
 
+**Amended the same day, after the template rollout exposed two gaps.** (1) gitleaks' default
+config allowlists dependency lockfiles by path, so `gitleaks git` never reads them; the gate
+now pipes added lockfile lines through `gitleaks stdin`, which has no path to allowlist. The
+same lockfiles are exempt from the personal-data rules, because they embed third-party
+maintainers' addresses nobody here can change. (2) File-name rules had inherited the broad
+"path contains test/fixture/mock/spec" exemption meant for personal data, which let
+`.env.test` through; they now exempt only `.example` / `.template` / `.sample` suffixes. A
+sweep of every local repo found no tracked file that had slipped through.
+
 ## D7 — The bypass is explicit, reasoned and logged · 2026-09-14
 
 **Decision.** `SECURITY_GATE_BYPASS="<reason of 10+ characters>"` downgrades blocks to

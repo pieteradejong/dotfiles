@@ -100,3 +100,19 @@ is_example_path() {
   return 1
 }
 EXAMPLE_PATH_ERE='\.(example|template|sample)($|\.)|test|fixture|mock|spec'
+
+# Template files by SUFFIX only — the exemption the gate's file-name rules use.
+# Unlike is_example_path, a path that merely contains "test" does not qualify:
+# `.env.test` and `tests/keys/id_rsa` are real files. (The broad match let
+# `.env.test` through the gate until 2026-09-14.)
+is_template_path() {
+  case "$1" in
+    *.example|*.example.*|*.template|*.template.*|*.sample|*.sample.*) return 0 ;;
+  esac
+  return 1
+}
+
+# Dependency lockfiles embed third-party maintainers' addresses (npm deprecation
+# notices, author fields) that no one here can change. Exempt from the gate's
+# personal-data rules only — secrets in them are still scanned and blocked.
+LOCKFILE_ERE='(^|/)(package-lock\.json|npm-shrinkwrap\.json|yarn\.lock|pnpm-lock\.yaml|bun\.lockb?|poetry\.lock|Pipfile\.lock|uv\.lock|Cargo\.lock|Gemfile\.lock|composer\.lock|go\.sum|mix\.lock|pubspec\.lock|Podfile\.lock)$'

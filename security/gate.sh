@@ -106,7 +106,7 @@ check_names() {
   : > "$hits"
   while IFS= read -r f; do
     [ -n "$f" ] || continue
-    is_example_path "$f" && continue
+    is_template_path "$f" && continue   # suffix only: .env.test is NOT exempt
     while IFS= read -r line; do
       [ -n "$line" ] || continue
       rule="${line%%|*}"; glob="${line#*|}"
@@ -151,8 +151,9 @@ lines_to_files() {
 scan_added() {
   local added="$1" f="$TMPD/added-filtered" c="$TMPD/added-content" ln="$TMPD/hit-lines" l no line n
   [ -s "$added" ] || return 0
-  EXAMPLE_RE="$EXAMPLE_PATH_ERE" awk -F'\t' 'BEGIN { re = ENVIRON["EXAMPLE_RE"] }
-    $1 !~ re && $0 !~ /security-gate:allow/' "$added" > "$f"
+  EXAMPLE_RE="$EXAMPLE_PATH_ERE" LOCK_RE="$LOCKFILE_ERE" awk -F'\t' \
+    'BEGIN { re = ENVIRON["EXAMPLE_RE"]; lre = ENVIRON["LOCK_RE"] }
+    $1 !~ re && $1 !~ lre && $0 !~ /security-gate:allow/' "$added" > "$f"
   [ -s "$f" ] || return 0
   cut -f2- "$f" > "$c"
 
@@ -193,6 +194,31 @@ scan_added() {
         personal personal-value "$n line(s) contain a value from the private personal-patterns list, in: $(join_lines "$TMPD/files")"
       fi
     fi
+  fi
+  return 0
+}
+
+# scan_lockfile_secrets <file of "path<TAB>added line">
+#
+# gitleaks' default config allowlists dependency lockfiles BY PATH, so `gitleaks
+# git` never looks inside package-lock.json, yarn.lock and friends — yet an auth
+# token embedded in a private-registry URL is a classic lockfile leak. Their added
+# lines go through `gitleaks stdin`, which has no path for the allowlist to match.
+scan_lockfile_secrets() {
+  local added="$1" rpt="$TMPD/gitleaks-lock.json" n
+  [ -s "$added" ] || return 0
+  LOCK_RE="$LOCKFILE_ERE" awk -F'\t' 'BEGIN { lre = ENVIRON["LOCK_RE"] } $1 ~ lre' "$added" > "$TMPD/lock-added"
+  [ -s "$TMPD/lock-added" ] || return 0
+  cut -f1 "$TMPD/lock-added" | LC_ALL=C sort -u > "$TMPD/lock-files"
+  : > "$rpt"
+  cut -f2- "$TMPD/lock-added" | gitleaks stdin --redact --no-banner --log-level error --exit-code 0 \
+    -c "$GITLEAKS_CONFIG" --report-format json --report-path "$rpt" >/dev/null 2>&1
+  n="$(grep -c '"RuleID"' "$rpt" 2>/dev/null)" || true
+  n="$(num "${n:-0}")"
+  if [ "${n:-0}" -gt 0 ]; then
+    grep -o '"RuleID": *"[^"]*"' "$rpt" | sed 's/.*: *"//; s/"$//' | sort | uniq -c \
+      | awk '{ printf "%s%s x%s", (NR > 1 ? ", " : ""), $2, $1 }' > "$TMPD/gl-lock-rules"
+    block gitleaks "$n secret(s) in added lockfile lines [$(cat "$TMPD/gl-lock-rules")] in: $(join_lines "$TMPD/lock-files") — rotate anything real"
   fi
   return 0
 }
@@ -248,6 +274,7 @@ cmd_pre_commit() {
   fi
 
   git diff --cached -U0 --no-color --no-ext-diff --no-renames --diff-filter=ACMR 2>/dev/null | diff_to_added > "$TMPD/added"
+  command -v gitleaks >/dev/null 2>&1 && scan_lockfile_secrets "$TMPD/added"
   scan_added "$TMPD/added"
 
   author="$(git var GIT_AUTHOR_IDENT 2>/dev/null | sed -E 's/.*<([^>]*)>.*/\1/')"
@@ -307,6 +334,7 @@ cmd_pre_push() {
     # shellcheck disable=SC2086
     git log -p -U0 --no-color --no-ext-diff --no-merges --no-renames --diff-filter=ACMR --format= $range_log 2>/dev/null \
       | diff_to_added > "$TMPD/added"
+    command -v gitleaks >/dev/null 2>&1 && scan_lockfile_secrets "$TMPD/added"
     scan_added "$TMPD/added"
 
     # shellcheck disable=SC2086
