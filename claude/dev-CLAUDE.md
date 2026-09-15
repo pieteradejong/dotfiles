@@ -46,6 +46,7 @@ Read these when their subject comes up; they are not loaded automatically.
 | `dotfiles/docs/policy/backups.md` | Backup principles |
 | `dotfiles/docs/design-decisions.md` | Why the gate, audit and public/private split are built this way |
 | `dotfiles/docs/maintenance.md` | The weekly security audit and what to do with its findings |
+| `dotfiles/docs/containers.md` | Colima on demand (no Docker Desktop), local vs hosted Supabase, native Postgres, what needs Docker |
 | `dotfiles/docs/dev-audit.md` | `dotaudit`: read-only audit of every local repo |
 | `dotfiles/private/registers/` | Private: open findings, per-repo privacy, licensing, GitHub baseline, backup state |
 | `dotfiles/private/reports/` | Private: dated audit reports (point-in-time, not maintained) |
@@ -86,8 +87,8 @@ Dev servers: py-fastapi `http://localhost:8000` (docs at `/docs`) · ts-web `htt
 node-express `http://localhost:3000` · vercel-stack `http://localhost:3000` (don't run with
 node-express) · rn-supabase: Expo QR code, `w` for web.
 
-- **py-fastapi/production-ready** needs Docker (PostgreSQL + Redis); `./run.sh` runs `alembic upgrade head`.
-- **rn-supabase/production-ready** needs the Supabase CLI; `./run.sh` starts local Supabase at `http://localhost:54321`.
+- **py-fastapi/production-ready** needs a running Docker daemon — `colima start` first (PostgreSQL + Redis); `./run.sh` runs `alembic upgrade head`.
+- **rn-supabase/production-ready** needs the Supabase CLI and a running Docker daemon (`colima start`); `./run.sh` starts local Supabase at `http://localhost:54321`.
 - Every template ships `.github/workflows/ci.yml`; it runs once the new project is pushed.
 - Scaffold by copying the directory; don't change dependency versions until `./init.sh` succeeds.
 - **`node-express/production-ready` is red** (lint, format, type-check and tests fail; it cannot

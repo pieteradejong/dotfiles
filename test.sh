@@ -3,7 +3,7 @@
 # test.sh — every test in this repo, in one command. CI runs exactly this.
 #
 #   ./test.sh                 all suites
-#   ./test.sh gate            one suite: shellcheck | gate | tools | dotaudit
+#   ./test.sh gate            one suite: shellcheck | gate | tools | dotaudit | containers
 #   ./test.sh --verbose       pass --verbose through to each suite
 #
 # Suites:
@@ -12,6 +12,7 @@
 #   tools       scripts/test-security-tools.sh  (Claude guard hook, GitHub sweep,
 #                                                weekly audit, dotaudit gate module)
 #   dotaudit    scripts/test-dev-audit.sh       (the read-only workspace audit)
+#   containers  scripts/test-containers-doctor.sh (Colima / no-Docker-Desktop doctor)
 #
 # Requires: git 2.54+, gitleaks, shellcheck, jq. pre-commit is optional.
 
@@ -23,8 +24,8 @@ ONLY=""
 for a in "$@"; do
   case "$a" in
     --verbose) VERBOSE="--verbose" ;;
-    shellcheck|gate|tools|dotaudit) ONLY="$a" ;;
-    -h|--help) sed -n '3,17p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    shellcheck|gate|tools|dotaudit|containers) ONLY="$a" ;;
+    -h|--help) sed -n '3,18p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown argument: $a" >&2; exit 2 ;;
   esac
 done
@@ -43,11 +44,13 @@ scripts/audit/30-privacy.sh
 scripts/audit/40-disk.sh
 scripts/audit/50-gate.sh
 scripts/audit/render-report.sh
+scripts/containers-doctor.sh
 scripts/github-security-sweep.sh
 scripts/security-audit.sh
 scripts/sync-dotfiles.sh
 scripts/test-security-gate.sh
 scripts/test-security-tools.sh
+scripts/test-containers-doctor.sh
 "
 
 RESULTS=""
@@ -71,6 +74,7 @@ run_suite shellcheck shellcheck_all
 run_suite gate     bash scripts/test-security-gate.sh $VERBOSE
 run_suite tools    bash scripts/test-security-tools.sh $VERBOSE
 run_suite dotaudit bash scripts/test-dev-audit.sh $VERBOSE
+run_suite containers bash scripts/test-containers-doctor.sh $VERBOSE
 
 printf '\n\033[1m════ test.sh summary ════\033[0m%b\n' "$RESULTS"
 exit "$FAILED"

@@ -73,7 +73,7 @@ Reclaims space from caches that regenerate and Trash that was already discarded.
 |---|---|---|
 | npm cache | `npm cache verify`, then `npm cache clean --force` | re-downloaded on the next install |
 | pip cache | `pip3 cache purge` | same |
-| Docker | `docker system prune -f` (not `-a`); skipped if Docker isn't running | removes only stopped containers, unused networks, dangling images, build cache |
+| Docker | `docker system prune -f` (not `-a`); skipped if no Docker daemon is running — Colima is started on demand, so usually skipped ([containers.md](containers.md)) | removes only stopped containers, unused networks, dangling images, build cache |
 | Trash | deletes items in `~/.Trash` older than 7 days | this week's deletions keep a recovery window |
 
 Each step runs independently; one failing does not stop the rest. Logs:

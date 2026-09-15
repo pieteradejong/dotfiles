@@ -23,10 +23,20 @@ brew "cabal-install"
 brew "pkgconf"
 # Cross-platform make
 brew "cmake"
+# Container runtimes on MacOS (and Linux) with minimal setup
+brew "colima"
 # GNU File, Shell, and Text utilities
 brew "coreutils"
 # Lightweight unit testing framework for C
 brew "cunit"
+# Pack, ship and run any application as a lightweight container
+brew "docker"
+# Docker CLI plugin for extended build capabilities with BuildKit
+brew "docker-buildx"
+# Isolated development environments using Docker
+brew "docker-compose"
+# Platform keystore credential helper for Docker
+brew "docker-credential-helper"
 # Command-line tool to interact with exercism.io
 brew "exercism"
 # XML 1.0 parser
@@ -55,6 +65,8 @@ brew "jansson"
 brew "jq"
 # Open-source distributed event streaming platform
 brew "kafka"
+# Kubernetes command-line interface
+brew "kubernetes-cli"
 # Multi-platform support library with a focus on asynchronous I/O
 brew "libuv"
 # Java-based project management
@@ -77,6 +89,8 @@ brew "p7zip"
 brew "pandoc"
 # General-purpose scripting language
 brew "php"
+# Adds support for geographic objects to PostgreSQL
+brew "postgis"
 # Object-relational database system
 brew "postgresql@17"
 # Theme for zsh
@@ -117,6 +131,8 @@ brew "yt-dlp"
 brew "zookeeper"
 # UNIX shell (command interpreter)
 brew "zsh"
+# Supabase CLI
+brew "supabase/tap/supabase", trusted: true
 # Install and switch between multiple versions of Xcode
 brew "xcodesorg/made/xcodes", trusted: true
 # Browser for SQLite databases

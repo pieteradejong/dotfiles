@@ -48,16 +48,17 @@ Node versions are managed with **nvm** — when suggesting Node version changes 
 |------|---------|
 | git | 2.54.0 |
 | gh (GitHub CLI) | 2.92.0 |
-| Docker | 25.0.3 |
-| Docker Compose | v2.24.5 |
-| kubectl | v1.29.1 |
+| Docker CLI (Homebrew) | 29.8.1 |
+| Docker Compose plugin | 5.5.1 |
+| Colima | 0.10.3 |
+| kubectl | v1.37.0 |
 | Terraform | v1.14.9 |
-| Supabase CLI | 2.95.4 |
+| Supabase CLI | 2.117.0 |
 | jq | 1.8.1 |
 | curl | 8.7.1 |
 | wget | 1.25.0 |
 
-Docker Desktop is installed — prefer `docker compose` (v2, no hyphen) over the legacy `docker-compose`. The GitHub CLI (`gh`) is available for PR/issue operations.
+Docker Desktop is **not** installed. Containers run on **Colima**, started on demand (`colima start`, then `colima stop` when done); nothing container-related starts at login. Prefer `docker compose` (plugin, no hyphen) over the legacy `docker-compose`. Local Postgres for non-Supabase projects is native Homebrew `postgresql@17` + `postgis`, not a container. Details: `~/dev/dotfiles/docs/containers.md`. The GitHub CLI (`gh`) is available for PR/issue operations.
 
 ## Editors & IDEs
 

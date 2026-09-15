@@ -61,7 +61,8 @@ log() { echo "$@" >> "$LOG_FILE" 2>&1; }
 # cache. Deliberately NOT `-a` (which would also remove any image not
 # currently backing a container) — that's left as a manual, deliberate step
 # so a locally-built image you plan to reuse isn't silently deleted.
-# Skipped entirely if Docker Desktop isn't running.
+# Skipped entirely if no Docker daemon is running (Colima is started on
+# demand, so most weeks this is skipped).
 {
   echo ""
   echo "--- Docker ---"
