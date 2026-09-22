@@ -41,6 +41,17 @@
           }
         ]
       }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/dev/dotfiles/claude/hooks/session-start.sh",
+            "timeout": 10
+          }
+        ]
+      }
     ]
   }
 }

@@ -13,7 +13,7 @@ All loaded files apply together; a more specific one adds to the broader ones.
 | Layer | File | Holds |
 |---|---|---|
 | Global | `~/.claude/CLAUDE.md` | Machine facts: OS, shell, toolchain versions, package-manager preferences |
-| Workspace | `~/dev/CLAUDE.md` | Rules for every project: hard rules, do-not-touch, templates, where policy lives |
+| Workspace | `~/dev/CLAUDE.md` | Rules for every project: hard rules, do-not-touch, session workflow, templates, where policy lives |
 | Project | `<project>/CLAUDE.md` | Exact commands and non-obvious conventions for one project |
 | Private import | `@path/to/file.md` from any of the above | Material that must not be committed with the importing file |
 | Memory | `~/.claude/projects/<workspace-slug>/memory/` | Things that became true while working (see below) |
@@ -124,6 +124,21 @@ a log recorded, with the exact command, the decision to make it private — the 
   anonymous fetch of a URL over an API field that may be stale).
 - Decision logs are append-only: supersede an entry with a new one that links back.
 - Where same-day verification is only partial (a scheduled job), say `PARTIAL` and name when to recheck.
+
+An entry is owed when a choice closes off an alternative someone could reasonably reopen — not for
+every commit. The shape, numbered and appended:
+
+```
+## N. <what was decided>
+**Date:** YYYY-MM-DD
+**Context:** why this came up
+**Decision:** what was chosen, and what was rejected
+**Verified:** the command run and what it returned, or NOT YET
+```
+
+Which log: security and privacy decisions go in `docs/design-decisions.md`; a project's own
+decisions go in a `DECISIONS.md` at its root; everything else about this workspace — including
+anything naming a specific repo or exposure — goes in the private companion repo's `DECISIONS.md`.
 
 ## One source of truth for assistant config
 

@@ -34,6 +34,44 @@ is not a git repo.
 
 If that file is missing, ask before modifying any repo under projects/.
 
+## Session workflow
+
+Every session runs the same loop. Steps 2 and 3 are stated in full elsewhere — what follows is the
+order they happen in, not a second copy of them.
+
+1. **Open by reading state, not code.** `git status`, the branch, `git log --oneline -5`, then the
+   project's `CLAUDE.md` and decision log if they exist. Name anything unexpected — dirty tree,
+   detached HEAD, unpushed commits, a stray untracked file — before touching anything. A surprise
+   is cheapest before it has been built on. The `SessionStart` hook reports this automatically and
+   says nothing when the repo is clean; silence is the normal case, not a failure to run.
+2. **First commit in a repo** follows `dotfiles/docs/policy/security-and-privacy.md` §4 —
+   `.gitignore` baseline, data tier, noreply identity, LICENSE, gitleaks job.
+3. **A decision that closes off an alternative earns an entry**, in the format and with the
+   `Verified:` discipline of `dotfiles/docs/policy/ai-instructions.md` § Decisions need
+   verification. Not every commit — only a choice someone could reasonably reopen later.
+4. **Close with a summary:** what changed, what is unverified, what is still open. Update the
+   project's README or `CLAUDE.md` in the same session when commands or behavior changed; a doc
+   that lags by one session is where drift starts. Say any `Verified: NOT YET` out loud rather
+   than leaving it to be discovered.
+
+```mermaid
+flowchart TD
+    S([Session start]) --> O["git status · branch · log -5<br/>read CLAUDE.md + decision log"]
+    O --> N{Anything unexpected?}
+    N -- yes --> R[Name it before starting work]
+    N -- no --> W[Work]
+    R --> W
+    W --> D{Closed off an alternative?}
+    D -- yes --> L["Decision entry<br/>Date · Context · Decision · Verified"]
+    L --> C{First commit in this repo?}
+    D -- no --> C
+    C -- yes --> G["First-commit checklist:<br/>gitignore · tier · identity · LICENSE · CI"]
+    C -- no --> K[Commit - gate runs]
+    G --> K
+    K --> W
+    W --> E([Session end: what changed / unverified / open])
+```
+
 ## Where the rules live
 
 Read these when their subject comes up; they are not loaded automatically.
