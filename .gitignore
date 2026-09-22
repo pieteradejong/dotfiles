@@ -204,10 +204,16 @@ logs/
 # Homebrew Brewfile.lock (if you want reproducible installs, keep it)
 # Brewfile.lock.json
 
-# Node modules (shouldn't be in dotfiles, but just in case)
-# node_modules/
+# Build and cache dirs. These were commented out, which reads as "covered" but
+# is not: `git check-ignore` is the only thing that counts, and dotaudit's
+# gitignore-gaps check failed on every one of them (repo-standards.md baseline).
+node_modules/
+**/node_modules/
 
-# Python
-# __pycache__/
-# *.pyc
-# .venv/
+__pycache__/
+*.pyc
+.venv/
+venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
