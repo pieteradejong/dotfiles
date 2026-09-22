@@ -72,5 +72,5 @@ When opening files or projects for the user, prefer `code` unless the user indic
 ## Paths & Environment
 
 - Homebrew prefix: `/opt/homebrew` (ARM64 location)
-- Custom scripts: `~/scripts` is in PATH
+- Custom scripts: `~/dev/dotfiles/bin` is in PATH (commands are run in place from the repo)
 - When constructing paths to Homebrew tools, use `/opt/homebrew/bin/` not `/usr/local/bin/`

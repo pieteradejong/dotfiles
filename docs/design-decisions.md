@@ -230,3 +230,58 @@ macOS so bash 3.2, BSD userland and git 2.54+ are what is tested. Fixture secret
 generated from `/dev/urandom` at runtime, so the repo contains nothing secret-shaped for its
 own scanners to trip on, and every suite asserts that no generated value ever appears in
 output.
+
+## D18 — `bin/` on PATH, run in place; `scripts/` stays off PATH · 2026-09-22
+
+**Decision.** Commands meant to be typed live in `bin/`, which is the single `PATH` entry
+(`shell/.zshrc`). Tooling for this repo — `sync-dotfiles.sh`, `dev-audit.sh`, the `test-*.sh`
+suites — stays in `scripts/`, which is deliberately not on `PATH`. `bin/` files are executed
+straight out of the repo with no live copy in `~`, joining `scripts/mac-maintenance.sh` as an
+exception to this repo's copy-based model.
+
+**Why.** The predecessor was `~/dev/projects/scripts/`: on `PATH`, not a git repo, nothing in
+it versioned anywhere. A copy of `weekly-disk-cleanup.sh` had been taken into `scripts/` as a
+"backup" and had already drifted from the live one that launchd actually ran — the repo copy
+was 92 lines to the live script's 191. A copy that is never executed is a copy nobody notices
+is wrong. Running in place removes the second copy entirely, so drift has nowhere to live.
+
+**Why not `scripts/` on PATH instead.** It would turn `sync-dotfiles.sh`, `dev-audit.sh` and
+five test suites into global commands, and make `test-bin.sh` shadowable by anything earlier
+in `PATH`. The two directories answer different questions — "what can I type?" versus "what
+maintains this repo?" — and only the first belongs on `PATH`.
+
+**Rejected.** Keeping `llm` in a private repo because its reference doc lived there. This
+repo is the public account of the dev workflow, and `llm` — loopback-only, refusing to read
+any `*_API_KEY` — is part of that account. The doc was rewritten self-contained as
+[docs/llm.md](llm.md); only machine-specific daemon lockdown detail stays private.
+
+**Verified.** `./test.sh` — all seven suites pass, including the new `zsh-syntax` and `bin`
+suites. `env -i … zsh -i -l -c 'whence -p llm'` resolves to `bin/llm` in a clean login shell.
+`launchctl list` shows the agent loaded against the new path.
+
+## D19 — Personal data blocks the commit once a repo is public · 2026-09-22
+
+**Decision.** `cmd_pre_commit` resolves `origin`'s visibility and sets `STRICT_PERSONAL=1` on
+a definite `PUBLIC`, so a home path, email or phone number is a BLOCK at commit time in a repo
+that is already public, not only at push.
+
+**Why.** Previously `STRICT_PERSONAL` was set only in `cmd_pre_push` and `cmd_scan_tree`, so
+personal data committed cleanly to a public repo and was caught at push — after it was in
+history, where removing it means a rewrite that [D11](#d11--fix-forward-no-history-rewrites)
+says not to do. Blocking one commit is cheaper than every option available afterwards.
+
+**The one inversion of fail-closed, stated so it is not mistaken for an oversight.** UNKNOWN
+visibility does **not** count as public here. UNKNOWN is the ordinary answer offline,
+unauthenticated, or on a non-GitHub remote, and treating it as public would block every commit
+made on a plane. The push is the real boundary and keeps failing closed; commit-time strictness
+is an early warning, not the enforcement. `scan-tree` remains unconditionally strict and is the
+check to run before a first commit.
+
+**Cost.** One `gh repo view` per repo per day at most: `remote_visibility()` already caches
+PUBLIC for 24h and PRIVATE for 1h behind a 10s timeout, and degrades to UNKNOWN rather than
+hanging.
+
+**Verified.** `./test.sh gate` — 119 pass, including the four new cases (PUBLIC blocks,
+PRIVATE warns, UNKNOWN warns, no-origin warns), that the matched value is still never printed
+([D8](#d8--findings-never-contain-the-matched-value)), and that a second commit in the same
+repo uses the cache rather than a second `gh` call.

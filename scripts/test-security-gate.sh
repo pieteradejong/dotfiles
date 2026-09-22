@@ -301,6 +301,65 @@ else
 fi
 
 # ================================================================================
+# pre-commit escalates personal data to a BLOCK when `origin` is already public,
+# so it never enters history — a WARN here plus a BLOCK at push means the fix
+# needs history surgery. UNKNOWN deliberately stays lenient; see origin_is_public
+# in security/gate.sh for why that inverts the file's fail-closed rule.
+header "pre-commit: personal data vs origin visibility"
+
+newrepo commitvis
+git remote add origin "$(bare github.com/test/commitvis.git)"
+
+answer PUBLIC
+printf 'path = /Users/alice/project\n' > cfg.txt; git add cfg.txt
+expect 1 "home path committed to a PUBLIC origin: blocked" git commit -qm homepath
+out_has 'BLOCK home-path' "home path is a blocking finding when origin is public"
+out_has 'origin is PUBLIC' "the escalation is announced, not silent"
+# Rule 1 of gate.sh: name the rule and the file, never print the matched value.
+out_lacks '/Users/alice' "the matched value is not printed"
+
+answer PRIVATE
+expect 0 "same commit to a PRIVATE origin: allowed with a warning" git commit -qm homepath
+out_has 'WARN +home-path' "home path only warns when origin is private"
+
+# UNKNOWN must NOT block a commit: it is the normal answer offline, and blocking
+# every offline commit is worse than catching this one case at push time. If this
+# test is ever "fixed" to expect 1, read origin_is_public first.
+newrepo commitvis_unk
+git remote add origin "$(bare github.com/test/commitvis-unk.git)"
+answer fail
+printf 'path = /Users/alice/project\n' > cfg.txt; git add cfg.txt
+expect 0 "UNKNOWN visibility does not block a commit (offline must still work)" git commit -qm homepath
+out_has 'WARN +home-path' "UNKNOWN visibility warns rather than blocks"
+
+# A repo with no origin at all is the pre-first-push case: nothing is published
+# yet, so warn. scan-tree is the strict check to run before that first commit.
+newrepo commitvis_noorigin
+answer PUBLIC
+printf 'path = /Users/alice/project\n' > cfg.txt; git add cfg.txt
+expect 0 "no origin: commit allowed with a warning" git commit -qm homepath
+out_has 'WARN +home-path' "no origin warns rather than blocks"
+
+# scan-tree keeps its own strictness regardless of origin — it is the explicit
+# "is this tree publishable" check, and the right one to run before a first
+# commit. It diffs against HEAD, so it needs an UNcommitted file to see.
+printf 'log = /Users/alice/out.log\n' > uncommitted.txt
+expect 1 "scan-tree stays strict about personal data even with no origin" "$GATE" scan-tree
+out_has 'BLOCK home-path' "scan-tree blocks on a home path"
+rm -f uncommitted.txt
+
+# The visibility answer must come from the cache on a second commit, not a new
+# gh call: pre-commit now does a lookup, and one per commit would be a tax.
+newrepo commitvis_cache
+git remote add origin "$(bare github.com/test/commitvis-cache.git)"
+answer PUBLIC; : > "$T/gh-calls"
+echo one > a.txt; git add a.txt; git commit -qm one >/dev/null 2>&1
+echo two > b.txt; git add b.txt; git commit -qm two >/dev/null 2>&1
+n="$(grep -c 'repo view' "$T/gh-calls" 2>/dev/null || echo 0)"
+[ "$n" = 1 ] && pass "second commit in the same repo uses the cached visibility" \
+             || fail "gh repo view called $n times across two commits, expected 1"
+
+# ================================================================================
 header "pre-push: visibility decides personal data"
 newrepo push
 printf 'contact real.person@company.io\n' > contact.md; git add contact.md; git commit -qm contact >/dev/null 2>&1

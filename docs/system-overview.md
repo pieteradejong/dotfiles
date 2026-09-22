@@ -47,9 +47,10 @@ Paths changed on 2026-09-01; these are current.
 | Thing | Path | Notes |
 |---|---|---|
 | This repo | `~/dev/dotfiles` | moved from `~/dotfiles` |
-| Loose personal scripts | `~/dev/projects/scripts/` | moved from `~/scripts`, which no longer exists |
+| Commands on `PATH` | `~/dev/dotfiles/bin/` | **repo only** — run in place. Was `~/dev/projects/scripts/` (unversioned), and `~/scripts` before that |
 | `mac-maintenance.sh` | `~/dev/dotfiles/scripts/` | **repo only** — single copy, run directly from here |
-| `weekly-disk-cleanup.sh` | `~/dev/projects/scripts/` | live copy; launchd runs this path. Repo holds a manual backup copy |
+| `weekly-disk-cleanup.sh` | `~/dev/dotfiles/bin/` | **repo only** — single copy; launchd points at this path. The old duplicate under `scripts/` is gone |
+| `llm` | `~/dev/dotfiles/bin/` | **repo only** — see [llm.md](llm.md) |
 | LaunchAgent plist | `~/Library/LaunchAgents/com.pieterdejong.weeklycleanup.plist` | backed up to `macos/` and synced by `dotbackup` |
 | Security audit plist | `~/Library/LaunchAgents/com.pieterdejong.securityaudit.plist` | repo is the source (`macos/`); installed by copying |
 | Security gate | `~/dev/dotfiles/security/gate.sh` | **repo only** — `~/.gitconfig` points at it in place |
@@ -58,9 +59,14 @@ Paths changed on 2026-09-01; these are current.
 | Secrets | `~/.zshrc.secret` | outside the repo, mode `0600`, never committed |
 
 Most of the repo is **copy-based, not symlinked** — live files in `~` are
-what the system reads; the repo holds copies. `mac-maintenance.sh` is the
-one deliberate exception: it has no live copy and is executed straight out
-of the repo, so there is nothing to keep in sync.
+what the system reads; the repo holds copies. Two deliberate exceptions have
+no live copy and are executed straight out of the repo, so there is nothing
+to keep in sync: `scripts/mac-maintenance.sh`, and everything in `bin/`,
+which is on `PATH` directly.
+
+That distinction is the whole reason `bin/` exists separately from `scripts/`:
+`bin/` holds commands meant to be typed, `scripts/` holds tooling for this repo
+and is kept off `PATH`.
 
 ## 3. Maintenance model
 

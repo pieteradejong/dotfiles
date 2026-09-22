@@ -54,6 +54,22 @@ sanitize_gitconfig() {
     sed -E -e 's#/Users/[^/[:space:]]+/#~/#g'
 }
 
+# launchd plists must carry ABSOLUTE paths — launchd does not expand `~` in
+# ProgramArguments — so every one of them embeds /Users/<name>/. Same treatment
+# as .gitconfig: store `~/` in the repo and expand it back on restore. That
+# makes the committed copy a backup rather than a directly loadable file, which
+# is what it already was; `sync restore` is the supported way to reinstall it,
+# and it puts the real paths back.
+sanitize_plist() {
+    sed -E -e 's#/Users/[^/<[:space:]]+/#~/#g'
+}
+
+# The inverse, applied on the way OUT. Only expands a leading ~/ inside an XML
+# text node, so nothing else in the plist is touched.
+desanitize_plist() {
+    sed -E -e "s#>~/#>$HOME/#g"
+}
+
 # Scoped registry lines (@<org>:registry=...) name the orgs whose private
 # packages this machine can install — a client relationship, not a setting.
 sanitize_npmrc() {
@@ -123,7 +139,7 @@ do_backup() {
     else
         defaults export com.knollsoft.Rectangle "$MACOS_DIR/rectangle.plist" 2>/dev/null && success "rectangle.plist"
     fi
-    safe_copy ~/Library/LaunchAgents/com.pieterdejong.weeklycleanup.plist "$MACOS_DIR/com.pieterdejong.weeklycleanup.plist" || true
+    sanitize_copy ~/Library/LaunchAgents/com.pieterdejong.weeklycleanup.plist "$MACOS_DIR/com.pieterdejong.weeklycleanup.plist" sanitize_plist || true
     if [ "$DRY_RUN" = true ]; then
         log ""; log "[DRY-RUN] Backup preview complete. No changes were made."
     else
@@ -176,7 +192,12 @@ do_restore() {
     fi
     if [ "$DRY_RUN" = false ]; then
         mkdir -p ~/Library/LaunchAgents
-        safe_copy "$MACOS_DIR/com.pieterdejong.weeklycleanup.plist" ~/Library/LaunchAgents/com.pieterdejong.weeklycleanup.plist
+        # Expand ~/ back to real absolute paths: launchd will not do it.
+        if desanitize_plist < "$MACOS_DIR/com.pieterdejong.weeklycleanup.plist" > ~/Library/LaunchAgents/com.pieterdejong.weeklycleanup.plist; then
+            success "com.pieterdejong.weeklycleanup.plist (paths expanded)"
+        else
+            warn "could not restore com.pieterdejong.weeklycleanup.plist"
+        fi
         log "  ${YELLOW}Note:${NC} run 'launchctl load ~/Library/LaunchAgents/com.pieterdejong.weeklycleanup.plist' to activate"
     else
         log "  [DRY-RUN] Would copy: com.pieterdejong.weeklycleanup.plist (not loaded automatically)"

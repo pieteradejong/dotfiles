@@ -6,6 +6,8 @@
 #   scripts/github-security-sweep.sh    GitHub settings sweep (stub gh, no network)
 #   scripts/security-audit.sh           the weekly audit (--quick, stub gh)
 #   scripts/audit/50-gate.sh            dotaudit's gate module
+#   scripts/sync-dotfiles.sh            the sanitizers that keep personal values
+#                                       out of this PUBLIC repo on the way in
 #
 # Run: ./scripts/test-security-tools.sh [--verbose]     Exit: 0 all passed, 1 otherwise.
 #
@@ -223,6 +225,89 @@ printf '%s\t/x\tpre-push\temail\tfixture reason\n' "$(date -u +%Y-%m-%dT%H:%M:%S
 runaudit "$A/home/.gitconfig"
 grep -q 'gate-not-registered' "$tsv" && fail "registered gate still reported" || pass "registered gate is silent"
 grep -q $'^WARN\tgate\t-\tgate-bypassed' "$tsv" && pass "recent bypass is a WARN" || fail "recent bypass not reported"
+
+# ================================================================================
+# The sanitizers are the reason a backup of a live config can be committed to a
+# public repo at all. They run on the way IN, so a regression here republishes a
+# real value on the next `dotbackup` — with nothing to notice it but the gate.
+header "sync-dotfiles.sh sanitizers"
+
+# Extract ONLY the sanitizer function bodies. Sourcing the script's whole
+# prologue instead would also define its log/success/warn/fail helpers, and its
+# fail() calls `exit 1` — which silently replaces this suite's fail(), so the
+# first failing assertion would abort the run before the summary instead of
+# being counted. Its log() also writes to the real ~/.dotfiles-backup/sync.log.
+awk '/^(sanitize|desanitize)_[a-z_]+\(\) \{/,/^\}/' \
+  "$DOTFILES_DIR/scripts/sync-dotfiles.sh" > "$T/sanitizers.sh"
+# shellcheck source=/dev/null
+. "$T/sanitizers.sh"
+
+n_fn="$(grep -c '^\(sanitize\|desanitize\)_[a-z_]*() {' "$T/sanitizers.sh")"
+[ "$n_fn" -ge 4 ] && pass "extracted $n_fn sanitizers from sync-dotfiles.sh" \
+                  || fail "expected at least 4 sanitizers, extracted $n_fn"
+# The extraction must not have dragged in the script's own fail(), which exits.
+grep -q '^fail()' "$T/sanitizers.sh" \
+  && fail "the extraction pulled in sync-dotfiles.sh's fail() and would abort this suite" \
+  || pass "the extraction defines sanitizers only, not the script's helpers"
+
+# --- gitconfig: absolute home paths become ~/ --------------------------------
+printf 'excludesfile = /Users/someone/.gitignore_global\n' > "$T/gc"
+out="$(sanitize_gitconfig < "$T/gc")"
+case "$out" in
+  *"/Users/"*) fail "sanitize_gitconfig rewrites an absolute home path" ;;
+  *"~/.gitignore_global"*) pass "sanitize_gitconfig rewrites an absolute home path" ;;
+  *) fail "sanitize_gitconfig rewrites an absolute home path (got: $out)" ;;
+esac
+
+# --- ssh config: host, user and port are replaced by placeholders ------------
+printf 'Host h\n  HostName real.example.net\n  User someone\n  Port 2222\n' > "$T/ssh"
+out="$(sanitize_ssh_config < "$T/ssh")"
+case "$out" in
+  *real.example.net*|*someone*|*2222*) fail "sanitize_ssh_config removes host, user and port" ;;
+  *) pass "sanitize_ssh_config removes host, user and port" ;;
+esac
+
+# --- launchd plist: absolute paths in, ~/ out, and an exact round-trip -------
+# launchd will not expand ~, so the committed copy is a backup that `restore`
+# expands. If the round-trip is not exact, restore installs a broken agent.
+cat > "$T/agent.plist" <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0">
+<dict>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/Users/someone/dev/dotfiles/bin/weekly-disk-cleanup.sh</string>
+	</array>
+	<key>StandardOutPath</key>
+	<string>/Users/someone/.weekly-disk-cleanup.launchd.log</string>
+</dict>
+</plist>
+PLIST
+sanitize_plist < "$T/agent.plist" > "$T/agent.sanitized"
+grep -qE '/Users/[a-z]' "$T/agent.sanitized" \
+  && fail "sanitize_plist leaves no absolute home path" \
+  || pass "sanitize_plist leaves no absolute home path"
+grep -q '<string>~/dev/dotfiles/bin/weekly-disk-cleanup.sh</string>' "$T/agent.sanitized" \
+  && pass "sanitize_plist keeps the path readable as ~/" \
+  || fail "sanitize_plist keeps the path readable as ~/"
+
+# The round-trip must reproduce the original exactly, for THIS machine's $HOME.
+sed -e "s#/Users/someone/#$HOME/#g" "$T/agent.plist" > "$T/agent.expected"
+desanitize_plist < "$T/agent.sanitized" > "$T/agent.roundtrip"
+diff -q "$T/agent.expected" "$T/agent.roundtrip" >/dev/null \
+  && pass "sanitize_plist | desanitize_plist round-trips exactly" \
+  || fail "sanitize_plist | desanitize_plist round-trips exactly"
+if command -v plutil >/dev/null 2>&1; then
+  plutil -lint "$T/agent.roundtrip" > "$OUT" 2>&1 \
+    && pass "the round-tripped plist is still valid" \
+    || fail "the round-tripped plist is still valid"
+fi
+
+# The repo's own committed plist must already be sanitized — this is the check
+# that would have caught the finding that blocked the commit introducing it.
+grep -qE '/Users/[a-z]' "$DOTFILES_DIR/macos/com.pieterdejong.weeklycleanup.plist" \
+  && fail "the committed LaunchAgent plist carries no absolute home path" \
+  || pass "the committed LaunchAgent plist carries no absolute home path"
 
 # ================================================================================
 header "Summary"

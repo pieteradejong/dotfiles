@@ -66,8 +66,14 @@ Reclaims space from caches that regenerate and Trash that was already discarded.
 
 | Live location | Backed up here |
 |---|---|
-| `~/dev/projects/scripts/weekly-disk-cleanup.sh` | `scripts/weekly-disk-cleanup.sh` (a copy; the live script is the one that runs) |
+| [`bin/weekly-disk-cleanup.sh`](../bin/weekly-disk-cleanup.sh) | itself — the repo file *is* the live script; launchd runs this path. There is no second copy |
 | `~/Library/LaunchAgents/com.pieterdejong.weeklycleanup.plist` | [`macos/com.pieterdejong.weeklycleanup.plist`](../macos/com.pieterdejong.weeklycleanup.plist) |
+
+The script is never executed by the test suite — it empties Trash and prunes
+caches. `./test.sh bin` asserts it statically instead: that it parses, that every
+aggressive form in its `IDEAS` block is still commented out, that the live
+`docker system prune` has no `-a`/`--volumes`, and that the only live `rm -rf` is
+the `~/.Trash` sweep with its age filter intact.
 
 | Step | What it does | Why it is safe |
 |---|---|---|

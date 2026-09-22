@@ -366,7 +366,7 @@ source $PERSONAL_HOME_DIR/powerlevel10k/powerlevel10k.zsh-theme
 # To customize prompt, run `p10k configure` or edit ~/.p10k.zsh.
 [[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh
 
-export PATH="$HOME/dev/projects/scripts:$PATH"
+export PATH="$HOME/dev/dotfiles/bin:$PATH"
 
 
 # ============================================

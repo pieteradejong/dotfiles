@@ -1,0 +1,418 @@
+#!/usr/bin/env zsh
+#
+# llm — talk to whichever local model is actually available. Never the cloud.
+#
+# Discovers a local inference backend (Ollama, then any OpenAI-compatible
+# server on loopback, then mlx-lm), classifies the models it finds into
+# coder/reasoner roles by name, and routes the prompt to the right one.
+#
+# Routing, in priority order:
+#   llm code "..."     -> force the coder role      (subcommand)
+#   llm reason "..."   -> force the reasoner role   (subcommand)
+#   llm -m TAG "..."   -> force an exact model
+#   llm "..."          -> classify the prompt and pick a role automatically
+#
+# The zero-cloud guarantee is structural, not a convention: every endpoint must
+# resolve to loopback, any model tag containing "cloud" is refused, and no
+# *_API_KEY is ever read or forwarded. See docs/llm.md for the whole picture;
+# the daemon-side half (binding, egress) is machine-specific and lives outside
+# this repo.
+#
+# Replaces the earlier `ailocal` script and the `ollm` shell function; both
+# names are gone rather than aliased, so there is exactly one entry point.
+
+emulate -L zsh
+setopt pipe_fail no_nomatch
+
+PROG=llm
+LOCKDOWN_DOC="~/dev/dotfiles/docs/llm.md"
+
+# --- output helpers ----------------------------------------------------------
+
+QUIET=""
+note() { [[ -n $QUIET ]] || print -u2 -- "$PROG: $*"; }
+die()  { print -u2 -- "$PROG: $*"; exit 1; }
+
+usage() {
+  cat <<'USAGE'
+llm — run a prompt against whichever local model is available. No cloud.
+
+Usage:
+  llm [code|reason] [options] [prompt...]
+  <command> | llm [code|reason] [options] [prompt...]   # stdin becomes context
+  llm                                                   # interactive REPL
+
+Commands:
+  code              route to the coder model
+  reason            route to the reasoner model
+  (omitted)         classify the prompt and pick a role automatically
+
+  A leading 'code' or 'reason' is only a command when it is the first word of
+  the prompt position; llm "code review this" is a prompt, not a command.
+
+Options:
+  -m, --model TAG   force an exact model (overrides the command)
+  -s, --system TXT  system prompt
+  -t, --think       stream the model's reasoning too (default: answer only)
+  -l, --list        show backends, models, roles, and what's resident
+  -q, --quiet       suppress stderr routing notes
+      --dry-run     print the routing decision and exit without inferring
+  -h, --help        this help
+
+Environment:
+  LLM_ENDPOINTS     comma-separated host:port list to probe (loopback only)
+  LLM_MLX_MODEL     model path/id for the mlx-lm fallback backend
+  OLLAMA_HOST       honoured for the Ollama probe (loopback only)
+USAGE
+}
+
+# --- zero-cloud guards -------------------------------------------------------
+
+assert_loopback() {
+  local host=${1%%:*}
+  case ${host:l} in
+    127.0.0.1|localhost|::1|'[::1]'|0.0.0.0) return 0 ;;
+    *) die "refusing non-loopback endpoint '$1' — llm is local-only. See $LOCKDOWN_DOC" ;;
+  esac
+}
+
+assert_not_cloud() {
+  local m=${1:l}
+  if [[ $m =~ '(^|[^a-z])cloud([^a-z]|$)' ]]; then
+    die "refusing model '$1' — cloud-routed tags are not local inference. See $LOCKDOWN_DOC"
+  fi
+}
+
+# --- argument parsing --------------------------------------------------------
+
+ROLE="" FORCE_MODEL="" SYSTEM="" KEEP_THINK="" DO_LIST="" DRY_RUN=""
+typeset -a WORDS
+while (( $# )); do
+  case $1 in
+    -m|--model)   shift; [[ -n $1 ]] || die "--model needs a tag"; FORCE_MODEL=$1 ;;
+    -s|--system)  shift; [[ -n $1 ]] || die "--system needs text"; SYSTEM=$1 ;;
+    -t|--think)   KEEP_THINK=1 ;;
+    -l|--list)    DO_LIST=1 ;;
+    -q|--quiet)   QUIET=1 ;;
+    --dry-run)    DRY_RUN=1 ;;
+    -h|--help)    usage; exit 0 ;;
+    --)           shift; WORDS+=("$@"); break ;;
+    -*)           die "unknown option '$1' (try --help)" ;;
+    # 'code' / 'reason' are commands only in the first prompt-word position, so
+    # a genuine prompt like `llm "code review this"` (one word) is unaffected,
+    # and so is `llm explain this code` (not the first word).
+    code|coder)     if (( ${#WORDS} == 0 )) && [[ -z $ROLE ]]; then ROLE=coder;    else WORDS+=("$1"); fi ;;
+    reason|reasoner) if (( ${#WORDS} == 0 )) && [[ -z $ROLE ]]; then ROLE=reasoner; else WORDS+=("$1"); fi ;;
+    *)            WORDS+=("$1") ;;
+  esac
+  shift
+done
+
+(( $+commands[curl] )) || die "curl not found"
+(( $+commands[jq]   )) || die "jq not found — brew install jq"
+
+# --- backend discovery -------------------------------------------------------
+
+BACKEND="" BASE="" 
+
+normalize_ep() {
+  local ep=$1
+  ep=${ep#http://}; ep=${ep#https://}; ep=${ep%/}
+  [[ $ep == *:* ]] || ep="$ep:11434"
+  print -r -- "$ep"
+}
+
+typeset -a ENDPOINTS
+if [[ -n $LLM_ENDPOINTS ]]; then
+  ENDPOINTS=(${(s:,:)LLM_ENDPOINTS})
+else
+  ENDPOINTS=("${OLLAMA_HOST:-127.0.0.1:11434}" 127.0.0.1:1234 127.0.0.1:8080)
+fi
+
+TAGS_JSON=""
+probe() {
+  local ep=$1 body
+  body=$(curl -s --connect-timeout 1 --max-time 15 "http://$ep/api/tags" 2>/dev/null)
+  if [[ -n $body ]] && print -r -- "$body" | jq -e '.models' >/dev/null 2>&1; then
+    BACKEND=ollama; BASE="http://$ep"; TAGS_JSON=$body; return 0
+  fi
+  body=$(curl -s --connect-timeout 1 --max-time 15 -H 'Authorization: Bearer local' "http://$ep/v1/models" 2>/dev/null)
+  if [[ -n $body ]] && print -r -- "$body" | jq -e '.data' >/dev/null 2>&1; then
+    BACKEND=openai; BASE="http://$ep"; TAGS_JSON=$body; return 0
+  fi
+  return 1
+}
+
+discover() {
+  local ep
+  for ep in $ENDPOINTS; do
+    ep=$(normalize_ep "$ep")
+    assert_loopback "$ep"
+    probe "$ep" && return 0
+  done
+  if (( $+commands[mlx_lm.generate] )); then
+    [[ -n $LLM_MLX_MODEL ]] || die "mlx-lm found but LLM_MLX_MODEL is unset — set it to a local model path"
+    BACKEND=mlx; BASE="mlx_lm"; return 0
+  fi
+  die "no local backend reachable on ${(j:, :)ENDPOINTS} — start Ollama with 'ollama serve' or open Ollama.app"
+}
+
+discover
+
+# --- model inventory and roles ----------------------------------------------
+
+# Each line: name<TAB>capabilities
+list_models() {
+  case $BACKEND in
+    ollama) print -r -- "$TAGS_JSON" | jq -r '.models[] | "\(.name)\t\((.capabilities // [])|join(","))"' ;;
+    openai) print -r -- "$TAGS_JSON" | jq -r '.data[] | "\(.id)\t"' ;;
+    mlx)    print -r -- "$LLM_MLX_MODEL\t" ;;
+  esac
+}
+
+# Roles come from the model NAME, not a hardcoded tag list, so a fresh
+# `ollama pull` routes correctly without editing this script.
+classify() {
+  local n=${1:l}
+  if [[ $n =~ '(coder|code|devstral|codestral|starcoder|codegemma|codellama)' ]]; then
+    print -r -- coder
+  elif [[ $n =~ '(r1|qwq|magistral|reason|thinking|deepthink)' ]]; then
+    print -r -- reasoner
+  else
+    print -r -- general
+  fi
+}
+
+typeset -a CODER_M REASON_M GENERAL_M
+typeset -A CAPS
+while IFS=$'\t' read -r name caps; do
+  [[ -n $name ]] || continue
+  CAPS[$name]=$caps
+  case $(classify "$name") in
+    coder)    CODER_M+=("$name") ;;
+    reasoner) REASON_M+=("$name") ;;
+    *)        GENERAL_M+=("$name") ;;
+  esac
+done < <(list_models)
+
+(( ${#CODER_M} + ${#REASON_M} + ${#GENERAL_M} )) || die "backend at $BASE has no models — pull one with 'ollama pull qwen3-coder:30b'"
+
+resident_model() {
+  [[ $BACKEND == ollama ]] || return 0
+  curl -s --connect-timeout 1 --max-time 5 "$BASE/api/ps" 2>/dev/null | jq -r '.models[0].name // empty' 2>/dev/null
+}
+
+pick_from() {
+  # first model of the named role, falling back to general
+  case $1 in
+    coder)    print -r -- "${CODER_M[1]:-${GENERAL_M[1]:-${REASON_M[1]}}}" ;;
+    reasoner) print -r -- "${REASON_M[1]:-${GENERAL_M[1]:-${CODER_M[1]}}}" ;;
+    *)        print -r -- "${GENERAL_M[1]:-${CODER_M[1]:-${REASON_M[1]}}}" ;;
+  esac
+}
+
+# --- --list ------------------------------------------------------------------
+
+if [[ -n $DO_LIST ]]; then
+  local res=$(resident_model)
+  print -r -- "backend:  $BACKEND @ $BASE"
+  print -r -- "resident: ${res:-(none loaded)}"
+  print -r -- "models:"
+  local n
+  for n in $CODER_M $REASON_M $GENERAL_M; do
+    printf '  %-22s %-9s %s\n' "$n" "$(classify $n)" "${CAPS[$n]}"
+  done
+  print -r -- "commands:"
+  printf '  %-22s %s\n' "llm code ..."   "$(pick_from coder)"
+  printf '  %-22s %s\n' "llm reason ..." "$(pick_from reasoner)"
+  printf '  %-22s %s\n' "llm ..."        "(auto: classified per prompt)"
+  exit 0
+fi
+
+# --- prompt assembly ---------------------------------------------------------
+
+PROMPT="${(j: :)WORDS}"
+STDIN_TEXT=""
+if [[ ! -t 0 ]]; then
+  STDIN_TEXT=$(cat)
+fi
+
+CONTENT=""
+if [[ -n $STDIN_TEXT && -n $PROMPT ]]; then
+  CONTENT="$STDIN_TEXT"$'\n\n'"$PROMPT"
+elif [[ -n $STDIN_TEXT ]]; then
+  CONTENT="$STDIN_TEXT"
+else
+  CONTENT="$PROMPT"
+fi
+
+# --- routing -----------------------------------------------------------------
+
+looks_like_code() {
+  local t=${1:l}
+  [[ $t == *'```'* ]] && return 0
+  [[ $t =~ '\.(py|ts|tsx|js|jsx|go|rs|sh|zsh|sql|json|ya?ml|toml|c|cc|cpp|h|hpp|rb|java|php|swift|css|html)([^a-z0-9]|$)' ]] && return 0
+  [[ $t =~ '(traceback|syntaxerror|typeerror|nullpointer|segfault|panic:|error\[e|exception|stack ?trace|core dumped)' ]] && return 0
+  [[ $t =~ '(^|[^a-z])(code|coding|function|method|class|refactor|compile|compiler|debug|bug|regex|sql|query|script|api|endpoint|typescript|javascript|python|golang|rust|docker|kubernetes|git|npm|yarn|pytest|unit test|lint|linter|stacktrace|import|module|package|dependency|test suite)([^a-z]|$)' ]] && return 0
+  [[ $t =~ '(^|[[:space:]])[a-z0-9_.-]+/[a-z0-9_./-]+' ]] && return 0
+  return 1
+}
+
+REASON_WHY=""
+if [[ -n $FORCE_MODEL ]]; then
+  MODEL=$FORCE_MODEL
+  REASON_WHY="--model"
+elif [[ -n $ROLE ]]; then
+  MODEL=$(pick_from $ROLE)
+  REASON_WHY="forced $ROLE"
+elif (( ${#CODER_M} == 0 || ${#REASON_M} == 0 )) && (( ${#CODER_M} + ${#REASON_M} + ${#GENERAL_M} == 1 )); then
+  MODEL=${CODER_M[1]:-${REASON_M[1]:-${GENERAL_M[1]}}}
+  REASON_WHY="only model available"
+elif looks_like_code "$CONTENT"; then
+  MODEL=$(pick_from coder)
+  REASON_WHY="code intent"
+else
+  MODEL=$(pick_from reasoner)
+  REASON_WHY="general intent"
+fi
+
+[[ -n $MODEL ]] || die "could not pick a model"
+assert_not_cloud "$MODEL"
+
+if [[ $BACKEND == ollama ]] && [[ -z ${CAPS[$MODEL]+x} ]] && [[ -n $FORCE_MODEL ]]; then
+  die "model '$MODEL' is not available locally — 'llm --list' shows what is"
+fi
+
+note "→ $MODEL ($REASON_WHY) [$BACKEND]"
+RESIDENT=$(resident_model)
+if [[ -n $RESIDENT && $RESIDENT != $MODEL ]]; then
+  note "swapping out $RESIDENT — expect a full model reload"
+fi
+
+if [[ -n $DRY_RUN ]]; then
+  print -r -- "backend: $BACKEND @ $BASE"
+  print -r -- "model:   $MODEL ($REASON_WHY)"
+  print -r -- "think:   $([[ -n $KEEP_THINK ]] && print keep || print strip)"
+  exit 0
+fi
+
+# --- interactive -------------------------------------------------------------
+
+if [[ -z $CONTENT ]]; then
+  if [[ -t 0 && -t 1 ]]; then
+    [[ $BACKEND == ollama ]] || die "interactive mode is Ollama-only; pass a prompt instead"
+    exec ollama run "$MODEL"
+  fi
+  die "no prompt given (try: llm \"your question\")"
+fi
+
+# --- streaming output filter -------------------------------------------------
+# Strips <think>…</think> across chunk boundaries and guarantees one trailing
+# newline. Always in the pipe so every backend behaves the same.
+
+STRIP=1; [[ -n $KEEP_THINK ]] && STRIP=0
+
+think_filter() {
+  perl -e '
+$| = 1;
+my $strip = shift(@ARGV);
+my ($buf, $in, $started, $last) = ("", 0, 0, "");
+sub emit {
+  my $s = shift;
+  return if $s eq "";
+  if (!$started) { $s =~ s/\A\s+//; return if $s eq ""; $started = 1; }
+  print $s; $last = substr($s, -1);
+}
+while (1) {
+  my $chunk;
+  my $n = sysread(STDIN, $chunk, 8192);
+  last if !defined($n) || $n == 0;
+  $buf .= $chunk;
+  if (!$strip) { emit($buf); $buf = ""; next; }
+  while (1) {
+    if (!$in) {
+      if ($buf =~ /\A(.*?)<think>/s) { emit($1); $buf = substr($buf, $+[0]); $in = 1; next; }
+      my $keep = 0;
+      for my $l (1 .. 7) { $keep = $l if length($buf) >= $l && substr($buf, -$l) eq substr("<think>", 0, $l); }
+      emit(substr($buf, 0, length($buf) - $keep));
+      $buf = $keep ? substr($buf, -$keep) : "";
+      last;
+    } else {
+      if ($buf =~ m{\A.*?</think>}s) { $buf = substr($buf, $+[0]); $in = 0; $started = 0; next; }
+      my $keep = 0;
+      for my $l (1 .. 8) { $keep = $l if length($buf) >= $l && substr($buf, -$l) eq substr("</think>", 0, $l); }
+      $buf = $keep ? substr($buf, -$keep) : "";
+      last;
+    }
+  }
+}
+emit($buf) if !$in;
+print "\n" if $started && $last ne "\n";
+' "$1"
+}
+
+# --- request -----------------------------------------------------------------
+
+run_ollama() {
+  local think_json="" prog req
+  # Only thinking-capable models accept the think parameter at all.
+  if [[ ${CAPS[$MODEL]} == *thinking* ]]; then
+    think_json=$([[ -n $KEEP_THINK ]] && print true || print false)
+  fi
+
+  typeset -a a
+  a=(-n --arg m "$MODEL" --arg u "$CONTENT")
+  prog='{model:$m, stream:true, messages:[{role:"user",content:$u}]}'
+  if [[ -n $SYSTEM ]]; then
+    a+=(--arg s "$SYSTEM")
+    prog='{model:$m, stream:true, messages:[{role:"system",content:$s},{role:"user",content:$u}]}'
+  fi
+  [[ -n $think_json ]] && prog="$prog + {think: $think_json}"
+  req=$(jq "${a[@]}" "$prog") || die "failed to build request"
+
+  # Ollama 0.33 ignores think:false for deepseek-r1 and streams .message.thinking
+  # anyway, so suppressing the reasoning has to happen client-side.
+  local extract='(.message.content // "")'
+  [[ -n $KEEP_THINK ]] && extract='((.message.thinking // "") + (.message.content // ""))'
+
+  curl -sSN --connect-timeout 5 "$BASE/api/chat" \
+       -H 'Content-Type: application/json' -d "$req" \
+    | jq -j --unbuffered '
+        if has("error")
+        then (("'"$PROG"': backend error: " + (.error|tostring) + "\n") | stderr | empty)
+        else '"$extract"' end'
+}
+
+run_openai() {
+  local prog req
+  typeset -a a
+  a=(-n --arg m "$MODEL" --arg u "$CONTENT")
+  prog='{model:$m, stream:true, messages:[{role:"user",content:$u}]}'
+  if [[ -n $SYSTEM ]]; then
+    a+=(--arg s "$SYSTEM")
+    prog='{model:$m, stream:true, messages:[{role:"system",content:$s},{role:"user",content:$u}]}'
+  fi
+  req=$(jq "${a[@]}" "$prog") || die "failed to build request"
+
+  # No API key is ever read from the environment; local servers that insist on
+  # a header get a placeholder.
+  curl -sSN --connect-timeout 5 "$BASE/v1/chat/completions" \
+       -H 'Content-Type: application/json' -H 'Authorization: Bearer local' -d "$req" \
+    | jq -Rj --unbuffered '
+        ltrimstr("data: ")
+        | select(. != "" and . != "[DONE]")
+        | (fromjson? // {})
+        | (.choices[0].delta.content // "")'
+}
+
+run_mlx() {
+  local -a args=(--model "$LLM_MLX_MODEL" --prompt "$CONTENT")
+  [[ -n $SYSTEM ]] && args+=(--system-prompt "$SYSTEM")
+  mlx_lm.generate "${args[@]}"
+}
+
+case $BACKEND in
+  ollama) run_ollama | think_filter $STRIP ;;
+  openai) run_openai | think_filter $STRIP ;;
+  mlx)    run_mlx    | think_filter $STRIP ;;
+esac

@@ -3,11 +3,16 @@
 # test.sh — every test in this repo, in one command. CI runs exactly this.
 #
 #   ./test.sh                 all suites
-#   ./test.sh gate            one suite: shellcheck | gate | tools | dotaudit | containers
+#   ./test.sh gate            one suite: shellcheck | zsh-syntax | bin | gate |
+#                                        tools | dotaudit | containers
 #   ./test.sh --verbose       pass --verbose through to each suite
 #
 # Suites:
 #   [shellcheck] every security-relevant shell script, at default severity
+#   [zsh-syntax] zsh -n over bin/ — shellcheck cannot parse zsh
+#   bin         scripts/test-bin.sh             (bin/llm routing + zero-cloud
+#                                                guards; bin/weekly-disk-cleanup.sh
+#                                                asserted statically, never run)
 #   gate        scripts/test-security-gate.sh   (the commit/push gate)
 #   tools       scripts/test-security-tools.sh  (Claude guard hook, GitHub sweep,
 #                                                weekly audit, dotaudit gate module)
@@ -24,8 +29,8 @@ ONLY=""
 for a in "$@"; do
   case "$a" in
     --verbose) VERBOSE="--verbose" ;;
-    shellcheck|gate|tools|dotaudit|containers) ONLY="$a" ;;
-    -h|--help) sed -n '3,18p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    shellcheck|zsh-syntax|bin|gate|tools|dotaudit|containers) ONLY="$a" ;;
+    -h|--help) sed -n '3,22p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown argument: $a" >&2; exit 2 ;;
   esac
 done
@@ -51,6 +56,14 @@ scripts/sync-dotfiles.sh
 scripts/test-security-gate.sh
 scripts/test-security-tools.sh
 scripts/test-containers-doctor.sh
+scripts/test-bin.sh
+"
+
+# zsh scripts. shellcheck has no zsh support, so these get `zsh -n` instead of a
+# lint pass. Keep the two lists disjoint: a file belongs to exactly one.
+ZSH_FILES="
+bin/llm
+bin/weekly-disk-cleanup.sh
 "
 
 RESULTS=""
@@ -70,7 +83,20 @@ shellcheck_all() {
   shellcheck -x $SHELLCHECK_FILES && echo "shellcheck: clean ($(echo $SHELLCHECK_FILES | wc -w | tr -d ' ') files)"
 }
 
+# shellcheck disable=SC2329 # invoked through run_suite
+zsh_syntax_all() {
+  command -v zsh >/dev/null 2>&1 || { echo "zsh is not installed"; return 1; }
+  local f rc=0
+  for f in $ZSH_FILES; do
+    zsh -n "$f" || { echo "zsh -n failed: $f"; rc=1; }
+  done
+  [ "$rc" = 0 ] && echo "zsh -n: clean ($(echo "$ZSH_FILES" | wc -w | tr -d ' ') files)"
+  return "$rc"
+}
+
 run_suite shellcheck shellcheck_all
+run_suite zsh-syntax zsh_syntax_all
+run_suite bin      bash scripts/test-bin.sh $VERBOSE
 run_suite gate     bash scripts/test-security-gate.sh $VERBOSE
 run_suite tools    bash scripts/test-security-tools.sh $VERBOSE
 run_suite dotaudit bash scripts/test-dev-audit.sh $VERBOSE

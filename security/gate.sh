@@ -59,7 +59,7 @@ fi
 N_BLOCK=0
 N_WARN=0
 RULES_HIT=""
-STRICT_PERSONAL=0     # 1 when pushing to a PUBLIC or unknown remote
+STRICT_PERSONAL=0     # 1 when the content is headed somewhere public
 TMPD=""
 
 # shellcheck disable=SC2329 # invoked by the trap
@@ -69,8 +69,27 @@ trap cleanup EXIT
 say()   { printf '%s\n' "$*" >&2; }
 block() { N_BLOCK=$((N_BLOCK + 1)); RULES_HIT="$RULES_HIT $1"; say "${C_RED}BLOCK${C_RST} $1: $2"; }
 warn()  { N_WARN=$((N_WARN + 1));   say "${C_YEL}WARN ${C_RST} $1: $2"; }
-# Personal data: a warning, unless this push is going somewhere public.
+# Personal data: a warning, unless the content is headed somewhere public.
 personal() { if [ "$STRICT_PERSONAL" = 1 ]; then block "$@"; else warn "$@"; fi; }
+
+# origin_is_public — true only on a DEFINITE PUBLIC answer for `origin`.
+#
+# Used by pre-commit to fail early on personal data in a repo that is already
+# public, rather than letting it into history and blocking the push afterwards —
+# by which point the fix needs history surgery.
+#
+# UNKNOWN deliberately does NOT count as public here, which inverts this file's
+# fail-closed rule. That inversion is intentional and scoped to `git commit`:
+# UNKNOWN is the normal answer when offline, unauthenticated, or on a non-GitHub
+# remote, and treating it as public would block every commit made on a plane.
+# The push is the real boundary and keeps failing closed (cmd_pre_push), as does
+# scan-tree. Commit-time strictness is an early warning, not the enforcement.
+origin_is_public() {
+  local url
+  url="$(git config --get remote.origin.url 2>/dev/null)" || return 1
+  [ -n "$url" ] || return 1
+  [ "$(remote_visibility "$url")" = PUBLIC ]
+}
 
 num() { printf '%s' "$1" | tr -dc '0-9' | head -c 12; }
 
@@ -259,6 +278,14 @@ cmd_pre_commit() {
   git diff --cached --name-only --no-renames --diff-filter=ACMR > "$names" 2>/dev/null
   git diff --cached --raw --no-abbrev --no-renames --diff-filter=ACMR > "$raw" 2>/dev/null
   [ -s "$names" ] || return 0
+
+  # Already public? Then personal data is a BLOCK now rather than a WARN now and
+  # a blocked push later. See origin_is_public for why UNKNOWN stays lenient.
+  # scan-tree sets this itself and must keep its own value.
+  if [ "$STRICT_PERSONAL" != 1 ] && origin_is_public; then
+    STRICT_PERSONAL=1
+    say "${C_DIM}security-gate: origin is PUBLIC — personal data blocks this commit${C_RST}"
+  fi
 
   check_names "$names"
   check_private_dir "$names"

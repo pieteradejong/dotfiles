@@ -98,12 +98,14 @@ dotfiles/
 │   └── lib/visibility.sh           # is this push going somewhere public?
 ├── claude/
 │   └── hooks/guard-git-bypass.sh   # Claude Code hook: the assistant cannot bypass the gate
-├── scripts/        # Management scripts
+├── bin/            # On PATH - general commands, run in place from here
+│   ├── llm                         # prompt a local model, never the cloud (docs/llm.md)
+│   └── weekly-disk-cleanup.sh      # only copy; launchd runs this path
+├── scripts/        # Management scripts for this repo - deliberately NOT on PATH
 │   ├── sync-dotfiles.sh            # Main sync script
 │   ├── test-dotfiles-setup.sh
 │   ├── mac-maintenance.sh          # System stats report (only copy, run from here)
-│   ├── weekly-disk-cleanup.sh      # STALE DUPLICATE - the live copy is in
-│   │                               # ~/dev/projects/scripts/, which is what launchd runs
+│   ├── test-bin.sh                 # bin/ routing, zero-cloud guards, cleanup safety
 │   ├── security-audit.sh           # weekly full security & privacy audit
 │   ├── github-security-sweep.sh    # GitHub-side settings for every owned repo
 │   ├── dev-audit.sh                # `dotaudit`: read-only audit of all ~/dev git repos
@@ -287,7 +289,7 @@ Items identified in the last audit — most are now done; a couple were
 deliberately decided against or accepted as-is rather than "fixed":
 
 - [ ] **Secrets filename mismatch — singular vs plural** ⚠️ *regressed 2026-09-01*: The live (and now tracked) `shell/.zshrc` sources `~/.zshrc.secret` (**singular**, line 2), which is the file that actually exists and holds the real values. But `shell/.zshrc.secrets.template`, the [Secrets pattern](#secrets-pattern) section above, and `scripts/test/assertions.sh:56` all reference `.zshrc.secrets` (**plural**) — so **that assertion currently fails**. Not a security hole: `.gitignore` covers both via `*secret*`, and no secrets file has ever been committed. Fix by picking one name — aligning the docs/template/test to the singular reality is the lower-risk direction, since it doesn't touch a live file holding real credentials.
-- [ ] **`shell/.zshrc` sources a dead path**: `[[ -f ~/scripts/ollm.zsh ]] && source ~/scripts/ollm.zsh` — `~/scripts/` no longer exists (contents moved to `~/dev/projects/scripts/`), so this is a silent no-op. Update the path to `~/dev/projects/scripts/ollm.zsh` in the *live* `~/.zshrc`, then `dotbackup`.
+- [x] ~~**`shell/.zshrc` sources a dead path** (`~/scripts/ollm.zsh`)~~: Obsolete as written — the source line is gone from the live `~/.zshrc`, and `ollm.zsh` was itself deleted rather than moved when `llm` replaced it, so there was no path to repoint at. The directory it lived in (`~/dev/projects/scripts/`) is also gone: its contents are now `bin/` in this repo (2026-09-22).
 - [x] **`.gitignore` — add missing patterns**: `.zshrc.secrets`, `.zshrc.local`, and `*secret*` are all covered (verified 2026-09-04)
 - [ ] ~~**Create `install.sh`**~~: Skipped — `sync-dotfiles.sh restore` already handles file placement; a separate `install.sh` adds no real value
 - [x] **README — expand secrets pattern section**: See [Secrets pattern](#secrets-pattern) above
