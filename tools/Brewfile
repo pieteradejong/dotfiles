@@ -51,6 +51,8 @@ brew "gh"
 brew "git"
 # Quickly rewrite git repository history
 brew "git-filter-repo"
+# Audit git repos for secrets
+brew "gitleaks"
 # Open-source build automation tool based on the Groovy and Kotlin DSL
 brew "gradle"
 # Graph visualization software from AT&T and Bell Labs
@@ -111,6 +113,8 @@ brew "rtmpdump"
 brew "ruff"
 # Unsupervised text tokenizer and detokenizer
 brew "sentencepiece"
+# Static analysis and lint tool, for (ba)sh scripts
+brew "shellcheck"
 # Contract-oriented programming language
 brew "solidity"
 # Tool to create intelligent and beautiful documentation
@@ -121,6 +125,8 @@ brew "spicetify-cli"
 brew "termcolor"
 # Display directories as trees (with optional color/HTML output)
 brew "tree"
+# Markup-based typesetting system
+brew "typst"
 # Internet file retriever
 brew "wget"
 # Modular BSD reimplementation of NASM
