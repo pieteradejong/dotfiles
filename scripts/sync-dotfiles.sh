@@ -186,10 +186,35 @@ do_backup() {
         fi
         rm -f "$BACKUP_ROOT/iterm2.xml"
     fi
+    # Rectangle's export carries Sparkle's update-check state — the time of the
+    # last check, a per-install group UUID, a one-shot launch flag and the saved
+    # frame of the update alert window. None of it is configuration, and
+    # SULastCheckTime changes on every check, so the stored file went dirty on
+    # its own between sessions and every sync produced a diff worth nothing.
+    # Store XML rather than the binary `defaults` writes, for the same reasons
+    # as iTerm2 above: a diff a human can read, and a file the text-based
+    # scanners can see. `defaults import` reads XML, so restore is unchanged.
     if [ "$DRY_RUN" = true ]; then
-        log "  [DRY-RUN] Would export: rectangle.plist"
+        log "  [DRY-RUN] Would export (xml, volatile keys dropped): rectangle.plist"
+    elif defaults export com.knollsoft.Rectangle "$BACKUP_ROOT/rectangle.plist" 2>/dev/null; then
+        # Keypaths, one per line: the update-alert key contains spaces.
+        while IFS= read -r rkey; do
+            [ -n "$rkey" ] || continue
+            plutil -remove "$rkey" "$BACKUP_ROOT/rectangle.plist" 2>/dev/null || true
+        done <<'RECTVOLATILE'
+SULastCheckTime
+SUHasLaunchedBefore
+SUUpdateGroupIdentifier
+NSWindow Frame SUUpdateAlert2
+RECTVOLATILE
+        if plutil -convert xml1 -o "$MACOS_DIR/rectangle.plist" "$BACKUP_ROOT/rectangle.plist" 2>/dev/null; then
+            success "rectangle.plist (xml, volatile keys dropped)"
+        else
+            warn "could not write rectangle.plist"
+        fi
+        rm -f "$BACKUP_ROOT/rectangle.plist"
     else
-        defaults export com.knollsoft.Rectangle "$MACOS_DIR/rectangle.plist" 2>/dev/null && success "rectangle.plist"
+        warn "could not export rectangle.plist"
     fi
     sanitize_copy ~/Library/LaunchAgents/com.pieterdejong.weeklycleanup.plist "$MACOS_DIR/com.pieterdejong.weeklycleanup.plist" sanitize_home_paths || true
     if [ "$DRY_RUN" = true ]; then
