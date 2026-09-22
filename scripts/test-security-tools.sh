@@ -237,14 +237,14 @@ header "sync-dotfiles.sh sanitizers"
 # fail() calls `exit 1` — which silently replaces this suite's fail(), so the
 # first failing assertion would abort the run before the summary instead of
 # being counted. Its log() also writes to the real ~/.dotfiles-backup/sync.log.
-awk '/^(sanitize|desanitize)_[a-z_]+\(\) \{/,/^\}/' \
+awk '/^(sanitize|desanitize|expand)_[a-z_]+\(\) \{/,/^\}/' \
   "$DOTFILES_DIR/scripts/sync-dotfiles.sh" > "$T/sanitizers.sh"
 # shellcheck source=/dev/null
 . "$T/sanitizers.sh"
 
-n_fn="$(grep -c '^\(sanitize\|desanitize\)_[a-z_]*() {' "$T/sanitizers.sh")"
-[ "$n_fn" -ge 4 ] && pass "extracted $n_fn sanitizers from sync-dotfiles.sh" \
-                  || fail "expected at least 4 sanitizers, extracted $n_fn"
+n_fn="$(grep -c '^\(sanitize\|desanitize\|expand\)_[a-z_]*() {' "$T/sanitizers.sh")"
+[ "$n_fn" -ge 6 ] && pass "extracted $n_fn sanitizers from sync-dotfiles.sh" \
+                  || fail "expected at least 6 sanitizers, extracted $n_fn"
 # The extraction must not have dragged in the script's own fail(), which exits.
 grep -q '^fail()' "$T/sanitizers.sh" \
   && fail "the extraction pulled in sync-dotfiles.sh's fail() and would abort this suite" \
@@ -267,9 +267,12 @@ case "$out" in
   *) pass "sanitize_ssh_config removes host, user and port" ;;
 esac
 
-# --- launchd plist: absolute paths in, ~/ out, and an exact round-trip -------
-# launchd will not expand ~, so the committed copy is a backup that `restore`
-# expands. If the round-trip is not exact, restore installs a broken agent.
+# --- home-path sanitizer: XML and JSON, both round-tripping losslessly -------
+# The stored marker is a literal $HOME, not ~. That is the correctness argument:
+# iTerm2's real prefs already contain a genuine ~/Library/... value, and a
+# ~-based marker cannot tell a tilde the sanitizer produced from one that was
+# always there. The first version of this did exactly that and silently
+# rewrote a real value on the way out.
 cat > "$T/agent.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <plist version="1.0">
@@ -280,34 +283,90 @@ cat > "$T/agent.plist" <<'PLIST'
 	</array>
 	<key>StandardOutPath</key>
 	<string>/Users/someone/.weekly-disk-cleanup.launchd.log</string>
+	<key>Working Directory</key>
+	<string>/Users/someone</string>
+	<key>PreExistingTilde</key>
+	<string>~/Library/Application Support/Thing/Scripts</string>
 </dict>
 </plist>
 PLIST
-sanitize_plist < "$T/agent.plist" > "$T/agent.sanitized"
-grep -qE '/Users/[a-z]' "$T/agent.sanitized" \
-  && fail "sanitize_plist leaves no absolute home path" \
-  || pass "sanitize_plist leaves no absolute home path"
-grep -q '<string>~/dev/dotfiles/bin/weekly-disk-cleanup.sh</string>' "$T/agent.sanitized" \
-  && pass "sanitize_plist keeps the path readable as ~/" \
-  || fail "sanitize_plist keeps the path readable as ~/"
 
-# The round-trip must reproduce the original exactly, for THIS machine's $HOME.
-sed -e "s#/Users/someone/#$HOME/#g" "$T/agent.plist" > "$T/agent.expected"
-desanitize_plist < "$T/agent.sanitized" > "$T/agent.roundtrip"
-diff -q "$T/agent.expected" "$T/agent.roundtrip" >/dev/null \
-  && pass "sanitize_plist | desanitize_plist round-trips exactly" \
-  || fail "sanitize_plist | desanitize_plist round-trips exactly"
+cat > "$T/settings.json" <<'JSON'
+{
+    "projectManager.git.baseFolders": [
+        "/Users/someone/dev"
+    ],
+    "some.tildePath": "~/already/a/tilde"
+}
+JSON
+
+for fixture in agent.plist settings.json; do
+  sanitize_home_paths < "$T/$fixture" > "$T/$fixture.san"
+  grep -qE '/Users/[a-z]' "$T/$fixture.san" \
+    && fail "sanitize_home_paths leaves no absolute home path ($fixture)" \
+    || pass "sanitize_home_paths leaves no absolute home path ($fixture)"
+
+  # Lossless round-trip against what the live file would be on THIS machine.
+  sed -e "s#/Users/someone#$HOME#g" "$T/$fixture" > "$T/$fixture.expected"
+  expand_home_paths < "$T/$fixture.san" > "$T/$fixture.rt"
+  diff -q "$T/$fixture.expected" "$T/$fixture.rt" >/dev/null \
+    && pass "sanitize | expand round-trips losslessly ($fixture)" \
+    || { cp "$T/$fixture.rt" "$OUT"; fail "sanitize | expand round-trips losslessly ($fixture)"; }
+done
+
+# The bare form: a home path with nothing after it is still a home path. A
+# trailing-slash-only rule misses iTerm2's "Working Directory" entirely.
+# shellcheck disable=SC2016 # $HOME is the literal marker being asserted, not an expansion
+grep -q '<string>$HOME</string>' "$T/agent.plist.san" \
+  && pass "sanitize_home_paths catches a bare /Users/<name> with no trailing slash" \
+  || fail "sanitize_home_paths catches a bare /Users/<name> with no trailing slash"
+
+# A tilde that was ALREADY in the file must survive untouched, in both directions.
+grep -q '<string>~/Library/Application Support/Thing/Scripts</string>' "$T/agent.plist.rt" \
+  && pass "a pre-existing ~ is not rewritten by the round-trip (XML)" \
+  || fail "a pre-existing ~ is not rewritten by the round-trip (XML)"
+grep -q '"~/already/a/tilde"' "$T/settings.json.rt" \
+  && pass "a pre-existing ~ is not rewritten by the round-trip (JSON)" \
+  || fail "a pre-existing ~ is not rewritten by the round-trip (JSON)"
+
+# Both formats must still parse after expansion, or restore installs a broken file.
 if command -v plutil >/dev/null 2>&1; then
-  plutil -lint "$T/agent.roundtrip" > "$OUT" 2>&1 \
+  plutil -lint "$T/agent.plist.rt" > "$OUT" 2>&1 \
     && pass "the round-tripped plist is still valid" \
     || fail "the round-tripped plist is still valid"
 fi
+if command -v python3 >/dev/null 2>&1; then
+  python3 -m json.tool "$T/settings.json.rt" > "$OUT" 2>&1 \
+    && pass "the round-tripped JSON is still valid" \
+    || fail "the round-tripped JSON is still valid"
+fi
 
-# The repo's own committed plist must already be sanitized — this is the check
-# that would have caught the finding that blocked the commit introducing it.
-grep -qE '/Users/[a-z]' "$DOTFILES_DIR/macos/com.pieterdejong.weeklycleanup.plist" \
-  && fail "the committed LaunchAgent plist carries no absolute home path" \
-  || pass "the committed LaunchAgent plist carries no absolute home path"
+# Every sanitize_copy call must name a function that exists — the check that
+# catches a rename orphaning a caller.
+miss=0
+: > "$OUT"
+grep -oE 'sanitize_copy [^|]*[[:space:]](sanitize_[a-z_]+)' "$DOTFILES_DIR/scripts/sync-dotfiles.sh" \
+  | awk '{print $NF}' | sort -u > "$T/called-fns"
+while read -r fn; do
+  [ -n "$fn" ] || continue
+  grep -q "^${fn}() {" "$T/sanitizers.sh" || { miss=1; echo "missing: $fn" >> "$OUT"; }
+done < "$T/called-fns"
+[ "$miss" = 0 ] && pass "every sanitize_copy call names a sanitizer that exists" \
+                || fail "every sanitize_copy call names a sanitizer that exists"
+
+# --- THE regression guard ----------------------------------------------------
+# No tracked file in this PUBLIC repo may contain this machine's real home path.
+# Fixtures using /Users/alice, /Users/someone and /Users/somebody stay allowed —
+# they are the inputs to the rules above. The real $USER is not.
+#
+# Without this, the next `dotbackup` of an editor settings or prefs file
+# silently republishes it and only the weekly audit notices. It is the same idea
+# as the per-file plist check it replaces, applied to the whole tree.
+: > "$OUT"
+( cd "$DOTFILES_DIR" && git grep -lE "/Users/$(id -un)([/\"<]|$)" -- . ) > "$OUT" 2>/dev/null
+[ -s "$OUT" ] \
+  && fail "no tracked file contains this machine's real home path" \
+  || pass "no tracked file contains this machine's real home path"
 
 # ================================================================================
 header "Summary"

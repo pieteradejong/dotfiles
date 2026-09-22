@@ -54,20 +54,40 @@ sanitize_gitconfig() {
     sed -E -e 's#/Users/[^/[:space:]]+/#~/#g'
 }
 
-# launchd plists must carry ABSOLUTE paths — launchd does not expand `~` in
-# ProgramArguments — so every one of them embeds /Users/<name>/. Same treatment
-# as .gitconfig: store `~/` in the repo and expand it back on restore. That
-# makes the committed copy a backup rather than a directly loadable file, which
-# is what it already was; `sync restore` is the supported way to reinstall it,
-# and it puts the real paths back.
-sanitize_plist() {
-    sed -E -e 's#/Users/[^/<[:space:]]+/#~/#g'
+# Some files must carry ABSOLUTE paths to work at all, so they cannot simply be
+# rewritten in place the way ~/.zshrc and ~/.ssh/config were (both accept $HOME
+# and ~ natively, so those are fixed at the source, not filtered):
+#
+#   launchd plists      launchd does not expand `~` in ProgramArguments
+#   editor settings     VS Code's Project Manager `git.baseFolders` is not
+#                       documented to expand `~`, so the live file keeps real paths
+#
+# Same treatment as .gitconfig: store `~/` in the repo, expand it back on
+# restore. That makes the committed copy a backup rather than a directly usable
+# file — which is what it already was; `sync restore` is the supported way to
+# reinstall it, and it puts the real paths back.
+# The stored marker is a literal `$HOME`, NOT `~`. That distinction is the whole
+# correctness argument: iTerm2's prefs already contain a genuine
+# `~/Library/Application Support/iTerm2/Scripts`, and a `~`-based marker cannot
+# tell a tilde the sanitizer produced from one that was always there — expanding
+# on the way out rewrote that real value and the round-trip stopped being
+# lossless. `$HOME` appears in none of these files, so the mapping is one-to-one
+# and any pre-existing `~` passes through untouched.
+#
+# Two match forms, because a home path is not always a prefix: iTerm2's "Working
+# Directory" is the bare `/Users/<name>` with nothing after it, which a
+# trailing-slash-only rule silently misses.
+sanitize_home_paths() {
+    # shellcheck disable=SC2016 # $HOME is a literal marker in the output, not an expansion
+    sed -E \
+        -e 's#/Users/[^/"<[:space:]]+/#$HOME/#g' \
+        -e 's#/Users/[^/"<[:space:]]+(["<]|$)#$HOME\1#g'
 }
 
-# The inverse, applied on the way OUT. Only expands a leading ~/ inside an XML
-# text node, so nothing else in the plist is touched.
-desanitize_plist() {
-    sed -E -e "s#>~/#>$HOME/#g"
+# The inverse. Unambiguous by construction: `$HOME` only ever got there from the
+# sanitizer above.
+expand_home_paths() {
+    sed -E -e "s#\\\$HOME#$HOME#g"
 }
 
 # Scoped registry lines (@<org>:registry=...) name the orgs whose private
@@ -114,8 +134,8 @@ do_backup() {
     log ""; log "${BLUE}SSH:${NC}"
     sanitize_copy ~/.ssh/config "$SSH_DIR/config" sanitize_ssh_config || true
     log ""; log "${BLUE}Editors:${NC}"
-    safe_copy ~/Library/Application\ Support/Code/User/settings.json "$EDITORS_DIR/vscode-settings.json" || true
-    safe_copy ~/Library/Application\ Support/Cursor/User/settings.json "$EDITORS_DIR/cursor-settings.json" || true
+    sanitize_copy ~/Library/Application\ Support/Code/User/settings.json "$EDITORS_DIR/vscode-settings.json" sanitize_home_paths || true
+    sanitize_copy ~/Library/Application\ Support/Cursor/User/settings.json "$EDITORS_DIR/cursor-settings.json" sanitize_home_paths || true
     if [ "$DRY_RUN" = true ]; then
         command -v code &>/dev/null && log "  [DRY-RUN] Would export: vscode-extensions.txt"
         command -v cursor &>/dev/null && log "  [DRY-RUN] Would export: cursor-extensions.txt"
@@ -133,13 +153,28 @@ do_backup() {
         command -v brew &>/dev/null && brew bundle dump --file="$TOOLS_DIR/Brewfile" --force 2>/dev/null && success "Brewfile"
     fi
     log ""; log "${BLUE}macOS:${NC}"
-    safe_copy ~/Library/Preferences/com.googlecode.iterm2.plist "$MACOS_DIR/com.googlecode.iterm2.plist" || true
+    # iTerm2 writes a BINARY plist that embeds $HOME. Stored binary it is both
+    # unreadable in a diff ("Binary file changed") and invisible to text-based
+    # scanners — the weekly audit's home-path check counted the four text files
+    # and skipped this one. Convert to XML on the way in, then sanitize like any
+    # other file. macOS reads XML plists, so restore stays a plain copy.
+    if [ "$DRY_RUN" = true ]; then
+        log "  [DRY-RUN] Would copy (xml + sanitized): com.googlecode.iterm2.plist"
+    elif [ -f ~/Library/Preferences/com.googlecode.iterm2.plist ]; then
+        if plutil -convert xml1 -o "$BACKUP_ROOT/iterm2.xml" ~/Library/Preferences/com.googlecode.iterm2.plist 2>/dev/null \
+           && sanitize_home_paths < "$BACKUP_ROOT/iterm2.xml" > "$MACOS_DIR/com.googlecode.iterm2.plist"; then
+            success "com.googlecode.iterm2.plist (xml + sanitized)"
+        else
+            warn "could not convert com.googlecode.iterm2.plist"
+        fi
+        rm -f "$BACKUP_ROOT/iterm2.xml"
+    fi
     if [ "$DRY_RUN" = true ]; then
         log "  [DRY-RUN] Would export: rectangle.plist"
     else
         defaults export com.knollsoft.Rectangle "$MACOS_DIR/rectangle.plist" 2>/dev/null && success "rectangle.plist"
     fi
-    sanitize_copy ~/Library/LaunchAgents/com.pieterdejong.weeklycleanup.plist "$MACOS_DIR/com.pieterdejong.weeklycleanup.plist" sanitize_plist || true
+    sanitize_copy ~/Library/LaunchAgents/com.pieterdejong.weeklycleanup.plist "$MACOS_DIR/com.pieterdejong.weeklycleanup.plist" sanitize_home_paths || true
     if [ "$DRY_RUN" = true ]; then
         log ""; log "[DRY-RUN] Backup preview complete. No changes were made."
     else
@@ -178,11 +213,30 @@ do_restore() {
     if [ "$DRY_RUN" = false ]; then
         mkdir -p ~/Library/Application\ Support/Code/User; mkdir -p ~/Library/Application\ Support/Cursor/User
     fi
-    safe_copy "$EDITORS_DIR/vscode-settings.json" ~/Library/Application\ Support/Code/User/settings.json
-    safe_copy "$EDITORS_DIR/cursor-settings.json" ~/Library/Application\ Support/Cursor/User/settings.json
+    # Expand ~/ back to real absolute paths: some editor settings do not expand ~.
+    if expand_home_paths < "$EDITORS_DIR/vscode-settings.json" > ~/Library/Application\ Support/Code/User/settings.json; then
+        success "vscode-settings.json (paths expanded)"
+    else
+        warn "could not restore vscode-settings.json"
+    fi
+    if expand_home_paths < "$EDITORS_DIR/cursor-settings.json" > ~/Library/Application\ Support/Cursor/User/settings.json; then
+        success "cursor-settings.json (paths expanded)"
+    else
+        warn "could not restore cursor-settings.json"
+    fi
     log ""; log "${BLUE}macOS:${NC}"
     [ "$DRY_RUN" = false ] && mkdir -p ~/Library/Preferences
-    safe_copy "$MACOS_DIR/com.googlecode.iterm2.plist" ~/Library/Preferences/com.googlecode.iterm2.plist
+    # Stored as sanitized XML; expand ~/ back before installing it.
+    if [ "$DRY_RUN" = true ]; then
+        log "  [DRY-RUN] Would copy (paths expanded): com.googlecode.iterm2.plist"
+    elif [ -f "$MACOS_DIR/com.googlecode.iterm2.plist" ]; then
+        if expand_home_paths < "$MACOS_DIR/com.googlecode.iterm2.plist" > ~/Library/Preferences/com.googlecode.iterm2.plist; then
+            success "com.googlecode.iterm2.plist (paths expanded)"
+            log "  ${YELLOW}Note:${NC} quit iTerm2 and run 'killall cfprefsd' for it to be re-read"
+        else
+            warn "could not restore com.googlecode.iterm2.plist"
+        fi
+    fi
     if [ -f "$MACOS_DIR/rectangle.plist" ]; then
         if [ "$DRY_RUN" = true ]; then
             log "  [DRY-RUN] Would import: rectangle.plist"
@@ -193,7 +247,7 @@ do_restore() {
     if [ "$DRY_RUN" = false ]; then
         mkdir -p ~/Library/LaunchAgents
         # Expand ~/ back to real absolute paths: launchd will not do it.
-        if desanitize_plist < "$MACOS_DIR/com.pieterdejong.weeklycleanup.plist" > ~/Library/LaunchAgents/com.pieterdejong.weeklycleanup.plist; then
+        if expand_home_paths < "$MACOS_DIR/com.pieterdejong.weeklycleanup.plist" > ~/Library/LaunchAgents/com.pieterdejong.weeklycleanup.plist; then
             success "com.pieterdejong.weeklycleanup.plist (paths expanded)"
         else
             warn "could not restore com.pieterdejong.weeklycleanup.plist"

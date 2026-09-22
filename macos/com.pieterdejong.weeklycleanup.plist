@@ -6,14 +6,14 @@
 	<string>com.pieterdejong.weeklycleanup</string>
 	<key>ProgramArguments</key>
 	<array>
-		<string>~/dev/dotfiles/bin/weekly-disk-cleanup.sh</string>
+		<string>$HOME/dev/dotfiles/bin/weekly-disk-cleanup.sh</string>
 	</array>
 	<key>RunAtLoad</key>
 	<false/>
 	<key>StandardErrorPath</key>
-	<string>~/.weekly-disk-cleanup.launchd.log</string>
+	<string>$HOME/.weekly-disk-cleanup.launchd.log</string>
 	<key>StandardOutPath</key>
-	<string>~/.weekly-disk-cleanup.launchd.log</string>
+	<string>$HOME/.weekly-disk-cleanup.launchd.log</string>
 	<key>StartCalendarInterval</key>
 	<dict>
 		<key>Hour</key>

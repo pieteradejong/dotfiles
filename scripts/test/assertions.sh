@@ -2,7 +2,7 @@
 # Docker integration test — verifies a clean restore produces the expected end state.
 #
 # Usage:
-#   docker run --rm -v ~/dotfiles:/dotfiles debian:bookworm-slim \
+#   docker run --rm -v ~/dev/dotfiles:/dotfiles debian:bookworm-slim \
 #     bash -c "apt-get update -qq && apt-get install -qq -y zsh git \
 #              && /dotfiles/scripts/test/assertions.sh"
 
@@ -17,8 +17,12 @@ echo "=== dotfiles integration test ==="
 echo ""
 
 # ── Setup ──────────────────────────────────────────────────────────────────
-# sync-dotfiles.sh resolves paths from $HOME/dotfiles, so symlink the mount
-ln -sf "$DOTFILES" "$HOME/dotfiles"
+# sync-dotfiles.sh resolves everything from $HOME/dev/dotfiles, so the mount has
+# to appear there. It used to be $HOME/dotfiles; the repo moved on 2026-09-01 and
+# this line did not follow, which silently failed 10 of 16 assertions — restore
+# had nothing to copy from, and every "not placed" looked like a real regression.
+mkdir -p "$HOME/dev"
+ln -sf "$DOTFILES" "$HOME/dev/dotfiles"
 
 # Stub macOS-only commands so restore doesn't abort on Linux
 mkdir -p /tmp/stubs

@@ -285,3 +285,35 @@ hanging.
 PRIVATE warns, UNKNOWN warns, no-origin warns), that the matched value is still never printed
 ([D8](#d8--findings-never-contain-the-matched-value)), and that a second commit in the same
 repo uses the cache rather than a second `gh` call.
+
+## D20 — Sanitize with a `$HOME` marker, not `~` · 2026-09-22
+
+**Decision.** Files that must carry absolute paths to work — the LaunchAgent plist, iTerm2's
+prefs, VS Code and Cursor settings — are stored with a literal `$HOME` marker and expanded back by
+`sync restore`. `~/.zshrc` and `~/.ssh/config` are **not** filtered: both accept `$HOME` and `~`
+natively, so those were fixed at the source instead.
+
+**Why not `~`, the obvious choice.** It was the first implementation and it was wrong. iTerm2's
+prefs already contain a genuine `~/Library/Application Support/iTerm2/Scripts`, and a `~` marker
+cannot distinguish a tilde the sanitizer produced from one that was always there — so the restore
+expanded a real value and the round-trip stopped being lossless. `$HOME` appears in none of these
+files, which makes the mapping one-to-one and leaves any pre-existing `~` untouched. The
+round-trip test is what caught it; the assertion that a pre-existing `~` survives is now permanent.
+
+**Two match forms.** A home path is not always a prefix. iTerm2's "Working Directory" is the bare
+`/Users/<name>` with nothing after it, which a trailing-slash-only rule misses — it is exactly how
+that value survived the first pass.
+
+**iTerm2's prefs are converted to XML on the way in.** Stored binary they were both unreadable in
+a diff and invisible to text scanners: the weekly audit's home-path check reported "4 tracked
+file(s)" because it could not see inside the fifth. Converting makes it diffable and scannable.
+
+**The rule that makes it stick.** `test-security-tools.sh` asserts that **no tracked file in this
+repo contains this machine's real home path** — fixtures using `/Users/alice` and `/Users/someone`
+stay allowed. A per-file check would have been re-passed while a newly backed-up file reintroduced
+the value; only a tree-wide assertion closes that.
+
+**Verified.** `./test.sh tools` — all sanitizer assertions pass, and each was mutation-tested:
+reverting the marker to `~` fails four of them, and reintroducing a real home path into a tracked
+file fails the tree-wide guard. All four sanitized files round-trip byte-identical to their live
+counterparts, and stay valid under `plutil -lint` / `json.tool`.

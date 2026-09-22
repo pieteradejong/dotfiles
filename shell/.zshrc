@@ -382,4 +382,4 @@ alias dothelp="$DOTFILES/scripts/dothelp.sh"
 alias dotaudit="$DOTFILES/scripts/dev-audit.sh"
 
 # Added by cua-driver-rs installer — see https://github.com/trycua/cua
-export PATH="/Users/pieterdejong/.local/bin:$PATH"
+export PATH="$HOME/.local/bin:$PATH"

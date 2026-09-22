@@ -15,7 +15,7 @@
     "redhat.telemetry.enabled": false,
     "editor.inlineSuggest.enabled": true,
     "projectManager.git.baseFolders": [
-        "/Users/pieterdejong/dev"
+        "$HOME/dev"
     ],
     "workbench.iconTheme": "vscode-icons",
     "vsicons.dontShowNewVersionMessage": true,
