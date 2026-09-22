@@ -368,6 +368,40 @@ done < "$T/called-fns"
   && fail "no tracked file contains this machine's real home path" \
   || pass "no tracked file contains this machine's real home path"
 
+# iTerm2's prefs are stored as XML so they are diffable AND scannable. That
+# visibility is the point: as an opaque binary the file was skipped by text
+# scanners entirely. It also means its machine-local `NoSync*` state must be
+# stripped — a saved-window UUID under NoSyncSavedWindowPositions reads as a
+# high-entropy string and gitleaks' generic-api-key rule calls it a secret.
+ITERM="$DOTFILES_DIR/macos/com.googlecode.iterm2.plist"
+if [ -f "$ITERM" ]; then
+  head -1 "$ITERM" | grep -q '<?xml' \
+    && pass "the committed iTerm2 prefs are XML, not an opaque binary" \
+    || fail "the committed iTerm2 prefs are XML, not an opaque binary"
+  grep -q '<key>NoSync' "$ITERM" \
+    && fail "machine-local NoSync* state is stripped from the committed iTerm2 prefs" \
+    || pass "machine-local NoSync* state is stripped from the committed iTerm2 prefs"
+fi
+
+# The whole tree must survive the scan dotaudit actually runs: default rules,
+# --no-git (so untracked files count too). The gate's own narrow ruleset passing
+# is not the same assurance — it was clean while this was failing.
+if command -v gitleaks >/dev/null 2>&1; then
+  : > "$OUT"
+  gitleaks detect --redact --no-banner --no-git --exit-code 0 --report-format json \
+    --report-path "$T/gl.json" --source "$DOTFILES_DIR" >/dev/null 2>&1
+  # grep -c prints 0 AND exits 1 when nothing matches, so `|| echo 0` would
+  # append a second zero and make "0" compare unequal to 0.
+  n="$(grep -c '"RuleID"' "$T/gl.json" 2>/dev/null)" || n=0
+  [ -n "$n" ] || n=0
+  if [ "$n" = 0 ]; then
+    pass "gitleaks default rules over the working tree: no findings"
+  else
+    grep -o '"File": "[^"]*"' "$T/gl.json" | sort -u > "$OUT"
+    fail "gitleaks default rules over the working tree: $n finding(s)"
+  fi
+fi
+
 # ================================================================================
 header "Summary"
 echo -e "  ${GREEN}Passed${NC}: $PASS_COUNT"

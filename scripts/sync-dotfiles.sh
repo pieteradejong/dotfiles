@@ -161,9 +161,26 @@ do_backup() {
     if [ "$DRY_RUN" = true ]; then
         log "  [DRY-RUN] Would copy (xml + sanitized): com.googlecode.iterm2.plist"
     elif [ -f ~/Library/Preferences/com.googlecode.iterm2.plist ]; then
-        if plutil -convert xml1 -o "$BACKUP_ROOT/iterm2.xml" ~/Library/Preferences/com.googlecode.iterm2.plist 2>/dev/null \
-           && sanitize_home_paths < "$BACKUP_ROOT/iterm2.xml" > "$MACOS_DIR/com.googlecode.iterm2.plist"; then
-            success "com.googlecode.iterm2.plist (xml + sanitized)"
+        if plutil -convert xml1 -o "$BACKUP_ROOT/iterm2.xml" ~/Library/Preferences/com.googlecode.iterm2.plist 2>/dev/null; then
+            # Drop iTerm2's own `NoSync*` keys — its marker for machine-local
+            # state (saved window positions, last-use dates, one-shot "already
+            # backfilled" flags). None of it is configuration, it is a third of
+            # the file, and the saved-window UUIDs under it read as high-entropy
+            # strings: gitleaks' generic-api-key rule flags one as a secret. That
+            # only became visible once this stopped being stored as an opaque
+            # binary, which is the argument for storing it as XML.
+            grep -oE '^	<key>NoSync[^<]*' "$BACKUP_ROOT/iterm2.xml" | sed 's/^	<key>//' \
+                > "$BACKUP_ROOT/iterm2-nosync-keys" || true
+            while IFS= read -r k; do
+                [ -n "$k" ] || continue
+                plutil -remove "$k" "$BACKUP_ROOT/iterm2.xml" 2>/dev/null || true
+            done < "$BACKUP_ROOT/iterm2-nosync-keys"
+            rm -f "$BACKUP_ROOT/iterm2-nosync-keys"
+            if sanitize_home_paths < "$BACKUP_ROOT/iterm2.xml" > "$MACOS_DIR/com.googlecode.iterm2.plist"; then
+                success "com.googlecode.iterm2.plist (xml, NoSync* dropped, sanitized)"
+            else
+                warn "could not write com.googlecode.iterm2.plist"
+            fi
         else
             warn "could not convert com.googlecode.iterm2.plist"
         fi
