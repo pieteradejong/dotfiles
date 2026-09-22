@@ -37,7 +37,8 @@ colima stop       # frees all CPU and RAM; images, containers and volumes are ke
   first local Supabase start. `colima delete` removes the VM and every image and volume in it.
 - `~/.docker/config.json` has `"credsStore": "osxkeychain"` and
   `"cliPluginsExtraDirs": ["/opt/homebrew/lib/docker/cli-plugins"]`, so the Homebrew compose and
-  buildx plugins are found. Colima creates the `colima` docker context and makes it current.
+  buildx plugins are found. Colima creates the `colima` docker context and makes it current on
+  `colima start`, and restores the previous context (normally `default`) on `colima stop`.
 - With Colima stopped, `docker` commands fail with "Cannot connect to the Docker daemon". That is
   expected. Scripts detect it with `docker info` (the weekly disk cleanup, project database
   wrapper scripts, the templates' `init.sh`/`run.sh`) and skip or explain.
