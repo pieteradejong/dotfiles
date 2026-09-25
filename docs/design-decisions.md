@@ -317,3 +317,38 @@ the value; only a tree-wide assertion closes that.
 reverting the marker to `~` fails four of them, and reintroducing a real home path into a tracked
 file fails the tree-wide guard. All four sanitized files round-trip byte-identical to their live
 counterparts, and stay valid under `plutil -lint` / `json.tool`.
+
+## D21 — `scripts/` is small single-purpose tools in any language, composed · 2026-09-24
+
+**Decision.** Every file in `scripts/` does one job and follows one contract whatever its
+language: a header that is also its `--help`, exit codes `0`/`1`/`2`, results on stdout and
+diagnostics on stderr, output files named by the caller (with the written path printed), a
+read-only default with an explicit flag to mutate, `$SCRIPT_DIR`-relative paths with env
+overrides, no personal values, and a test plus a lint step in `test.sh`. A new need is met by a
+new script or by a composer that calls existing ones, not by another subcommand. Bash is the
+default for glue; Python 3 (stdlib only) for anything that parses or transforms data. The contract
+and the current inventory live in [`scripts/README.md`](../scripts/README.md).
+
+**Why.** The scripts that already work this way — `dev-audit.sh` and its `audit/` modules,
+`github-security-sweep.sh`, `containers-doctor.sh` — are the ones with hermetic tests, and
+`security-audit.sh` could be built as a composer over them. The ones that don't —
+`sync-dotfiles.sh` (five subcommands, one of which commits and pushes this public repo),
+`mac-maintenance.sh` (reports and mutates in one run), `dothelp.sh` (a hand-kept copy of the
+docs) — are the untested and drifting ones.
+
+**Rejected.**
+- *One big `dot` CLI with subcommands.* That is the shape of `sync-dotfiles.sh`, and it's
+  the script that is hardest to test and easiest to misuse (`dotbackup` runs `push`).
+- *Bash only.* It keeps one linter, but pushes data handling into `awk`/`sed` pipelines that a
+  short Python script would state plainly. The cost is one more lint step in `test.sh` when the
+  first non-bash script lands.
+
+**Cost.** The existing non-conforming scripts must be split or retrofitted. The gaps are listed
+in order in `scripts/README.md` § Audit; none is done yet.
+
+**Verified: PARTIAL.** The contract is written down; existing scripts do not all meet it yet.
+Evidence for the audit, 2026-09-24:
+`for f in scripts/*.sh scripts/*/*.sh; do head -n1 "$f"; done | sort | uniq -c` →
+`7 #!/bin/bash`, `14 #!/usr/bin/env bash` (no non-bash script yet). Scripts missing from
+`test.sh`'s shellcheck list: `dothelp.sh`, `mac-maintenance.sh`, `test-dev-audit.sh`,
+`test-dotfiles-setup.sh`, `test/assertions.sh`. Recheck when the first README § Audit item is fixed.
