@@ -394,7 +394,8 @@ module. Recheck when SAST is rolled out to the first repo.
    major-version tags from GitHub itself.
 2. An assistant's auto-allow list holds only commands that can neither print a secret nor run
    arbitrary code ([AI and external services §5](policy/ai-and-external-services.md#5-permission-allowlists)).
-   `env`, `printenv`, `cat:*`, `git:*`, `npx:*` and interpreters are excluded.
+   `env`, `printenv`, `echo`, `ps`, `cat:*`, `grep`, `find`, `git:*`, `git diff`, `npx:*`,
+   `time` and interpreters are excluded.
 
 **Why.** A tag is a mutable pointer: whoever controls the action's repo can move it to new code
 after it was reviewed, and that code runs with the repo's token. Compromised actions have
@@ -411,7 +412,9 @@ The allowlist prompts more often.
 
 **Verified: PARTIAL.** Rule 1 holds for this repo: `grep -hE '^\s*-?\s*uses:'
 .github/workflows/*.yml | grep -vE '@[0-9a-f]{40}|uses: \./|#\s+uses' | wc -l` → `0`. The same
-count over the five templates' CI → `16` tag-pinned uses, which is an open finding. Rule 2 does
-not yet hold: `jq -r '.permissions.allow[]' ~/.claude/settings.json | grep -cE
-'^Bash\((cat|env|printenv|npx|git|node|python3|brew):\*\)$'` → `8`, which is an open finding.
-Recheck when both are fixed.
+count over the five templates' CI → `16` tag-pinned uses, which is an open finding. Rule 2 holds
+since 2026-09-26. The global and workspace allow lists were narrowed to the safe column, and
+`test-security-tools.sh` now asserts it for the tracked `claude/settings.json`:
+`./test.sh tools` → `✓ PASS: no auto-allowed command can print a secret or run arbitrary code`.
+Adding `Bash(cat:*)` back makes it fail. The live `~/.claude/settings.json` is not covered by any
+test (it is outside the repo). Recheck when rule 1 is fixed.

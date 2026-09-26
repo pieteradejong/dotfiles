@@ -73,11 +73,14 @@ to the model unreviewed.
 
 | Safe to auto-allow | Why | Not safe | Why |
 |---|---|---|---|
-| `git status`, `git log`, `git diff` | read repo state | `git:*` | includes `push`, `config`, `reset --hard`, `clean -fdx` |
-| `ls`, `pwd`, `which`, `sw_vers`, `uname`, `df`, `du` | metadata only | `cat:*`, `head:*`, `less:*` | print any file, `.env` and keys included |
-| `brew list`, `brew info`, `npm list`, `pip3 list` | inventories | `env`, `printenv` | print every exported token in the shell |
-| | | `npx:*`, `node:*`, `python3:*` | run arbitrary code, fetched or inline |
-| | | `brew:*` | installs and upgrades |
+| `git status`, `git log` | read tracked repo state | `git:*`, `git diff`, `git show` | `git:*` includes `push`, `config`, `clean -fdx`; `git diff --no-index <file> /dev/null` prints any file |
+| `ls`, `pwd`, `which`, `sw_vers`, `uname`, `df`, `du`, `whoami`, `hostname`, `top` | metadata only | `cat`, `head`, `tail`, `less`, `grep`, `find` | print any file, `.env` and keys included (`find -exec`, `grep -r`) |
+| `brew list`, `brew info`, `npm list`, `pip3 list` | inventories | `env`, `printenv`, `echo`, `ps` | print exported tokens (`echo $TOKEN`, `ps eww` shows other processes' environments) |
+| Fixed `--version` probes | print a version | `npx`, `node`, `python3`, `time`, `xargs`, `./run.sh`, `brew:*` | run arbitrary code, fetched, inline or from whatever repo is the working directory |
+| | | `cp`, `mv`, `rm` | overwrite or destroy files silently |
+
+The check: `scripts/test-security-tools.sh` fails if the tracked `claude/settings.json` auto-allows
+any command from the "not safe" column.
 
 - **Hooks enforce, lists permit.** The [git-bypass guard](security-and-privacy.md#14-assistant-guardrails)
   denies bypassing the gate whatever the allowlist says; an allowlist is not a safety mechanism.

@@ -403,6 +403,27 @@ if command -v gitleaks >/dev/null 2>&1; then
 fi
 
 # ================================================================================
+header "claude/settings.json auto-allow list (ai-and-external-services.md §5, D23)"
+# Auto-allowed commands must neither print a secret nor run arbitrary code. An entry
+# is unsafe when its command is on this list or it is a bare-program wildcard for one
+# (e.g. Bash(git:*) covers push, config and diff --no-index).
+UNSAFE_CMDS='cat head tail less more bat env printenv echo printf ps git git diff git show git config node python python3 npx npm pnpm yarn bun deno brew pip pip3 grep rg find fd xargs time cp mv rm sh bash zsh eval exec curl wget ./run.sh ./run.sh build open osascript security'
+SETTINGS="$DOTFILES_DIR/claude/settings.json"
+bad=""
+while IFS= read -r entry; do
+  cmd="$(printf '%s' "$entry" | sed -nE 's/^Bash\(([^:)]*)(:\*)?\)$/\1/p')"
+  [ -n "$cmd" ] || continue
+  case " $UNSAFE_CMDS " in
+    *" $cmd "*) bad="$bad $entry" ;;
+  esac
+done < <(jq -r '(.permissions.allow // .allow // [])[]' "$SETTINGS")
+if [ -z "$bad" ]; then
+  pass "no auto-allowed command can print a secret or run arbitrary code"
+else
+  fail "unsafe auto-allow entries in claude/settings.json:$bad"
+fi
+
+# ================================================================================
 header "Summary"
 echo -e "  ${GREEN}Passed${NC}: $PASS_COUNT"
 echo -e "  ${RED}Failed${NC}: $FAIL_COUNT"
