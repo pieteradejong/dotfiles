@@ -461,6 +461,7 @@ checks need Python 3.11+ (`tomllib`); without it the gate warns and does not che
 - `./test.sh` passes in the commit that adds this entry, with new gate, tools and dotaudit cases
   for every rule above.
 - `security/gate.sh ci` over this repo's full history → `BLOCK home-path`, `BLOCK email`,
-  `BLOCK author-email`. dotfiles' published history holds personal data; that is an open finding.
+  `BLOCK author-email`. That is known and accepted history (D11, no rewrite). It is also why the gate
+  judges only what an event brings.
 - NOT YET: the workflow's first run on GitHub, the live `~/.claude/settings.json` hook
   registration, and the first strict dotaudit baseline.
