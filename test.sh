@@ -3,13 +3,14 @@
 # test.sh — every test in this repo, in one command. CI runs exactly this.
 #
 #   ./test.sh                 all suites
-#   ./test.sh gate            one suite: shellcheck | zsh-syntax | bin | gate |
-#                                        tools | dotaudit | containers
+#   ./test.sh gate            one suite: shellcheck | zsh-syntax | ruff | bin | gate |
+#                                        tools | dotaudit | containers | docs
 #   ./test.sh --verbose       pass --verbose through to each suite
 #
 # Suites:
 #   [shellcheck] every security-relevant shell script, at default severity
 #   [zsh-syntax] zsh -n over bin/ — shellcheck cannot parse zsh
+#   [ruff]       ruff check over every Python script
 #   bin         scripts/test-bin.sh             (bin/llm routing + zero-cloud
 #                                                guards; bin/weekly-disk-cleanup.sh
 #                                                asserted statically, never run)
@@ -18,8 +19,10 @@
 #                                                weekly audit, dotaudit gate module)
 #   dotaudit    scripts/test-dev-audit.sh       (the read-only workspace audit)
 #   containers  scripts/test-containers-doctor.sh (Colima / no-Docker-Desktop doctor)
+#   docs        scripts/test-docs.py            (policy doc links, anchors, index,
+#                                                workspace CLAUDE.md in sync)
 #
-# Requires: git 2.54+, gitleaks, shellcheck, jq. pre-commit is optional.
+# Requires: git 2.54+, gitleaks, shellcheck, jq, ruff, python3. pre-commit is optional.
 
 set -u
 cd "$(dirname "${BASH_SOURCE[0]}")" || exit 1
@@ -29,8 +32,8 @@ ONLY=""
 for a in "$@"; do
   case "$a" in
     --verbose) VERBOSE="--verbose" ;;
-    shellcheck|zsh-syntax|bin|gate|tools|dotaudit|containers) ONLY="$a" ;;
-    -h|--help) sed -n '3,22p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    shellcheck|zsh-syntax|ruff|bin|gate|tools|dotaudit|containers|docs) ONLY="$a" ;;
+    -h|--help) sed -n '3,25p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown argument: $a" >&2; exit 2 ;;
   esac
 done
@@ -66,6 +69,11 @@ bin/llm
 bin/weekly-disk-cleanup.sh
 "
 
+# Python scripts (stdlib only, per scripts/README.md), linted with ruff.
+PYTHON_FILES="
+scripts/test-docs.py
+"
+
 RESULTS=""
 FAILED=0
 run_suite() { # <name> <command...>
@@ -94,13 +102,22 @@ zsh_syntax_all() {
   return "$rc"
 }
 
+# shellcheck disable=SC2329 # invoked through run_suite
+ruff_all() {
+  command -v ruff >/dev/null 2>&1 || { echo "ruff is not installed"; return 1; }
+  # shellcheck disable=SC2086 # the list is deliberately word-split
+  ruff check $PYTHON_FILES && echo "ruff: clean ($(echo $PYTHON_FILES | wc -w | tr -d ' ') files)"
+}
+
 run_suite shellcheck shellcheck_all
 run_suite zsh-syntax zsh_syntax_all
+run_suite ruff     ruff_all
 run_suite bin      bash scripts/test-bin.sh $VERBOSE
 run_suite gate     bash scripts/test-security-gate.sh $VERBOSE
 run_suite tools    bash scripts/test-security-tools.sh $VERBOSE
 run_suite dotaudit bash scripts/test-dev-audit.sh $VERBOSE
 run_suite containers bash scripts/test-containers-doctor.sh $VERBOSE
+run_suite docs     python3 scripts/test-docs.py $VERBOSE
 
 printf '\n\033[1m════ test.sh summary ════\033[0m%b\n' "$RESULTS"
 exit "$FAILED"

@@ -3,7 +3,7 @@
 #
 #   gitleaks       full-history secret scan (the same reusable job other repos call)
 #   private-guard  private/ must never be tracked, nor any submodule/gitlink
-#   tests          ./test.sh — gate, guard hook, sweep, audit, dotaudit, shellcheck
+#   tests          ./test.sh — gate, guard hook, sweep, audit, dotaudit, shellcheck, ruff, docs
 
 name: ci
 
@@ -55,7 +55,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Install tools
-        run: brew install git gitleaks shellcheck jq pre-commit
+        run: brew install git gitleaks shellcheck jq ruff pre-commit
       - name: Run all tests
         run: |
           export PATH="$(brew --prefix)/bin:$PATH"

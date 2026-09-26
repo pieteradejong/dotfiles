@@ -5,6 +5,11 @@ The rules every repo on this machine follows. Why they are built this way:
 [maintenance](../maintenance.md). Licensing, hygiene and dependencies:
 [repo standards](repo-standards.md). Assistant setup: [AI instructions](ai-instructions.md).
 
+This doc governs **what gets committed and published**. What the code does, what data it handles,
+what it depends on and where data flows through assistants have their own docs:
+[secure development](secure-development.md) · [privacy by design](privacy-by-design.md) ·
+[supply chain](supply-chain.md) · [AI and external services](ai-and-external-services.md).
+
 **Anything pushed to a public repo is permanent and world-readable.** Deleting it, rewriting
 history or making the repo private does not retract what was already cloned, cached or
 scraped. Every rule below follows from that.
@@ -278,6 +283,9 @@ For any tool that scans many repos. [`dotaudit`](../dev-audit.md) follows all of
 
 ## 14. Assistant guardrails
 
+What an assistant may read and send, and how connectors are used:
+[AI and external services](ai-and-external-services.md).
+
 - `dotfiles/claude/hooks/guard-git-bypass.sh`, a Claude Code `PreToolUse` hook, denies
   `--no-verify`, `git commit -n`, `core.hooksPath`, `hook.*.enabled|command|event`, `GIT_CONFIG_*`
   environment overrides, `SECURITY_GATE_*`, `HOME=… git`, and `/usr/bin/git`. It is a guardrail,
@@ -292,7 +300,8 @@ For any tool that scans many repos. [`dotaudit`](../dev-audit.md) follows all of
 ## 15. Related
 
 - [Design decisions](../design-decisions.md) — why the gate, audit and public/private split look like this.
-- [`dotaudit`](../dev-audit.md) · [maintenance](../maintenance.md) · [repo standards](repo-standards.md) · [backups](backups.md)
+- [Secure development](secure-development.md) · [privacy by design](privacy-by-design.md) · [supply chain](supply-chain.md) · [AI and external services](ai-and-external-services.md)
+- [`dotaudit`](../dev-audit.md) · [maintenance](../maintenance.md) · [repo standards](repo-standards.md) · [backups](backups.md) · [AI instructions](ai-instructions.md)
 - Private registers — in the private companion repo, not published: findings
   (`../../private/registers/findings.md`), do-not-touch list (`../../private/registers/do-not-touch.md`),
   per-repo privacy state (`../../private/registers/per-repo-privacy.md`), GitHub baseline

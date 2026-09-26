@@ -9,7 +9,7 @@ its output goes, and the short list of things only a person can do. Replaces the
 | [Security & privacy audit](#weekly-security--privacy-audit) | Sundays 10:00 (launchd) | full audit incl. GitHub | `~/dev/audit-reports/security-audit-YYYY-MM-DD.md` |
 | [Disk cleanup](#weekly-disk-cleanup) | Sundays 09:00 (launchd) | caches, Docker, old Trash | `~/.weekly-disk-cleanup.log` |
 | [Docs backup](#daily-docs-backup) | daily 03:00 (launchd) | `~/docs` to cloud | `~/docs/.backup/logs/` |
-| [Commit/push gate](policy/security-and-privacy.md#the-commitpush-gate) | every commit and push | secrets, personal data | terminal |
+| [Commit/push gate](policy/security-and-privacy.md#2-the-commitpush-gate) | every commit and push | secrets, personal data | terminal |
 | [Mac maintenance](#mac-maintenance-manual) | by hand | uptime, memory, app caches | `~/maintenance-YYYYMMDD.log` |
 
 launchd runs a calendar job once on wake if the Mac was asleep at the scheduled time;
@@ -71,7 +71,7 @@ Reclaims space from caches that regenerate and Trash that was already discarded.
 
 Files that must hold absolute paths (this plist, iTerm2's prefs, the editor settings) are
 stored with a literal `$HOME` marker and expanded again by `sync restore` — see
-[D20](design-decisions.md#d20--sanitize-with-a-home-marker-not-). The committed copies are
+[D20](design-decisions.md#d20--sanitize-with-a-home-marker-not---2026-09-22). The committed copies are
 backups, not directly loadable files.
 
 The script is never executed by the test suite — it empties Trash and prunes

@@ -267,7 +267,7 @@ that is already public, not only at push.
 
 **Why.** Previously `STRICT_PERSONAL` was set only in `cmd_pre_push` and `cmd_scan_tree`, so
 personal data committed cleanly to a public repo and was caught at push — after it was in
-history, where removing it means a rewrite that [D11](#d11--fix-forward-no-history-rewrites)
+history, where removing it means a rewrite that [D11](#d11--fix-forward-no-history-rewrites--2026-09-14)
 says not to do. Blocking one commit is cheaper than every option available afterwards.
 
 **The one inversion of fail-closed, stated so it is not mistaken for an oversight.** UNKNOWN
@@ -283,7 +283,7 @@ hanging.
 
 **Verified.** `./test.sh gate` — 119 pass, including the four new cases (PUBLIC blocks,
 PRIVATE warns, UNKNOWN warns, no-origin warns), that the matched value is still never printed
-([D8](#d8--findings-never-contain-the-matched-value)), and that a second commit in the same
+([D8](#d8--findings-never-contain-the-matched-value--2026-09-14)), and that a second commit in the same
 repo uses the cache rather than a second `gh` call.
 
 ## D20 — Sanitize with a `$HOME` marker, not `~` · 2026-09-22
@@ -352,3 +352,66 @@ Evidence for the audit, 2026-09-24:
 `7 #!/bin/bash`, `14 #!/usr/bin/env bash` (no non-bash script yet). Scripts missing from
 `test.sh`'s shellcheck list: `dothelp.sh`, `mac-maintenance.sh`, `test-dev-audit.sh`,
 `test-dotfiles-setup.sh`, `test/assertions.sh`. Recheck when the first README § Audit item is fixed.
+
+## D22 — Policy covers what the code does, not only what gets committed · 2026-09-26
+
+**Decision.** Four policy docs join `security-and-privacy.md`, each owning one question:
+[secure development](policy/secure-development.md) (what the code must do),
+[privacy by design](policy/privacy-by-design.md) (how running code treats personal data),
+[supply chain](policy/supply-chain.md) (dependencies, CI, deployed surfaces) and
+[AI and external services](policy/ai-and-external-services.md) (what assistants and connectors
+may read and send). `security-and-privacy.md` keeps its scope, commits and publishing, and links
+out to the four.
+
+**Why.** Everything up to D21 guards the repo boundary: the gate, tiers, identity, leak response.
+A deployed app with no row-level security, a workflow pinned to a movable tag, or an export of
+other people's messages pasted into a hosted model all pass that boundary cleanly. The private
+findings register already listed the gap (no SAST, deployed surfaces unreviewed, no data
+classification).
+
+**Rejected.**
+- *Extend `security-and-privacy.md`.* It is already ~300 lines, and it is the doc read before every
+  first commit and every push. Burying runtime and data-handling rules in it would make both
+  halves harder to find.
+- *One `SECURITY.md` per template.* Copies drift ([one source of truth](policy/ai-instructions.md#one-source-of-truth-for-assistant-config)).
+  Templates link to the policy when next touched.
+
+**Cost.** Rules without a check accumulate findings ([§13](policy/security-and-privacy.md#13-audit-tool-design-rules)).
+Only link integrity is enforced so far: `scripts/test-docs.py` checks that every relative link
+and anchor under `docs/` resolves, that every policy doc is linked from `security-and-privacy.md`
+and listed in the workspace `CLAUDE.md`, and that the live workspace copy matches. SAST and
+deployed-surface checks are still a rollout, not a check.
+
+**Verified: PARTIAL.** The docs and their link check exist; `./test.sh docs` passes (output in
+the commit that added this entry). The rules themselves are not yet enforced by any audit
+module. Recheck when SAST is rolled out to the first repo.
+
+## D23 — Actions pinned by SHA; auto-allow excludes secret-printing commands · 2026-09-26
+
+**Decision.** Two rules that close off a convenient default:
+1. Every third-party GitHub Action is pinned by full commit SHA with the version as a comment
+   ([supply chain §3](policy/supply-chain.md#3-github-actions)). Tags are not accepted, even
+   major-version tags from GitHub itself.
+2. An assistant's auto-allow list holds only commands that can neither print a secret nor run
+   arbitrary code ([AI and external services §5](policy/ai-and-external-services.md#5-permission-allowlists)).
+   `env`, `printenv`, `cat:*`, `git:*`, `npx:*` and interpreters are excluded.
+
+**Why.** A tag is a mutable pointer: whoever controls the action's repo can move it to new code
+after it was reviewed, and that code runs with the repo's token. Compromised actions have
+exfiltrated secrets this way. An auto-allowed `printenv` or `cat .env` sends every token in the
+shell to a hosted model with no prompt, which makes the "never print credential files" rule
+depend on the assistant's judgement alone.
+
+**Rejected.** *Tags for first-party `actions/*`.* That is safer than third-party tags, but it is
+still mutable, and a single rule is easier to check than an exception list. *Keep the broad
+allowlist for speed.* Prompts cost a click; a leaked token costs a rotation.
+
+**Cost.** SHA pins need Dependabot's `github-actions` ecosystem or a manual bump to stay current.
+The allowlist prompts more often.
+
+**Verified: PARTIAL.** Rule 1 holds for this repo: `grep -hE '^\s*-?\s*uses:'
+.github/workflows/*.yml | grep -vE '@[0-9a-f]{40}|uses: \./|#\s+uses' | wc -l` → `0`. The same
+count over the five templates' CI → `16` tag-pinned uses, which is an open finding. Rule 2 does
+not yet hold: `jq -r '.permissions.allow[]' ~/.claude/settings.json | grep -cE
+'^Bash\((cat|env|printenv|npx|git|node|python3|brew):\*\)$'` → `8`, which is an open finding.
+Recheck when both are fixed.

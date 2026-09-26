@@ -32,7 +32,7 @@ Pick the language that fits the job, not the one the directory already uses:
 |---|---|---|---|
 | bash (3.2-compatible) | gluing CLI tools, git, launchd jobs | `#!/usr/bin/env bash` | `shellcheck` |
 | zsh | only when zsh-specific; prefer bash here | `#!/usr/bin/env zsh` | `zsh -n` |
-| Python 3 (stdlib only) | parsing, JSON/TSV transforms, anything with data structures | `#!/usr/bin/env python3` | not yet wired — add `ruff` when the first one lands |
+| Python 3 (stdlib only) | parsing, JSON/TSV transforms, anything with data structures | `#!/usr/bin/env python3` | `ruff` (`PYTHON_FILES` in `test.sh`) |
 | others (Swift, Go…) | only with a clear reason, e.g. a macOS API | — | add to `test.sh` in the same commit |
 
 No script may require an install step beyond what [`tools/Brewfile`](../tools/Brewfile) provides.
@@ -75,6 +75,7 @@ Scheduling and output locations: [`docs/maintenance.md`](../docs/maintenance.md)
 | `test-security-tools.sh` | sweep, weekly audit, gate module, Claude guard hook, sync sanitizers | yes (`tools`) |
 | `test-containers-doctor.sh` | `containers-doctor.sh` in a stubbed sandbox | yes (`containers`) |
 | `test-bin.sh` | [`bin/`](../bin/) | yes (`bin`) |
+| `test-docs.py` | policy doc links and anchors, index coverage, workspace `CLAUDE.md` sync | yes (`docs`) |
 | `test-dotfiles-setup.sh` (`dottest`) | checks that this machine's live configs are in place | **no** |
 | `test/assertions.sh` | a restore into a clean Debian container ends up in the expected state | **no** (manual `docker run`) |
 

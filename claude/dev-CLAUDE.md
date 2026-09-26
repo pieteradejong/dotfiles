@@ -79,6 +79,10 @@ Read these when their subject comes up; they are not loaded automatically.
 | Doc | Covers |
 |---|---|
 | `dotfiles/docs/policy/security-and-privacy.md` | Data tiers, the gate, bypass, first-commit and go-public checklists, leaks, CI scanning, GitHub baseline, guardrails |
+| `dotfiles/docs/policy/secure-development.md` | Threat model, auth, input/output, runtime secrets, web defaults, logging, SAST, pre-ship checklist |
+| `dotfiles/docs/policy/privacy-by-design.md` | Data classes, minimization, retention and deletion, other people's data, processors |
+| `dotfiles/docs/policy/supply-chain.md` | Adding dependencies, lockfiles, Actions pinned by SHA, vulnerability response, deployed surfaces |
+| `dotfiles/docs/policy/ai-and-external-services.md` | What may go to a hosted model, connector writes, prompt injection, permission allowlists |
 | `dotfiles/docs/policy/repo-standards.md` | Licensing, GitHub tiers, `.gitignore` baseline, `init.sh`/`run.sh`, dependencies, media, lint |
 | `dotfiles/docs/policy/ai-instructions.md` | Instruction-file layering, `CLAUDE.md` vs memory, decision records |
 | `dotfiles/docs/policy/backups.md` | Backup principles |
