@@ -188,6 +188,45 @@ module (`scripts/audit/20-policy.sh`) can emit is missing from this table, or wh
 - **Standards** bind repos owned by `pieteradejong` (or with no GitHub remote yet). Forks and clones
   of someone else's code get the secret and privacy rules only.
 
+Every path by which content reaches GitHub, and what stands in each one:
+
+```mermaid
+flowchart LR
+    subgraph src["Where a change comes from"]
+        A["Assistant on this Mac"]
+        H["You on this Mac"]
+        X["Another machine · web editor · bot<br/><small>or a commit made with -n</small>"]
+    end
+
+    subgraph mac["This Mac"]
+        GB["guard-git-bypass.sh<br/><small>no -n, no hook config,<br/>no SECURITY_GATE_*</small>"]
+        GW["guard-github-write.sh<br/><small>no content via the GitHub API</small>"]
+        PC["gate.sh pre-commit<br/><small>secrets · files · personal data<br/>standards: what the commit adds</small>"]
+        PP["gate.sh pre-push<br/><small>same, over pushed commits<br/>+ security CI · LICENSE if public<br/>personal data blocks, private too</small>"]
+    end
+
+    subgraph gh["GitHub"]
+        PPR["Push protection<br/><small>public repos</small>"]
+        R[("Repository")]
+        CI["security-reusable.yml<br/><small>gitleaks · full history<br/>gate.sh ci · this push or PR</small>"]
+    end
+
+    AU["dotaudit, weekly<br/><small>existing debt in every repo:<br/>FAIL / WARN / INFO</small>"]
+
+    A --> GB --> PC
+    A -. "gh api, MCP writes" .-> GW
+    GW -. "denied" .-> A
+    H --> PC --> PP --> PPR --> R
+    X --> R
+    R --> CI
+    CI -. "red check" .-> R
+    AU -. "reads every local clone" .-> mac
+```
+
+The solid path is the one prevented. The dashed CI hop only detects, because GitHub can't require
+the check before merge on this plan (findings EN-3). dotaudit reports what was there before any of
+this existed.
+
 | Rule | Written in | Gate (commit / push) | CI | dotaudit check id |
 |---|---|---|---|---|
 | No secrets | [security §2](security-and-privacy.md#2-the-commitpush-gate) | `gitleaks` block / block | gitleaks full history + gate | `gitleaks`, `secret-assignment`, `history-*` |

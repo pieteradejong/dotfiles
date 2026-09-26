@@ -86,6 +86,27 @@ any repo. The rules live in `security/patterns.sh`, shared with `dotaudit`; gitl
 | Security CI present (`no-security-ci`), own GitHub repos | — | block | block |
 | LICENSE naming the canonical holder, own GitHub repos | — | — | block |
 
+How one push is judged:
+
+```mermaid
+flowchart TD
+    P(["git push"]) --> V{"Remote visibility<br/><small>gh repo view, cached</small>"}
+    V -- "PUBLIC or UNKNOWN" --> S1["Personal data: BLOCK"]
+    V -- "PRIVATE" --> L{"Listed in<br/>personal-data-repos.conf?"}
+    L -- "no" --> S1
+    L -- "yes" --> S2["Personal data: warn"]
+    S1 --> C
+    S2 --> C
+    C["Every repo, every remote:<br/>gitleaks · credential files · &gt;50 MB<br/>private/ in dotfiles · personal data · identities"]
+    C --> O{"Own repo<br/><small>pieteradejong/*</small><br/>on GitHub?"}
+    O -- "no: fork, clone,<br/>local backup" --> D
+    O -- "yes" --> ST["What the push adds:<br/>unpinned deps · unpinned actions<br/>second lockfile · media"]
+    ST --> RP["The pushed tip:<br/>calls security-reusable.yml<br/>LICENSE with canonical holder if not PRIVATE"]
+    RP --> D{"Any BLOCK?"}
+    D -- "no" --> OK(["push proceeds"])
+    D -- "yes" --> NO(["push refused<br/><small>fix it · see the table below</small>"])
+```
+
 - **Nothing reaches GitHub without the full check, private repos included.** Private GitHub is
   still a third party, and one visibility flip from public. The only exception is a private repo
   that exists to hold personal data (the private companion repo), listed by `owner/repo` in

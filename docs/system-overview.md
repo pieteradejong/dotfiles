@@ -78,6 +78,57 @@ and is kept off `PATH`.
 
 All three, plus the per-commit security gate: [`maintenance.md`](./maintenance.md).
 
+### Rules and what enforces them
+
+The workspace rules are written once, checked in three places, and kept honest by the test suite.
+Rule by rule: [repo standards § Enforcement](policy/repo-standards.md#enforcement). How a push is
+judged: [security §2](policy/security-and-privacy.md#2-the-commitpush-gate).
+
+```mermaid
+flowchart LR
+    subgraph written["Written"]
+        HR["~/dev/CLAUDE.md<br/><small>hard rules, for assistants<br/>copy of claude/dev-CLAUDE.md</small>"]
+        POL["docs/policy/*.md<br/><small>the rules in full</small>"]
+        ENF["repo-standards.md § Enforcement<br/><small>rule → check id</small>"]
+        DD["design-decisions.md<br/><small>why · D24</small>"]
+    end
+
+    subgraph shared["Shared rule data"]
+        PAT["security/patterns.sh<br/><small>files · secrets · personal data<br/>media · pins · lockfiles · actions</small>"]
+        PRIV["private/security/<br/><small>personal-patterns.conf<br/>personal-data-repos.conf</small>"]
+    end
+
+    subgraph checks["Enforced"]
+        GATE["security/gate.sh<br/><small>pre-commit · pre-push</small>"]
+        CI["security-reusable.yml<br/><small>gitleaks + gate.sh ci</small>"]
+        AUD["dotaudit<br/><small>scripts/audit/*.sh, weekly</small>"]
+        HOOK["claude/hooks/<br/><small>guard-git-bypass · guard-github-write</small>"]
+    end
+
+    subgraph tests["Kept honest: ./test.sh"]
+        TG["test-security-gate.sh"]
+        TT["test-security-tools.sh"]
+        TA["test-dev-audit.sh"]
+        TD["test-docs.py<br/><small>check ids ↔ Enforcement table<br/>live CLAUDE.md + hooks in sync</small>"]
+    end
+
+    DD -. "why" .-> POL
+    HR --> ENF
+    POL --> ENF
+    ENF -- "maps each rule to" --> GATE
+    ENF --> AUD
+    ENF --> HOOK
+    PAT --> GATE
+    PAT --> AUD
+    PRIV --> GATE
+    GATE -- "runs again on GitHub" --> CI
+    GATE -. "tested by" .-> TG
+    HOOK -. "tested by" .-> TT
+    AUD -. "tested by" .-> TA
+    ENF -. "checked against<br/>20-policy.sh ids" .-> TD
+    HR -. "live copy checked" .-> TD
+```
+
 ### The goal for `mac-maintenance.sh`
 
 **Eventually run it on a schedule** — daily or weekly, the same launchd
