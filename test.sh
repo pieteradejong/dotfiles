@@ -44,6 +44,7 @@ security/gate.sh
 security/patterns.sh
 security/lib/visibility.sh
 claude/hooks/guard-git-bypass.sh
+claude/hooks/guard-github-write.sh
 scripts/dev-audit.sh
 scripts/audit/lib.sh
 scripts/audit/10-git-hygiene.sh

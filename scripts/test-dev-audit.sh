@@ -83,8 +83,29 @@ build_fixtures() {
   # clean-repo: everything correct. Must produce no FAILs.
   local d; d="$(mkrepo clean-repo)"
   printf 'MIT License\n\nCopyright (c) 2026 Pieter de Jong\n' > "$d/LICENSE"
-  printf '.env\n.DS_Store\n__pycache__/\n.venv/\nvenv/\nnode_modules/\n**/node_modules/\n**/.env\n' > "$d/.gitignore"
-  mkdir -p "$d/.github/workflows"; printf 'name: ci\n' > "$d/.github/workflows/ci.yml"
+  printf '.env\n.env.*\n!.env.example\n.DS_Store\n__pycache__/\n.venv/\nvenv/\nnode_modules/\n**/node_modules/\n**/.env\n.mypy_cache/\n.ruff_cache/\n.pytest_cache/\n.vscode/\n.idea/\n*.log\n' > "$d/.gitignore"
+  mkdir -p "$d/.github/workflows"
+  # Every standard met, including the edge cases each check must NOT flag: an
+  # own reusable workflow called @main, a SHA-pinned third-party action, local
+  # and workspace references, requirement options, one lockfile, a small image.
+  cat > "$d/.github/workflows/ci.yml" <<'YML'
+name: ci
+on: [push]
+jobs:
+  security:
+    uses: pieteradejong/dotfiles/.github/workflows/security-reusable.yml@main
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/local
+      - run: echo ok
+YML
+  printf '{"name":"x","license":"MIT","dependencies":{"a":"1.2.3","b":"workspace:*","c":"npm:d@4.5.6"},"devDependencies":{"e":"0.0.1-beta.2"},"peerDependencies":{"react":"^19.0.0"}}\n' > "$d/package.json"
+  printf '{}\n' > "$d/package-lock.json"
+  printf '# pinned\n-r base.txt\nflask==3.0.0  # web\nrequests[socks]==2.32.3\n\n' > "$d/requirements.txt"
+  printf '[project]\nname = "x"\ndependencies = ["httpx==0.27.0"]\n[tool.poetry.dependencies]\npython = "^3.12"\nrich = "13.7.1"\n' > "$d/pyproject.toml"
+  printf 'PNG' > "$d/icon.png"
   printf '# clean\n' > "$d/README.md"
   commit_all "$d"
   # A genuinely clean repo has an off-machine copy. Without a remote it would
@@ -194,6 +215,33 @@ build_fixtures() {
   # Bounded read: an unbounded `tr < /dev/urandom` never exits where SIGPIPE is ignored (CI).
   GITLEAKS_BAIT="ghp_$(head -c 8192 /dev/urandom | LC_ALL=C tr -dc 'A-Za-z0-9' | head -c 36)"
   printf 'TOKEN = "%s"\n' "$GITLEAKS_BAIT" > "$d/app.py"
+  commit_all "$d"
+
+  # --- fixtures added 2026-09-26 with the repo-standards checks ----------------
+
+  # standards-bad: breaks every repo-standards rule once. A workflow exists but
+  # calls only the secrets-only gitleaks workflow, so no-security-ci must fire.
+  d="$(mkrepo standards-bad)"
+  printf 'MIT License\n\nCopyright (c) 2026 Pieter de Jong\n' > "$d/LICENSE"
+  printf '.env\n.DS_Store\n' > "$d/.gitignore"
+  mkdir -p "$d/.github/workflows" "$d/web" "$d/media"
+  cat > "$d/.github/workflows/ci.yml" <<'YML'
+jobs:
+  gitleaks:
+    uses: pieteradejong/dotfiles/.github/workflows/gitleaks-reusable.yml@main
+  test:
+    steps:
+      - uses: actions/checkout@v4
+      - uses: "actions/setup-node@v4" # tag, not SHA
+YML
+  printf '{"dependencies":{"a":"^1.2.3","b":"~2.0.0","c":"latest"},"devDependencies":{"d":"1.x"}}\n' > "$d/web/package.json"
+  printf '{}\n' > "$d/web/package-lock.json"
+  printf '# x\n' > "$d/web/yarn.lock"
+  printf 'flask>=2\nrequests\n' > "$d/requirements.txt"
+  printf '[tool.poetry.dependencies]\npython = "^3.12"\nrich = "^13.0"\n' > "$d/pyproject.toml"
+  printf 'x' > "$d/media/clip.MP4"
+  printf 'x' > "$d/model.safetensors"
+  head -c $((6 * 1024 * 1024)) /dev/zero > "$d/media/huge.png"
   commit_all "$d"
 
   # A skiplist scoped to the fixtures.
@@ -457,6 +505,48 @@ if LC_ALL=C grep -qE 'hunter2_do_not_leak|deep_and_unseen|was_here_then_deleted|
 else
   pass "No secret value appears in output, including history findings"
 fi
+
+# --- 13. repo-standards checks added 2026-09-26 ---------------------------------
+header "13. Repo standards: security CI, pins, lockfiles, media, action SHAs"
+
+# Each check fires on the fixture that breaks it...
+assert_finding "$TSV12" FAIL standards-bad   no-security-ci
+assert_finding "$TSV12" FAIL no-license-repo no-security-ci
+assert_finding "$TSV12" FAIL standards-bad   unpinned-deps
+assert_finding "$TSV12" FAIL standards-bad   multiple-lockfiles
+assert_finding "$TSV12" FAIL standards-bad   tracked-media
+assert_finding "$TSV12" FAIL standards-bad   unpinned-action
+assert_finding "$TSV12" FAIL standards-bad   gitignore-env
+assert_finding "$TSV12" WARN standards-bad   gitignore-gaps
+
+# ...and stays silent on the clean repo's edge cases.
+for c in no-security-ci unpinned-deps unpinned-deps-skipped multiple-lockfiles tracked-media unpinned-action gitignore-gaps; do
+  assert_no_finding "$TSV12" clean-repo "$c"
+done
+# The retired INFO check is gone, not duplicated.
+assert_no_finding "$TSV12" no-license-repo no-ci
+
+# Counts are exact, so a check that over- or under-matches is caught. 4 npm
+# ranges + 2 requirements + 1 poetry; 2 tag-pinned actions.
+if LC_ALL=C grep -q '	standards-bad	unpinned-deps	7 dependency spec' "$TSV12"; then
+  pass "unpinned-deps counts 7 specs (npm 4, requirements 2, poetry 1; python exempt)"
+else
+  fail "unpinned-deps count wrong: $(LC_ALL=C grep '	standards-bad	unpinned-deps	' "$TSV12" | cut -f5)"
+fi
+if LC_ALL=C grep -q '	standards-bad	unpinned-action	2 action' "$TSV12"; then
+  pass "unpinned-action counts 2 tag-pinned uses (own reusable workflow exempt)"
+else
+  fail "unpinned-action count wrong: $(LC_ALL=C grep '	standards-bad	unpinned-action	' "$TSV12" | cut -f5)"
+fi
+MEDIA_MSG="$(LC_ALL=C grep '	standards-bad	tracked-media	' "$TSV12" | cut -f5)"
+case "$MEDIA_MSG" in
+  *clip.MP4*model.safetensors*huge.png*|*clip.MP4*huge.png*model.safetensors*) pass "tracked-media names video (any case), weights and the oversized image" ;;
+  *) fail "tracked-media message incomplete: $MEDIA_MSG" ;;
+esac
+case "$(LC_ALL=C grep '	standards-bad	multiple-lockfiles	' "$TSV12" | cut -f5)" in
+  *web*) pass "multiple-lockfiles names the directory holding both" ;;
+  *) fail "multiple-lockfiles does not name web/" ;;
+esac
 
 # ---------------------------------------------------------------------------
 echo ""

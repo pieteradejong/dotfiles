@@ -418,3 +418,49 @@ since 2026-09-26. The global and workspace allow lists were narrowed to the safe
 `./test.sh tools` → `✓ PASS: no auto-allowed command can print a secret or run arbitrary code`.
 Adding `Bash(cat:*)` back makes it fail. The live `~/.claude/settings.json` is not covered by any
 test (it is outside the repo). Recheck when rule 1 is fixed.
+
+## D24 — Nothing reaches GitHub unchecked; the gate enforces the repo standards · 2026-09-26
+
+**Decision.** Four rules that close off leniencies:
+1. Personal data and non-noreply identities **block on every push to GitHub**, private repos
+   included. The only exception is a private repo listed in the private
+   `private/security/personal-data-repos.conf`. The list is central, so a repo cannot exempt
+   itself.
+2. The gate enforces the repo standards (exact pins, one package manager, SHA-pinned actions, no
+   media, public ⇒ LICENSE with the canonical holder, security CI present) in repos owned by
+   `pieteradejong`. It blocks only what a commit or push **introduces**; dotaudit FAILs the debt
+   already there ([enforcement](policy/repo-standards.md#enforcement)).
+3. The same gate runs on GitHub (`gate.sh ci` in `security-reusable.yml`) over every push and PR.
+   Every own repo must call it. `gitleaks-reusable.yml` alone no longer counts.
+4. The assistant may not write repository content through the GitHub API
+   (`guard-github-write.sh`); content goes through git, so through the gate.
+
+**Why.** "Private" on GitHub is a setting on a third party's server, one click from public, and
+history never shrinks. GitHub secret scanning isn't available for private personal repos, so for
+them the gate and CI are the only scanners. A rule that lives only in a doc is enforced when
+somebody remembers; the audit mapped 10 such gaps (pins, lockfiles, actions, media by type, CI
+presence, LICENSE at push time, drift between instruction copies). The local gate cannot see a
+commit made on another machine, with `--no-verify`, or in the web editor. CI can.
+
+**Rejected.** *Judge the whole repo at commit time.* Every old repo would then block its next
+commit on debt the commit didn't add. The honest fix would be a cleanup commit before any work;
+the dishonest one a bypass, and a gate that invites bypass is weaker. *Full-history gate on
+scheduled CI runs.* dotfiles' own published history already holds home paths and an address, so
+every scheduled run would fail forever; history debt is dotaudit's to report. *Pin the reusable
+workflow by SHA in callers.* Every rule change would then need a commit in every repo; own
+reusable workflows (`pieteradejong/*`) are exempt from the action-pin rule and called `@main` on
+purpose. *Exact pins for `peerDependencies`.* They declare compatibility and install nothing, so
+they are exempt.
+
+**Cost.** First pushes of old repos will block until the repo has the security workflow and, if
+public, a canonical LICENSE. Private-repo pushes carrying personal data now need the value
+removed, or the line marked `security-gate:allow` for a genuine false positive. `pyproject.toml`
+checks need Python 3.11+ (`tomllib`); without it the gate warns and does not check.
+
+**Verified: PARTIAL.**
+- `./test.sh` passes in the commit that adds this entry, with new gate, tools and dotaudit cases
+  for every rule above.
+- `security/gate.sh ci` over this repo's full history → `BLOCK home-path`, `BLOCK email`,
+  `BLOCK author-email`. dotfiles' published history holds personal data; that is an open finding.
+- NOT YET: the workflow's first run on GitHub, the live `~/.claude/settings.json` hook
+  registration, and the first strict dotaudit baseline.

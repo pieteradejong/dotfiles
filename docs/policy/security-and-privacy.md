@@ -80,11 +80,24 @@ any repo. The rules live in `security/patterns.sh`, shared with `dotaudit`; gitl
 | File > 50 MB | block | block | block |
 | `private/` in the dotfiles repo | block | block | block |
 | gitleaks not installed | block | block | block |
-| Home paths, real emails, phone numbers, private personal values | warn | warn | block |
-| Non-noreply author/committer email | warn | warn | block |
+| Home paths, real emails, phone numbers, private personal values | warn (block if origin is public) | **block** (warn in a listed personal-data repo) | block |
+| Non-noreply author/committer email | warn | **block** (warn in a listed personal-data repo) | block |
+| Repo standards, own repos only: pins, actions, lockfiles, media ([enforcement](repo-standards.md#enforcement)) | block what the commit adds | block what the push adds | block what the push adds |
+| Security CI present (`no-security-ci`), own GitHub repos | — | block | block |
+| LICENSE naming the canonical holder, own GitHub repos | — | — | block |
 
+- **Nothing reaches GitHub without the full check, private repos included.** Private GitHub is
+  still a third party, and one visibility flip from public. The only exception is a private repo
+  that exists to hold personal data (the private companion repo), listed by `owner/repo` in
+  `private/security/personal-data-repos.conf`. The list is central and private, so a repo cannot
+  exempt itself, and a listed repo that turns public blocks again.
+- **Commits that never passed this machine are checked on GitHub.** The same gate runs as
+  `gate.sh ci` in the reusable security workflow (§9) over every push and PR. That covers
+  `--no-verify`, another machine, the web editor and bots. Content written through the GitHub API
+  skips git entirely, so the assistant is denied it (§14).
 - **Visibility** comes from `gh repo view`, cached (public 24 h, private 1 h). A failed lookup or
-  a non-GitHub remote is treated as **public**.
+  a non-GitHub remote is treated as **public**. A push to a non-GitHub remote (a local backup) is
+  held to the secret and privacy rules only, since it publishes nothing.
 - **Exemptions:** test, fixture and example paths, and lines containing `security-gate:allow`,
   are exempt from the personal-data rules only — never from the secret rules.
 - **Push scans only commits not already on that remote**, so a commit made with `-n` is still
@@ -117,7 +130,7 @@ SECURITY_GATE_BYPASS="<reason, at least 10 characters>" git commit ...   # or gi
 2. Confirm the noreply identity (§6).
 3. Add a `.gitignore` with the [baseline](repo-standards.md#gitignore-baseline).
 4. Public, or likely to become public ⇒ LICENSE in this commit ([licensing](repo-standards.md#licensing)).
-5. Add the gitleaks CI job (§9).
+5. Add the security CI workflow (§9). Pushes to an own GitHub repo without it are blocked.
 6. Run `~/dev/dotfiles/security/gate.sh scan-tree` and resolve every finding.
 7. Read `git status` before any broad `git add`. If anything in a diff looks like a credential —
    even in a README, config or test fixture — stop and check the content before staging it.
@@ -196,21 +209,36 @@ to stop further exposure.
 
 ## 9. Secret scanning in CI — the standard for every repo
 
-Every repo under `~/dev` runs `.github/workflows/gitleaks-reusable.yml` from dotfiles: full-history
-scan, gitleaks 8.30.1 binary SHA-256 verified, the shared config, redacted logs, `contents: read`.
-Add to any repo as `.github/workflows/gitleaks.yml`:
+Every own repo runs `.github/workflows/security-reusable.yml` from dotfiles. It has two jobs:
+
+- **gitleaks** scans the full history, with the gitleaks 8.30.1 binary SHA-256 verified, the shared
+  config and redacted logs.
+- **gate** runs `security/gate.sh ci` over what the push or PR brings: secrets, forbidden files,
+  sizes, personal-data shapes, commit identities, and the repo standards. It is always strict and
+  has no bypass.
+
+Both run with `contents: read`. Add it to any repo as `.github/workflows/security.yml`:
 
 ```yaml
-name: gitleaks
+name: security
 on: [push, pull_request, workflow_dispatch]
 permissions:
   contents: read
 jobs:
-  gitleaks:
-    uses: pieteradejong/dotfiles/.github/workflows/gitleaks-reusable.yml@main
+  security:
+    uses: pieteradejong/dotfiles/.github/workflows/security-reusable.yml@main
 ```
 
-- Add it when a repo is created (templates ship it) or next touched.
+- **Required.** The gate blocks a push to an own GitHub repo without it (`no-security-ci`), and
+  dotaudit FAILs it. That is the hard rule's "added when a repo is created or next touched", made
+  mechanical.
+- `gitleaks-reusable.yml` still works for existing callers, but it is secrets-only and no longer
+  satisfies the rule.
+- The private personal-values list never reaches CI. The shape rules (home paths, emails, phone
+  numbers, identities) do.
+- Scheduled and manual runs scan full history for secrets only. The gate judges what an event
+  brings, so old personal-data debt in history is dotaudit's to report, not a reason for every run
+  to fail.
 - **Never** add it to do-not-touch repos, forks, or upstream clones.
 - Private repos get it too: Actions minutes are free, and GitHub secret scanning isn't available
   for private personal repos without the paid Secret Protection add-on.
@@ -290,6 +318,11 @@ What an assistant may read and send, and how connectors are used:
   `--no-verify`, `git commit -n`, `core.hooksPath`, `hook.*.enabled|command|event`, `GIT_CONFIG_*`
   environment overrides, `SECURITY_GATE_*`, `HOME=… git`, and `/usr/bin/git`. It is a guardrail,
   not a sandbox.
+- `dotfiles/claude/hooks/guard-github-write.sh` denies writing repository content through the
+  GitHub API: `gh api` writes to contents, git data, releases or gists; `gh gist create|edit`;
+  `gh release create|upload`; `curl`/`wget` writes to the API; and GitHub MCP content-write tools.
+  Those paths skip git, so the gate never sees them. Content goes through `git commit` and `git push`.
+  Settings calls such as the baseline sweep are allowed.
 - An assistant fixes a gate finding; it never bypasses the gate and never asks the user to set
   `SECURITY_GATE_BYPASS`.
 - An assistant confirms before outward-facing actions: pushing, changing visibility or repo

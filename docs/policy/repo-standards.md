@@ -54,7 +54,7 @@ Forks and archived repos are excluded.
 | A3 | Public ⇒ LICENSE ([licensing](#licensing)) | No LICENSE = all rights reserved |
 | A4 | `.gitignore` with the [baseline](#gitignore-baseline) | Secrets and cruft stay out |
 | A5 | Dormant repos are **archived** | Separates "unmaintained by choice" from "abandoned" |
-| A6 | gitleaks CI and the GitHub baseline settings ([security](security-and-privacy.md#9-secret-scanning-in-ci--the-standard-for-every-repo)) | Server-side backstop to the local gate |
+| A6 | Security CI (`security-reusable.yml`) and the GitHub baseline settings ([security](security-and-privacy.md#9-secret-scanning-in-ci--the-standard-for-every-repo)) | Server-side backstop to the local gate |
 
 Decide the archive question before a LICENSE sweep, so dormant repos aren't licensed and then archived.
 
@@ -66,7 +66,7 @@ Decide the archive question before a LICENSE sweep, so dormant repos aren't lice
 | B2 | CI runs lint + type-check + test for the language | A checkout-only workflow is theatre |
 | B3 | CI is green, or its failure is recorded with an owner | A permanently red badge trains you to ignore it |
 | B4 | Default branch is `main` | A `main`/`master` split silently breaks copied workflow triggers |
-| B5 | Actions pinned to current majors (or a commit SHA) | Old majors run on deprecated runners and stop working |
+| B5 | Actions pinned to a full commit SHA, current major in a `# vX.Y.Z` comment ([supply chain](supply-chain.md)) | A tag can be moved to new code after review; old majors stop working |
 | B6 | Deploy target declared: Pages workflow, hosting project, or "none" | Otherwise deploys are tribal knowledge |
 
 ### Tier C — additionally, public repos adjacent to private data
@@ -135,7 +135,11 @@ When a project warrants one ([when](ai-instructions.md#per-project-files-are-laz
 ## Dependencies
 
 - **Pin exactly — no `^`, no `~`.** A range makes behaviour depend on install day; a pin keeps a
-  project untouched for two years installable.
+  project untouched for two years installable. This covers `package.json` (not
+  `peerDependencies`, which declare compatibility), `requirements*.txt` and `pyproject.toml`
+  (`==`; poetry's `python` constraint and `[build-system]` are exempt). There are no published
+  libraries here; if one appears, its range-pinned metadata is a decision entry, not a quiet
+  exception.
 - **Record proven combinations** in a dependency matrix, each with the date verified and the reason
   for any unusual pin. An undated matrix is a wish list; if it has drifted, say so at its top.
 - **One package manager per project.** `npm` by default; `pnpm` or `yarn` only if already in use.
@@ -146,7 +150,9 @@ When a project warrants one ([when](ai-instructions.md#per-project-files-are-laz
 ## Media and large binaries
 
 Video, audio, model weights and multi-hundred-MB datasets are **never committed, even to a private
-repo.** GitHub rejects files over 100 MB, the gate blocks over 50 MB, and history never shrinks.
+repo.** GitHub rejects files over 100 MB, the gate blocks any file over 50 MB, any video, audio or
+weights file at any size, and any image over 5 MB (`MEDIA_EXT_ERE` and `IMAGE_MAX_BYTES` in
+`security/patterns.sh`). History never shrinks.
 
 1. `.gitignore` the extensions.
 2. Keep `<project>/assets/README.md` listing each asset's name, size, sha256, and where the
@@ -166,6 +172,44 @@ backed up by git** — give it an explicit backup ([backups](backups.md)).
 - Wire each through `./run.sh lint | format | type-check | test`; CI runs the same commands.
 - Pin formatter versions in the manifest; a new major can reformat files the local version accepts.
 - Strict types where the language allows, including Python annotations.
+
+## Enforcement
+
+A rule is in force when it has a row here. Each row names where the rule is written and what checks
+it, so "is this enforced?" has one answer. `scripts/test-docs.py` fails when a check id the policy
+module (`scripts/audit/20-policy.sh`) can emit is missing from this table, or when the workspace
+`CLAUDE.md` stops pointing here.
+
+- **Gate** (`security/gate.sh`) blocks what a commit or push *introduces*. An old repo's existing
+  debt never blocks an unrelated commit.
+- **CI** (`security-reusable.yml`) runs the same gate (`gate.sh ci`) on GitHub over every push and
+  PR, so commits that skipped this machine's hooks are held to the same rules.
+- **dotaudit** (`scripts/audit/`, weekly) reports what is *already there*, across every repo.
+- **Standards** bind repos owned by `pieteradejong` (or with no GitHub remote yet). Forks and clones
+  of someone else's code get the secret and privacy rules only.
+
+| Rule | Written in | Gate (commit / push) | CI | dotaudit check id |
+|---|---|---|---|---|
+| No secrets | [security §2](security-and-privacy.md#2-the-commitpush-gate) | `gitleaks` block / block | gitleaks full history + gate | `gitleaks`, `secret-assignment`, `history-*` |
+| No `.env`, key or credential files | [security §2](security-and-privacy.md#2-the-commitpush-gate) | block / block | gate | `env-file`, `private-key`, `ssh-key`, … (rule names in `patterns.sh`) |
+| No personal data on GitHub, private repos included | [security §2](security-and-privacy.md#2-the-commitpush-gate) | warn (block if public) / **block** | gate | `home-path`, `email`, `ssh-config` |
+| Committer identity is the noreply address | [security §6](security-and-privacy.md#6-committer-identity) | warn / **block** | gate | `committer-email` |
+| No file over 50 MB | [media](#media-and-large-binaries) | block / block | gate | `large-files` |
+| No media or weights, no image over 5 MB | [media](#media-and-large-binaries) | `media-file` block / block | gate | `tracked-media` |
+| Exact version pins | [dependencies](#dependencies) | `unpinned-dependency` block / block | gate | `unpinned-deps`, `unpinned-deps-skipped` |
+| One package manager per project | [dependencies](#dependencies) | `multiple-lockfiles` block / block | gate | `multiple-lockfiles` |
+| Actions pinned by commit SHA | [tier B5](#tier-b--additionally-any-repo-pushed-within-12-months) | `unpinned-action` block / block | gate | `unpinned-action` |
+| Security CI in every repo | [security §9](security-and-privacy.md#9-secret-scanning-in-ci--the-standard-for-every-repo) | — / `no-security-ci` block | — | `no-security-ci` |
+| Public ⇒ LICENSE naming the canonical holder | [licensing](#licensing) | — / `no-license`, `license-holder` block | gate | `no-license`, `license-malformed`, `copyright-drift`, `license-mismatch` |
+| `.gitignore` baseline | [baseline](#gitignore-baseline) | — | — | `no-gitignore`, `gitignore-env`, `gitignore-gaps` |
+| `private/` never in public dotfiles | [security §2](security-and-privacy.md#2-the-commitpush-gate) | block / block | `private-guard` job | — |
+| Never bypass the gate | [security §3](security-and-privacy.md#3-bypass-procedure) | the assistant: `guard-git-bypass.sh`; people: the bypass log | gate (no bypass) | `gate-bypassed`, `gate-disabled`, `gate-not-registered` |
+| Content reaches GitHub only through git | [security §14](security-and-privacy.md#14-assistant-guardrails) | the assistant: `guard-github-write.sh` | — | — |
+| GitHub push protection and secret scanning on | [security §10](security-and-privacy.md#10-github-baseline-settings) | — | — | `github-security-sweep.sh --check` |
+| Audit output never inside a git repo | [security §13](security-and-privacy.md#13-audit-tool-design-rules) | assistant only | — | — |
+| Confirm before outward-facing actions | [AI and external services](ai-and-external-services.md) | assistant only | — | — |
+| Never relicense or reshape a fork | [licensing](#licensing) | standards skip forks | — | forks skipped |
+| README, description, archive, default branch, deploy target (A1, A2, A5, B4, B6) | [tiers](#github-standard--tiers) | — | — | not checked: `private/registers/github-baseline.md` by hand |
 
 ---
 
