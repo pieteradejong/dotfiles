@@ -108,6 +108,30 @@ any repo. The rules live in `security/patterns.sh`, shared with `dotaudit`; gitl
 - **Use Homebrew git.** Apple's `/usr/bin/git` ignores config hooks: keep Homebrew git first on
   `PATH`, and set `git.path` in editors.
 
+### When the gate blocks: what each finding means
+
+Every block names a rule id. Fix the cause; the [bypass](#3-bypass-procedure) is for a genuine
+false positive only. After a fix, `git add` again and retry. For a finding in a commit already made,
+`git commit --amend` or `git reset HEAD~1`, then commit again.
+
+| Rule id | Means | Fix |
+|---|---|---|
+| `gitleaks` | A secret is in the change | **Rotate it first** (§8), then remove it and read it from the environment. Deleting it later doesn't unpublish it. |
+| `gitleaks-missing`, `gitleaks-error` | Nothing could be scanned | `brew install gitleaks`; rerun. The gate fails closed. |
+| `env-file`, `private-key`, `ssh-key`, `netrc`, `package-auth`, … | A credential-shaped file is staged | `git restore --staged <file>`; add it to `.gitignore`; commit a `.example` instead. |
+| `large-file` | A file over 50 MB | Keep it out of git ([media](repo-standards.md#media-and-large-binaries)). |
+| `private-companion-repo` | `private/` staged in dotfiles | `git restore --staged private`. It is a separate repo. |
+| `home-path` | An absolute `/Users/<name>/` path | Use `$HOME`, `~` or a path relative to the script. |
+| `email`, `phone-number`, `personal-value` | Personal data in the change | Remove it, or use a placeholder (`you@example.com`). A genuine false positive: add `security-gate:allow` to that line. |
+| `author-email` | A commit carries a non-noreply address | `git config user.email <id>+pieteradejong@users.noreply.github.com`, then `git commit --amend --reset-author` (or rebase for older commits). |
+| `unpinned-dependency` | A new `^`, `~`, `>=`, `*` or `latest` | Write the exact installed version: `npm install --save-exact`, `pip freeze` for the line, `==` in `pyproject.toml`. |
+| `unpinned-action` | A `uses:` on a tag or branch | Pin the full commit SHA with the version as a comment: `uses: actions/checkout@<40-hex> # v4.2.2`. |
+| `multiple-lockfiles` | A second package manager's lockfile | Keep the project's one manager; delete the other lockfile. |
+| `media-file` | Video, audio, weights, or an image over 5 MB | Store it outside the repo ([media](repo-standards.md#media-and-large-binaries)) and list it in `assets/README.md`. |
+| `no-security-ci` | No workflow calls `security-reusable.yml` | Add `.github/workflows/security.yml` from §9. |
+| `no-license`, `license-holder` | A public push without a canonical LICENSE | Add LICENSE with `Copyright (c) <year> Pieter de Jong` ([licensing](repo-standards.md#licensing)). |
+| `jq-missing`, `pyproject-unchecked` | A check could not run | `brew install jq`; use Python 3.11+ (`/opt/homebrew/bin/python3`). |
+
 ## 3. Bypass procedure
 
 When a block is a genuine false positive and cannot be fixed in the file:
