@@ -1,4 +1,7 @@
-# Reusable gitleaks scan — the standard secret-scanning CI job for every repo.
+# Reusable gitleaks scan — SECRETS ONLY. Superseded by security-reusable.yml,
+# which runs this same scan plus the gate (personal data, identities, repo
+# standards). Kept so existing callers keep working; the gate and dotaudit no
+# longer accept a repo whose only CI is this file (no-security-ci).
 #
 # Call it from any repo's workflow:
 #

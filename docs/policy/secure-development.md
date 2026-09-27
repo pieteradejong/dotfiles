@@ -93,7 +93,7 @@ the project also follows [privacy by design](privacy-by-design.md).
 
 | Check | Where | Status |
 |---|---|---|
-| Secret scanning | gate + gitleaks CI | Enforced ([policy §2, §9](security-and-privacy.md#9-secret-scanning-in-ci--the-standard-for-every-repo)) |
+| Secret scanning | gate + security CI (gitleaks + `gate.sh ci`) | Enforced ([policy §2, §9](security-and-privacy.md#9-secret-scanning-in-ci--the-standard-for-every-repo)) |
 | SAST | CodeQL on public repos (free); Semgrep CE (`p/default`) on private ones | Standard for new projects; rollout to existing repos is a sweep |
 | Dependency vulnerabilities | Dependabot alerts | Enforced by the GitHub baseline; response times in [supply chain](supply-chain.md#4-vulnerability-response) |
 | Pre-merge review of a security-relevant change | `/security-review` in Claude Code | Before merging auth, payment, upload or data-export code |

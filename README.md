@@ -97,7 +97,8 @@ dotfiles/
 │   ├── gitleaks.toml               # shared gitleaks config (gate, dotaudit, CI)
 │   └── lib/visibility.sh           # is this push going somewhere public?
 ├── claude/
-│   └── hooks/guard-git-bypass.sh   # Claude Code hook: the assistant cannot bypass the gate
+│   ├── hooks/guard-git-bypass.sh   # Claude Code hook: the assistant cannot bypass the gate
+│   └── hooks/guard-github-write.sh # Claude Code hook: no content writes through the GitHub API
 ├── bin/            # On PATH - general commands, run in place from here
 │   ├── llm                         # prompt a local model, never the cloud (docs/llm.md)
 │   └── weekly-disk-cleanup.sh      # only copy; launchd runs this path
@@ -122,8 +123,9 @@ dotfiles/
 │       ├── 50-gate.sh              #   the gate is registered, intact, not bypassed
 │       └── render-report.sh        #   TSV -> markdown
 ├── .github/workflows/
-│   ├── ci.yml                      # gitleaks + private/ guard + ./test.sh
-│   └── gitleaks-reusable.yml       # the secret-scanning job every repo calls
+│   ├── ci.yml                      # security + private/ guard + ./test.sh
+│   ├── security-reusable.yml       # the CI every repo calls: gitleaks + gate.sh ci
+│   └── gitleaks-reusable.yml       # secrets-only predecessor, kept for old callers
 ├── docs/           # Documentation
 │   ├── policy/                     # the rules: security & privacy, repo standards, AI instructions, backups
 │   ├── design-decisions.md         # why the gate, audit and public/private split work as they do

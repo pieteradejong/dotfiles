@@ -366,9 +366,22 @@ printf 'contact real.person@company.io\n' > contact.md; git add contact.md; git 
 
 answer PRIVATE
 git remote add priv "$(bare github.com/test/priv.git)"
-expect 0 "personal data pushed to a PRIVATE remote: allowed" git push -q priv main
+expect 1 "personal data pushed to a PRIVATE remote: blocked (private GitHub is still GitHub)" git push -q priv main
 out_has 'visibility: PRIVATE' "push announces remote visibility"
-out_has 'WARN +email' "personal data is warned on a private push"
+out_has 'BLOCK email' "personal data is a blocking finding on a private push"
+
+printf '# repos that hold personal data\ntest/pdata\n' > "$T/personal-data-repos.conf"
+export SECURITY_GATE_PERSONAL_DATA_REPOS="$T/personal-data-repos.conf"
+git remote add pdata "$(bare github.com/test/pdata.git)"
+expect 0 "personal data pushed to a listed PRIVATE personal-data repo: allowed" git push -q pdata main
+out_has 'personal-data repo' "the personal-data exemption is announced"
+out_has 'WARN +email' "personal data is warned, not blocked, on a listed personal-data repo"
+answer PUBLIC
+git remote add pdata-pub "$(bare github.com/test/pdata.git)"
+rm -rf "$SECURITY_GATE_CACHE_DIR"
+printf 'second real.person@company.io\n' >> contact.md; git add contact.md; git commit -n -qm contact2 >/dev/null 2>&1
+expect 1 "a listed personal-data repo that turns PUBLIC blocks again" git push -q pdata-pub main
+answer PRIVATE
 
 answer PUBLIC
 git remote add pub "$(bare github.com/test/pub.git)"
@@ -414,9 +427,11 @@ git remote add pub "$(bare github.com/test/scope-pub.git)"
 expect 1 "non-noreply author pushed to PUBLIC is blocked" git push -q pub main
 out_has 'BLOCK author-email' "author-email finding on public push"
 answer PRIVATE
-expect 0 "non-noreply author pushed to PRIVATE is allowed" git push -q origin main
-out_has 'WARN +author-email' "author-email is a warning on private push"
+expect 1 "non-noreply author pushed to PRIVATE is blocked" git push -q origin main
+out_has 'BLOCK author-email' "author-email is a blocking finding on a private push"
+git reset -q --hard HEAD~1
 
+echo z > z.txt; git add z.txt; git commit -qm z >/dev/null 2>&1
 expect 0 "push by URL instead of remote name" git push -q "$T/remotes/github.com/test/scope.git" main
 
 newrepo dotfiles-push
@@ -425,6 +440,129 @@ git remote add origin "$(bare github.com/pieteradejong/dotfiles.git)"
 mkdir -p private; echo r > private/r.md; git add -f private; git commit -n -qm private >/dev/null 2>&1
 expect 1 "private/ committed with -n into dotfiles is caught at push" git push -q origin main
 out_has 'private-companion-repo' "private-companion-repo finding on push"
+
+# ================================================================================
+header "standards at commit: only what the commit introduces, only in own repos"
+SHA40="$(printf 'a%.0s' $(seq 1 40))"
+own() { git remote add origin "$(bare "github.com/pieteradejong/$1.git")"; }
+newrepo std; own std
+printf '{ "dependencies": { "left-pad": "^1.3.0" } }\n' > package.json; git add package.json
+expect 1 "caret dependency in package.json is blocked" git commit -qm dep
+out_has 'BLOCK unpinned-dependency' "unpinned-dependency finding"
+out_has 'left-pad' "the dependency name is reported so it can be fixed"
+printf '{ "dependencies": { "left-pad": "1.3.0", "x": "workspace:*", "y": "npm:z@2.0.0" } }\n' > package.json; git add package.json
+expect 0 "exact, workspace: and aliased-exact dependencies pass" git commit -qm dep
+printf '{ "devDependencies": { "old": "~2.0.0" }, "dependencies": { "left-pad": "1.3.0" } }\n' > package.json
+git add package.json; git commit -n -qm legacy >/dev/null 2>&1
+printf '{ "devDependencies": { "old": "~2.0.0" }, "dependencies": { "left-pad": "1.3.0", "new": "4.0.0" } }\n' > package.json; git add package.json
+expect 0 "an existing unpinned dependency does not block an unrelated change" git commit -qm dep2
+
+printf 'requests>=2.0\nflask==3.0.0\n-r base.txt\n# comment\n' > requirements.txt; git add requirements.txt
+expect 1 "requirements.txt range is blocked" git commit -qm req
+out_has 'requests' "the unpinned requirement is named"
+printf 'requests==2.32.0\nflask==3.0.0\n' > requirements.txt; git add requirements.txt
+expect 0 "pinned requirements.txt passes" git commit -qm req
+
+if python3 -c 'import tomllib' >/dev/null 2>&1; then
+  printf '[project]\nname = "p"\ndependencies = ["httpx>=0.27", "rich==13.7.1"]\n[tool.poetry.dependencies]\npython = "^3.12"\npendulum = "^3.0"\n' > pyproject.toml; git add pyproject.toml
+  expect 1 "pyproject ranges (PEP 621 and poetry) are blocked" git commit -qm py
+  out_has 'httpx' "PEP 621 range named"
+  out_has 'pendulum' "poetry caret named"
+  out_lacks 'python[,)]|: python$' "poetry's python constraint is exempt"
+  printf '[project]\nname = "p"\ndependencies = ["httpx==0.27.0"]\n[tool.poetry.dependencies]\npython = "^3.12"\npendulum = "3.0.0"\n' > pyproject.toml; git add pyproject.toml
+  expect 0 "pinned pyproject passes" git commit -qm py
+else
+  skip "python3 without tomllib: pyproject checks"
+fi
+
+mkdir -p .github/workflows
+printf 'jobs:\n  a:\n    steps:\n      - uses: actions/checkout@v4\n      - uses: ./local-action\n' > .github/workflows/ci.yml; git add .github
+expect 1 "tag-pinned action is blocked" git commit -qm wf
+out_has 'BLOCK unpinned-action.*actions/checkout' "unpinned-action names the action"
+printf 'jobs:\n  a:\n    steps:\n      - uses: actions/checkout@%s # v4.2.0\n      - uses: ./local-action\n' "$SHA40" > .github/workflows/ci.yml; git add .github
+expect 0 "SHA-pinned and local actions pass" git commit -qm wf
+
+printf '{}\n' > package-lock.json; git add package-lock.json; git commit -qm lock >/dev/null 2>&1
+printf '# yarn\n' > yarn.lock; git add yarn.lock
+expect 1 "a second JS lockfile next to package-lock.json is blocked" git commit -qm yarn
+out_has 'BLOCK multiple-lockfiles' "multiple-lockfiles finding"
+unstage_all
+
+printf 'x' > clip.MP4; git add clip.MP4
+expect 1 "a video file is blocked at any size (case-insensitive)" git commit -qm video
+out_has 'BLOCK media-file' "media-file finding"
+unstage_all
+printf 'x' > model.safetensors; git add model.safetensors
+expect 1 "model weights are blocked" git commit -qm weights
+unstage_all
+printf 'x' > icon.png; git add icon.png
+expect 0 "a small image passes" git commit -qm icon
+bigfile photo.jpg 6; git add photo.jpg
+expect 1 "an image over 5 MB is blocked" git commit -qm photo
+unstage_all
+
+newrepo fork-std
+git remote add origin "$(bare github.com/someone-else/fork-std.git)"
+printf '{ "dependencies": { "left-pad": "^1.3.0" } }\n' > package.json; git add package.json
+expect 0 "standards do not apply to someone else's repo" git commit -qm dep
+printf 'x' > clip.mp4; git add clip.mp4
+expect 0 "media rule does not apply to someone else's repo either" git commit -qm video
+
+# ================================================================================
+header "standards at push: LICENSE and security CI"
+security_ci() {
+  mkdir -p .github/workflows
+  printf 'jobs:\n  security:\n    uses: pieteradejong/dotfiles/.github/workflows/security-reusable.yml@%s\n' "$SHA40" > .github/workflows/security.yml
+  git add .github; git commit -qm ci >/dev/null 2>&1
+}
+newrepo std-push
+answer PUBLIC
+own std-push
+expect 1 "own repo without security CI or LICENSE: push to PUBLIC blocked" git push -q origin main
+out_has 'BLOCK no-security-ci' "no-security-ci finding"
+out_has 'BLOCK no-license' "no-license finding on a public push"
+security_ci
+printf 'MIT License\n\nCopyright (c) 2026 Somebody Else\n' > LICENSE; git add LICENSE; git commit -qm license >/dev/null 2>&1
+expect 1 "LICENSE without the canonical holder is blocked" git push -q origin main
+out_has 'BLOCK license-holder' "license-holder finding"
+printf 'MIT License\n\nCopyright (c) 2026 Pieter de Jong\n' > LICENSE; git add LICENSE; git commit -qm license >/dev/null 2>&1
+expect 0 "own public repo with LICENSE and security CI: allowed" git push -q origin main
+out_lacks 'BLOCK' "no blocking findings"
+
+newrepo std-priv
+answer PRIVATE
+own std-priv
+expect 1 "own PRIVATE repo still needs security CI" git push -q origin main
+out_lacks 'no-license' "LICENSE is not required on a PRIVATE push"
+security_ci
+expect 0 "own PRIVATE repo with security CI, no LICENSE: allowed" git push -q origin main
+
+printf '{ "dependencies": { "a": "^1.0.0" } }\n' > package.json; git add package.json; git commit -n -qm dep >/dev/null 2>&1
+expect 1 "an unpinned dependency committed with -n is caught at push" git push -q origin main
+out_has 'BLOCK unpinned-dependency' "unpinned-dependency finding on push"
+git reset -q --hard HEAD~1
+
+git remote add backup "$(bare notgithub/std-priv.git)"
+answer fail
+expect 0 "a local non-GitHub backup remote is held to secrets and privacy only" git push -q backup main
+answer PRIVATE
+
+# ================================================================================
+header "ci mode (security-reusable.yml)"
+newrepo ci-mode
+own ci-mode
+security_ci
+printf 'MIT License\n\nCopyright (c) 2026 Pieter de Jong\n' > LICENSE; git add LICENSE; git commit -qm license >/dev/null 2>&1
+BASE="$(git rev-parse HEAD)"
+printf 'contact real.person@company.io\n' > contact.md; git add contact.md; git commit -n -qm contact >/dev/null 2>&1
+expect 1 "ci: personal data blocks even on a PRIVATE repo" env SECURITY_GATE_VISIBILITY=PRIVATE "$GATE" ci "$BASE"
+out_has 'BLOCK email' "ci reports the email finding"
+expect 1 "ci ignores the bypass variable" env SECURITY_GATE_VISIBILITY=PRIVATE SECURITY_GATE_BYPASS="trying to bypass in ci" "$GATE" ci "$BASE"
+git reset -q --hard HEAD~1
+echo ok > ok.txt; git add ok.txt; git commit -qm ok >/dev/null 2>&1
+expect 0 "ci: a clean range passes" env SECURITY_GATE_VISIBILITY=PUBLIC "$GATE" ci "$BASE"
+out_has 'scanning 1 commit' "ci scans only base..HEAD"
+expect 0 "ci: an all-zero base (new branch) scans all of HEAD" env SECURITY_GATE_VISIBILITY=PUBLIC "$GATE" ci 0000000000000000000000000000000000000000
 
 # ================================================================================
 header "pre-push: visibility cache"

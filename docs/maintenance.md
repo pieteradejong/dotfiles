@@ -136,4 +136,4 @@ confirmed idempotent across repeated runs.
 3. Rotate anything the audit flagged as leaked — rotate first, then clean up.
 4. `~/dev/dotfiles/test.sh` still passes; `security/gate.sh status` is all `ok`.
 5. `brew upgrade gitleaks git` — then bump `gitleaks-version` and `gitleaks-sha256` in
-   `.github/workflows/gitleaks-reusable.yml` if gitleaks changed.
+   `.github/workflows/security-reusable.yml` and `gitleaks-reusable.yml` if gitleaks changed.

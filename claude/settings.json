@@ -27,6 +27,19 @@
           {
             "type": "command",
             "command": "$HOME/dev/dotfiles/claude/hooks/guard-git-bypass.sh"
+          },
+          {
+            "type": "command",
+            "command": "$HOME/dev/dotfiles/claude/hooks/guard-github-write.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__.*github.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/dev/dotfiles/claude/hooks/guard-github-write.sh"
           }
         ]
       }

@@ -51,7 +51,7 @@ Before the first `npm install <pkg>` or `pip install <pkg>`:
   names and PR bodies go through `env:` and are quoted in the shell.
 - **Secrets are scoped to the job and environment that need them**; deploy secrets live in a
   protected GitHub environment, not repo-wide.
-- **Reusable workflows called by `@main`** (the gitleaks job) are only called from repos owned by
+- **Reusable workflows called by `@main`** (the security workflow) are only called from repos owned by
   the same account; a third-party reusable workflow is pinned by SHA like an action.
 
 ## 4. Vulnerability response
@@ -99,5 +99,5 @@ Supabase projects, hosted previews.
 2. Every `uses:` pinned by SHA with a version comment.
 3. `persist-credentials: false` on checkout.
 4. Lockfile-only install (§2).
-5. The gitleaks job ([policy §9](security-and-privacy.md#9-secret-scanning-in-ci--the-standard-for-every-repo)).
+5. The security CI workflow ([policy §9](security-and-privacy.md#9-secret-scanning-in-ci--the-standard-for-every-repo)).
 6. SAST per [secure development §7](secure-development.md#7-checks).

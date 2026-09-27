@@ -12,6 +12,10 @@ is not a git repo.
 
 ## Hard rules
 
+What checks each rule, and where: `dotfiles/docs/policy/repo-standards.md` § Enforcement.
+
+- **Nothing reaches GitHub without the full security and privacy check** — private repos included.
+  Content goes through `git commit` and `git push`, never through the GitHub API.
 - **Every commit and push passes the security gate** (`dotfiles/security/gate.sh`). Never bypass
   it: never use `--no-verify` or `-n`, never touch `core.hooksPath` or `hook.*` config, never ask the
   user to set `SECURITY_GATE_BYPASS`. Fix the finding, or stop and report it.
@@ -20,10 +24,12 @@ is not a git repo.
   the manifest's `license` field must match.
 - **Never relicense or reshape a fork or upstream clone**, and skip them in bulk sweeps.
 - **No media or large binaries in git** (video, audio, weights, big datasets) — not even private.
-- **Exact version pins** — no `^` or `~`.
+- **Exact version pins** — no `^` or `~`. **One package manager** per project. **Actions pinned by
+  commit SHA.**
 - **Never write audit output inside a git repo.** Reports go to `~/dev/audit-reports/`, mode 600.
-- **Every repo's CI includes gitleaks** via the reusable workflow — added when a repo is created or
-  next touched; never to do-not-touch repos, forks or upstream clones.
+- **Every repo's CI calls the reusable security workflow** (`security-reusable.yml`: gitleaks plus
+  the gate) — added when a repo is created or next touched; never to do-not-touch repos, forks or
+  upstream clones.
 - **Confirm before outward-facing actions:** push, visibility or settings changes, deletes, anything
   published. Never open or print credential files.
 - **A "done" needs its verification command and output**, not a statement.
@@ -45,7 +51,7 @@ order they happen in, not a second copy of them.
    is cheapest before it has been built on. The `SessionStart` hook reports this automatically and
    says nothing when the repo is clean; silence is the normal case, not a failure to run.
 2. **First commit in a repo** follows `dotfiles/docs/policy/security-and-privacy.md` §4 —
-   `.gitignore` baseline, data tier, noreply identity, LICENSE, gitleaks job.
+   `.gitignore` baseline, data tier, noreply identity, LICENSE, security CI workflow.
 3. **A decision that closes off an alternative earns an entry**, in the format and with the
    `Verified:` discipline of `dotfiles/docs/policy/ai-instructions.md` § Decisions need
    verification. Not every commit — only a choice someone could reasonably reopen later.

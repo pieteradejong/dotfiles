@@ -142,6 +142,11 @@ anything naming a specific repo or exposure — goes in the private companion re
 
 ## One source of truth for assistant config
 
-Copies of instruction files drift. Keep the dotfiles copies of `~/.claude/CLAUDE.md` and the
-workspace `CLAUDE.md` as the source and symlink the live locations to them, rather than copying in
-either direction.
+The dotfiles copies are the source: `claude/CLAUDE.md` (for `~/.claude/CLAUDE.md`),
+`claude/dev-CLAUDE.md` (for `~/dev/CLAUDE.md`) and `claude/settings.json` (for
+`~/.claude/settings.json`). Edit the dotfiles copy, then copy it to the live location. The two
+`CLAUDE.md` files are byte-identical copies, not symlinks (decided 2026-09-14). The live
+`settings.json` is a superset: it also carries machine-local hooks with absolute paths, which stay
+out of the public repo. Copies drift, so `scripts/test-docs.py` fails when a live `CLAUDE.md`
+differs from its source, or when the live `settings.json` lacks a hook the tracked one registers.
+The checks are skipped where the live file doesn't exist, as in CI.
