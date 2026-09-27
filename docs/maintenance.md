@@ -137,3 +137,9 @@ confirmed idempotent across repeated runs.
 4. `~/dev/dotfiles/test.sh` still passes; `security/gate.sh status` is all `ok`.
 5. `brew upgrade gitleaks git` — then bump `gitleaks-version` and `gitleaks-sha256` in
    `.github/workflows/security-reusable.yml` and `gitleaks-reusable.yml` if gitleaks changed.
+6. Read the untested assistant permission files by hand: the `allow` lists in
+   `~/.claude/settings.json` and `~/dev/.claude/settings.local.json`. Remove anything in the "not
+   safe" column of [AI and external services §5](policy/ai-and-external-services.md#5-permission-allowlists)
+   and anything pointing at a path that no longer exists.
+7. Recheck deployed surfaces ([supply chain §6](policy/supply-chain.md#6-deployed-surfaces)): any
+   repo that gained Pages or a `.vercel/` link goes into the private GitHub baseline register.

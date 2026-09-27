@@ -72,7 +72,11 @@ Dismissing an alert needs a reason in GitHub's dismissal field ("vulnerable code
 - **`curl … | sh` and `npx <pkg>` run unreviewed code.** Download first and read the script; give
   `npx` an exact version (`npx pkg@1.2.3`), never a bare name.
 - **Homebrew is the default installer** for tools on this Mac (Brewfile); taps other than
-  `homebrew/*` are a deliberate choice.
+  `homebrew/*` are a deliberate choice, trusted per formula (`brew trust --formula`).
+- **The gate's own tools are in the Brewfile:** `git`, `gitleaks`, `gh`, `jq`, `shellcheck`. The
+  gate fails closed without gitleaks, so a fresh machine that skips the Brewfile can't commit.
+  After `brew upgrade gitleaks`, bump `gitleaks-version` and `gitleaks-sha256` in the reusable
+  workflows so CI scans with the same version ([maintenance](../maintenance.md)).
 - **Containers:** pin images by digest in anything deployed; `latest` is a moving target.
 - **Editor extensions and MCP servers** are code with your credentials too — install from the
   publisher you meant, and remove what is unused.

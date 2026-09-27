@@ -55,3 +55,14 @@ separate remote — never un-excluded as plaintext, and never loose in a workspa
 - If backup copies vanish and the cause is unknown, regenerating them is not a fix — find what is
   deleting them first.
 - Dotfile restores snapshot the live files before overwriting, so a bad restore is itself recoverable.
+
+## Before deleting a runtime
+
+Removing a database, container volume or hosted project is a delete of everything in it.
+
+- Dump it first and **compare row counts** between the source and a restore of the dump; a dump
+  that was never restored is a hypothesis too.
+- Store the dump per [privacy by design §3](privacy-by-design.md#3-where-it-lives-and-who-can-reach-it)
+  (outside repos, mode 600).
+- **Another organization's data is theirs to delete.** A client's database, a former employer's
+  project: keep, return or delete it only with that owner's explicit say-so, recorded.

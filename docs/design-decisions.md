@@ -58,6 +58,12 @@ old rules without any sign).
 
 ## D4 — Secrets always block; personal data blocks only on the way to public · 2026-09-14
 
+> **Superseded in part.** Personal data now blocks at commit in a repo that is already public
+> ([D19](#d19--personal-data-blocks-the-commit-once-a-repo-is-public--2026-09-22)), and on every push
+> to GitHub, private repos included, unless the repo is listed as a personal-data repo
+> ([D24](#d24--nothing-reaches-github-unchecked-the-gate-enforces-the-repo-standards--2026-09-26)).
+> The table below is the original decision; the current rules are in policy §2.
+
 **Problem.** Home paths, emails and phone numbers are routine in private repos and personal
 tooling; blocking them everywhere trains the habit of bypassing. The same values in a
 public repo are published permanently.
@@ -465,3 +471,179 @@ checks need Python 3.11+ (`tomllib`); without it the gate warns and does not che
   judges only what an event brings.
 - NOT YET: the workflow's first run on GitHub, the live `~/.claude/settings.json` hook
   registration, and the first strict dotaudit baseline.
+
+## D25 — The docs are tested against the enforcement · 2026-09-27
+
+**Decision.** `scripts/test-docs.py` gains a `coverage` check, run by `./test.sh`:
+- every filename the gate blocks (`TRACKED_FILE_RULES` and `GATE_FILE_RULES` in
+  `security/patterns.sh`) appears in [policy §2](policy/security-and-privacy.md#2-the-commitpush-gate);
+- each of their rule ids has a row in the findings table;
+- every hook in `claude/hooks/` and every LaunchAgent in `macos/` is named in some doc.
+
+A self-test fixture with an undocumented rule, rule id and hook must be reported.
+
+**Why.** An audit of "is everything documented" on 2026-09-27 found 14 enforced rules the
+docs never mentioned, 13 partly documented, and policy that overstated what was enforced (every
+repo "runs" gitleaks CI; 6 of 102 did). All of them came from code changing without the doc. D22
+made the audit map every check to a rule. This decision makes the reverse direction mechanical
+for the parts that can be listed: a new blocked filename or hook fails the tests until it is
+written down.
+
+**Rejected.**
+- *A periodic manual review.* That review is what just found about 30 gaps.
+- *Generating the docs from the code.* The policy explains why; a generated list only says
+  what.
+- *Checking every rule, including content patterns and sanitizers.* The regexes are shapes the
+  policy describes in prose, and matching prose to regex would be brittle. The check covers what
+  has a name.
+
+**Cost.** Adding a blocked filename now needs a doc edit in the same commit.
+
+**Verified.**
+- `scripts/test-docs.py --verbose` → `✓ PASS: coverage: 23 blocked filenames, their rule ids, 5
+  hooks and agents are documented` and `10 passed, 0 failed`.
+- Mutation: with `.pypirc` renamed in the policy doc, the check failed with `coverage: blocked
+  filename .pypirc (package-auth) is not listed in security-and-privacy.md`, then passed once the
+  doc was restored.
+- D24 follow-up: the live `~/.claude/settings.json` now registers `guard-github-write.sh`. `./test.sh`
+  → `synced: ~/.claude/settings.json registers every tracked hook` PASS. Still NOT YET from D24:
+  the first `security-reusable.yml` run on GitHub and the first strict dotaudit baseline.
+
+## D26 — Where docs and enforcement disagree, the docs describe what is enforced · 2026-09-27
+
+**Decision.** When a doc claims more than the code does, the doc is corrected to what is
+enforced today, and the gap becomes an open finding in the private register. Examples:
+- The personal-data exemption matches `test|spec|mock|fixture` anywhere in a path. Policy §2 now
+  says so; tightening it is finding GW-1.
+- Security CI coverage is 1 of 102 local own repos. §9 now gives the count; the rollout is EN-2.
+- Only the tracked allowlist is tested. AI and external services §5 says which files are
+  untested; closing that is AI-2.
+
+**Why.** A policy that describes the intended state reads as done. That is the failure
+[decisions need verification](policy/ai-instructions.md#decisions-need-verification) exists to
+stop. An accurate doc plus an open finding keeps both the rule and the gap visible.
+
+**Rejected.**
+- *Fix every behaviour gap in the same pass.* Tightening the exemption shifts dotaudit's
+  baseline, and rolling out CI touches 96 repos with pushes. Each deserves its own review.
+- *Leave the aspirational wording and add caveats elsewhere.* A reader of the policy would never
+  see the caveat.
+
+**Verified.** `grep -n 'anywhere in the path' docs/policy/security-and-privacy.md` → §2 bullet;
+`grep -n 'Rollout is lazy' docs/policy/security-and-privacy.md` → §9 bullet. GW-1, AI-2 and the
+2026-09-27 EN-2 count are in the private findings register.
+
+## D27 — Sync drops literal credentials; it doesn't rely on the gate to catch them · 2026-09-27
+
+**Decision.** `sync-dotfiles.sh` sanitizes auth on the way in:
+- `sanitize_npmrc` deletes any `_authToken`, `_auth` or `_password` line whose value is not an
+  env-var reference.
+- New `sanitize_docker_config` empties every `auths` entry, keeping registry names and
+  `credsStore`. Without `jq` it writes nothing, so it fails closed.
+
+**Why.** `tools/.npmrc` was safe only because the live file happened to use `${GITHUB_TOKEN}`,
+and `tools/docker-config.json` only because `credsStore` happened to keep `auths` empty. One
+`npm login` or a `docker login` without a helper would have put a literal credential into the
+repo's working tree. The gate would probably block the commit (gitleaks knows npm tokens), but
+the value would already sit untracked in a public repo's tree. The rule from
+[§6](policy/security-and-privacy.md#syncing-live-config-into-a-repo) is to sanitize at the copy.
+
+**Rejected.**
+- *Rely on the gate.* It is the last layer, not the only one.
+- *Stop syncing these files.* The registry configuration and the keychain helper are worth
+  restoring.
+
+**Verified.**
+- `scripts/test-security-tools.sh` → `sanitize_npmrc drops literal auth values and scoped
+  registries, keeps references` and `sanitize_docker_config drops auth values, keeps registries
+  and credsStore`, both PASS. The token fixtures are generated at runtime.
+- Mutation with the old sanitizers (no auth rule; `cat` for docker): both tests FAIL.
+
+## D28 — The global gitignore stays editor and OS noise only · 2026-09-27
+
+**Decision.** `~/.gitignore_global` keeps `.DS_Store`, `.vscode`, `.idea` and `Thumbs.db`, and
+gets no `.env` or credential patterns. Protection lives in each repo's `.gitignore` (the
+[baseline](policy/repo-standards.md#gitignore-baseline)) and in the gate.
+
+**Why.**
+- A global pattern protects only this machine. A clone elsewhere, a CI checkout or a
+  collaborator gets none of it, so a repo that looked safe here isn't.
+- A globally ignored `.env` also vanishes from `git status` in every repo. The missing
+  per-repo rule, which the audit's `gitignore-env` check and the SessionStart hook exist to
+  surface, would go quiet.
+
+**Rejected.** *Add `.env*` globally as belt and braces.* It hides the per-repo gap that
+matters, and the gate already blocks the file at commit on this machine.
+
+**Verified.** `cat git/.gitignore_global` → four noise entries, no `.env`. Documented in
+[§7](policy/security-and-privacy.md#7-gitignore-facts).
+
+## D29 — The shell secrets file is `~/.zshrc.secret`, singular · 2026-09-27
+
+**Decision.** Settle the singular/plural mismatch that had been open since 2026-09-01 on the name
+the live file already has:
+- The template becomes `shell/.zshrc.secret.template`.
+- README, SETUP, `scripts/test/assertions.sh` and the policy all follow.
+
+**Why.** The alternative means renaming the live file, which means moving a credential file.
+Assistants are barred from that, and it gains nothing. `.gitignore` covers both spellings
+through `*secret*`, with `!*secret*.template` letting the template through.
+
+**Rejected.** *Plural everywhere.* It needs the live rename, and an earlier repo-only attempt
+was reverted by the next `dotbackup` (LEARNINGS).
+
+**Verified.**
+- `ls -l ~/.zshrc.secret` → present, mode `-rw-------`; `~/.zshrc.secrets` → absent.
+- `git check-ignore -v shell/.zshrc.secret` → `.gitignore:19:*secret*`.
+- `git check-ignore -v shell/.zshrc.secret.template` → no match, exit 1: the template is tracked
+  and not ignored.
+
+## D30 — Machine snapshots go to `audit-reports/`, never `docs/` · 2026-09-27
+
+**Decision.** Every inventory command in [reinstall commands](reinstall-commands.md) writes to
+`~/dev/audit-reports/snapshot/` under `umask 077`. That covers the brew and app lists, pip
+packages, `system_profiler`, the global git config, aliases and the snapshot script. The one
+exception is files `dotbackup` tracks on purpose (editor extension lists, `.nvmrc`).
+
+**Why.**
+- The old commands wrote the Mac's serial number and the full global git config into
+  `dotfiles/docs/`, a public repo.
+- None of those filenames were gitignored, so they were untracked but unignored: one
+  `git add -A` from publication ([§7](policy/security-and-privacy.md#7-gitignore-facts)).
+
+**Rejected.** *Gitignore the outputs.* The inventory is still one machine's fingerprint sitting
+in a public repo's tree, readable by every tool and assistant that searches it.
+
+**Verified.** `grep -c 'dotfiles/docs/' docs/reinstall-commands.md` → `0`. No output files
+existed in `docs/` at the time (`ls docs`).
+
+## D31 — Assistant trust scope and catch-all hooks · 2026-09-27
+
+**Decision.**
+- Auto mode's "trusted repo" is every git repo under `~/dev` whose `origin` owner is
+  `pieteradejong`, excluding the do-not-touch register. Before this it named a single project,
+  left over from an earlier session.
+- The iTerm2 status hook (`~/.config/iterm2/cc-status`), registered with no matcher and so seeing
+  every tool payload and prompt, is accepted as part of iTerm2: a symlink into the signed app
+  bundle, talking to iTerm2 over a local socket. Any other catch-all hook needs tracked source,
+  no network access and no payload logging
+  ([AI and external services §7](policy/ai-and-external-services.md#7-memory-and-transcripts)).
+
+**Why.**
+- A trust scope naming one project either over-trusts the others or makes every other session
+  mis-scoped. The owner test is the one policy §4 already requires before committing.
+- The terminal already sees everything on screen, so the hook adds no new party.
+
+**Rejected.**
+- *Delete the auto-mode environment block.* It also carries the org-wide defaults (visibility
+  assumptions, `prod` heuristics).
+- *Remove the status hook.* It sends nothing beyond iTerm2.
+
+**Verified.**
+- `jq '.autoMode.environment[] | select(startswith("**Trusted repo"))' ~/.claude/settings.json`
+  → the owner-based scope.
+- `readlink ~/.config/iterm2/cc-status` → inside `/Applications/iTerm.app`.
+- `codesign -dv` → `TeamIdentifier=H7V7XYVQ7D`. That the team ID belongs to iTerm2's developer
+  is assumed, not independently checked.
+- A backup of the settings from before the edit is at
+  `~/dev/audit-reports/settings.json.bak-2026-09-27` (mode 600).

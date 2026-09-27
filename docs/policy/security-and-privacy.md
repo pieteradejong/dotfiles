@@ -76,7 +76,7 @@ any repo. The rules live in `security/patterns.sh`, shared with `dotaudit`; gitl
 | Rule | commit | push → private remote | push → public or unknown remote |
 |---|---|---|---|
 | gitleaks secret | block | block | block |
-| `.env` / key / credential files (`.example`, `.template`, `.sample` allowed) | block | block | block |
+| Credential-shaped files (list below; `.example`, `.template`, `.sample` suffixes allowed) | block | block | block |
 | File > 50 MB | block | block | block |
 | `private/` in the dotfiles repo | block | block | block |
 | gitleaks not installed | block | block | block |
@@ -119,13 +119,31 @@ flowchart TD
 - **Visibility** comes from `gh repo view`, cached (public 24 h, private 1 h). A failed lookup or
   a non-GitHub remote is treated as **public**. A push to a non-GitHub remote (a local backup) is
   held to the secret and privacy rules only, since it publishes nothing.
-- **Exemptions:** test, fixture and example paths, and lines containing `security-gate:allow`,
-  are exempt from the personal-data rules only — never from the secret rules.
+- **Credential-shaped filenames** (`security/patterns.sh`): `.env` and `.env.*` at any depth,
+  `*.key`, `*.p12`, `*.pfx`, `id_rsa`, `id_ed25519`, `id_ecdsa`, `.zsh_history`, `.bash_history`,
+  `.aws/credentials` — blocked by the gate and FAILed by dotaudit. The gate alone also blocks
+  `*.pem`, `*.ppk`, `id_dsa`, `.deploy-env`, `.npmrc.local`, `.pypirc` and `.netrc`; a rule moves
+  into the shared list once the workspace is clean of it. The template exemption is by **suffix
+  only**, so `.env.test` and `tests/keys/id_rsa` are blocked.
+- **Exemptions:** example paths and lines containing `security-gate:allow` are exempt from the
+  personal-data rules only — never from the secret rules. "Example path" is broad: a `.example`,
+  `.template` or `.sample` suffix, or `test`, `spec`, `mock` or `fixture` **anywhere in the path**
+  (so `latest/` and `inspect.py` qualify too). That is looser than intended and an open finding;
+  don't lean on it.
+- **Placeholders are not personal data.** Emails at `example`/`test`/`acme`/`invalid` domains,
+  `user@`/`you@`-style locals, `@localhost`, clone URLs (`git@github.…`) and the noreply form pass.
+  Phone numbers match only E.164 (`+` and 10–15 digits) or a separated 3-3-4 number, so versions,
+  dates and IDs don't.
+- **A `.gitleaksignore` in the repo** draws a warning on every commit: findings it lists are
+  silently not reported.
 - **Push scans only commits not already on that remote**, so a commit made with `-n` is still
   caught when it is pushed.
 - **It never prints a matched value** — only the rule and the file.
-- `gate.sh status` checks the installation. `gate.sh scan-tree` checks what `git add -A` would
-  commit right now.
+- `gate.sh status` checks the installation: git ≥ 2.54, Homebrew git first on `PATH`, both hooks
+  registered and not disabled repo-locally, gitleaks and `gh` (authenticated) present, the private
+  patterns file present and `private/` gitignored, and the bypass count. `gate.sh scan-tree` checks
+  what `git add -A` would commit right now, in a temporary index.
+- **Visibility lookups time out after 10 s** and then count as unknown, which is public.
 - **Use Homebrew git.** Apple's `/usr/bin/git` ignores config hooks: keep Homebrew git first on
   `PATH`, and set `git.path` in editors.
 
@@ -139,7 +157,7 @@ false positive only. After a fix, `git add` again and retry. For a finding in a 
 |---|---|---|
 | `gitleaks` | A secret is in the change | **Rotate it first** (§8), then remove it and read it from the environment. Deleting it later doesn't unpublish it. |
 | `gitleaks-missing`, `gitleaks-error` | Nothing could be scanned | `brew install gitleaks`; rerun. The gate fails closed. |
-| `env-file`, `private-key`, `ssh-key`, `netrc`, `package-auth`, … | A credential-shaped file is staged | `git restore --staged <file>`; add it to `.gitignore`; commit a `.example` instead. |
+| `env-file`, `private-key`, `ssh-key`, `shell-history`, `aws-credentials`, `deploy-env`, `netrc`, `package-auth` | A credential-shaped file is staged | `git restore --staged <file>`; add it to `.gitignore`; commit a `.example` instead. |
 | `large-file` | A file over 50 MB | Keep it out of git ([media](repo-standards.md#media-and-large-binaries)). |
 | `private-companion-repo` | `private/` staged in dotfiles | `git restore --staged private`. It is a separate repo. |
 | `home-path` | An absolute `/Users/<name>/` path | Use `$HOME`, `~` or a path relative to the script. |
@@ -162,8 +180,10 @@ SECURITY_GATE_BYPASS="<reason, at least 10 characters>" git commit ...   # or gi
 ```
 
 - Turns blocks into warnings for **that one command** and appends time, repo, event, rules and
-  reason (never values) to `~/.local/state/security-gate/bypass.log`. The weekly audit reports
-  every bypass.
+  reason (never values) to `~/.local/state/security-gate/bypass.log`, mode 600. The weekly audit
+  reports every bypass; once a month, read each reason and delete the reviewed lines
+  ([maintenance](../maintenance.md)).
+- A reason under 10 characters is refused. `scan-tree` and `ci` ignore the bypass entirely.
 - Prefer `security-gate:allow` on the single line for a personal-data false positive; it never
   silences a secret.
 - `--no-verify` / `-n` skip the hook **silently** and are not a sanctioned bypass.
@@ -171,15 +191,19 @@ SECURITY_GATE_BYPASS="<reason, at least 10 characters>" git commit ...   # or gi
 
 ## 4. Before a repo's first commit
 
-1. Choose the data tier (§1). Visibility private unless there is a reason.
-2. Confirm the noreply identity (§6).
-3. Add a `.gitignore` with the [baseline](repo-standards.md#gitignore-baseline).
-4. Public, or likely to become public ⇒ LICENSE in this commit ([licensing](repo-standards.md#licensing)).
-5. Add the security CI workflow (§9). Pushes to an own GitHub repo without it are blocked.
-6. Run `~/dev/dotfiles/security/gate.sh scan-tree` and resolve every finding.
-7. Read `git status` before any broad `git add`. If anything in a diff looks like a credential —
+1. **Check whose repo it is:** `git remote get-url origin` must name `pieteradejong` before any
+   commit under `projects/` or `tmp/`. Directory names say nothing about ownership, and a push that
+   fails for lack of access is luck, not a safeguard. Forks and third-party clones are listed in the
+   private do-not-touch register.
+2. Choose the data tier (§1). Visibility private unless there is a reason.
+3. Confirm the noreply identity (§6).
+4. Add a `.gitignore` with the [baseline](repo-standards.md#gitignore-baseline).
+5. Public, or likely to become public ⇒ LICENSE in this commit ([licensing](repo-standards.md#licensing)).
+6. Add the security CI workflow (§9). Pushes to an own GitHub repo without it are blocked.
+7. Run `~/dev/dotfiles/security/gate.sh scan-tree` and resolve every finding.
+8. Read `git status` before any broad `git add`. If anything in a diff looks like a credential —
    even in a README, config or test fixture — stop and check the content before staging it.
-8. Don't commit a downloaded archive alongside its extracted contents; track one form.
+9. Don't commit a downloaded archive alongside its extracted contents; track one form.
 
 ## 5. Before a repo goes public
 
@@ -217,6 +241,26 @@ scrapers included, and it cannot be scrubbed without rewriting history.
   real one a second time. A sync script that copies live config into a repo must sanitize on write.
 - Addresses already in pushed history are published: stop the accrual; don't rewrite (§8).
 
+### Syncing live config into a repo
+
+`scripts/sync-dotfiles.sh` copies live config into dotfiles, sanitizing **on the way in**, at the
+copy itself:
+
+- **Identity and hosts:** `~/.ssh/config` has every `HostName`, `User` and `Port` value replaced
+  with a placeholder. `.gitconfig` is copied with home paths rewritten; its email is expected to
+  already be the noreply address, and the gate blocks it otherwise.
+- **Home paths become a literal `$HOME` marker**, never `~`. The restore expands it back
+  losslessly (D20). `scripts/test-dotfiles-setup.sh` fails if any tracked file holds the real home
+  path.
+- **Binary plists are stored as XML text.** A binary file is invisible to every text scanner.
+  Machine-local state (iTerm2's `NoSync*` keys, per-install UUIDs, window geometry,
+  update-check timestamps) is dropped, since it only churns and reads as high-entropy noise.
+- **Tool config references secrets, never holds them:** `.npmrc` uses `_authToken=${VAR}`, the
+  sync drops scoped `@org:registry` lines (they name client or employer orgs) and any literal
+  token, and Docker keeps credentials in the macOS keychain (`credsStore`) with `auths` emptied.
+- The restore installs templates without overwriting live files and sets `~/.ssh` to 700 and
+  `~/.ssh/config` to 600.
+
 ## 7. `.gitignore` facts
 
 - **Ignoring does not untrack.** A tracked file stays tracked until `git rm --cached <path>`
@@ -234,6 +278,10 @@ scrapers included, and it cannot be scrubbed without rewriting history.
   what a Pages site already served.
 - **Untracked-but-unignored files are invisible to tracked-file scanners** and one `git add -A`
   from publication. Keep local-only reports outside the repo, or ignore them explicitly.
+- **The global gitignore holds editor and OS noise only** (`.DS_Store`, `.vscode`, `.idea`,
+  `Thumbs.db`), not `.env`. That is deliberate: a repo's own `.gitignore` must carry the
+  [baseline](repo-standards.md#gitignore-baseline), because a clone on another machine doesn't
+  have this machine's global file. The gate is the control for credential files, not the ignore list.
 
 ## 8. When a secret leaks
 
@@ -277,6 +325,13 @@ jobs:
 - **Required.** The gate blocks a push to an own GitHub repo without it (`no-security-ci`), and
   dotaudit FAILs it. That is the hard rule's "added when a repo is created or next touched", made
   mechanical.
+- **Rollout is lazy, so coverage is low today.** On 2026-09-27, of 102 own repos cloned locally,
+  1 called `security-reusable.yml`, 5 the older `gitleaks-reusable.yml`, and 96 neither. Each
+  gets the workflow at its next push. Until then an uncovered repo has no CI scanning; the weekly
+  audit's `dotaudit` run is what watches it. Tracked in the private findings register.
+- **`policy-ref`** (optional input) selects which dotfiles commit supplies the gate and rules.
+  Callers leave it unset (`main`); dotfiles' own CI passes its own SHA so a rule change is tested
+  by the commit that makes it.
 - `gitleaks-reusable.yml` still works for existing callers, but it is secrets-only and no longer
   satisfies the rule.
 - The private personal-values list never reaches CI. The shape rules (home paths, emails, phone
@@ -353,6 +408,16 @@ For any tool that scans many repos. [`dotaudit`](../dev-audit.md) follows all of
 - **Test the safety properties:** fixtures byte-identical afterwards, no secret in output,
   skip-listed repos untouched, a clean fixture gives zero FAILs, a known-bad fixture *is* found.
 - **Slow, honest checks are opt-in** (full history) and labelled distinctly.
+- **A finding says what it measured:** files on disk or git history, the gate's rules or
+  gitleaks' defaults. Two scans of the same repos once ranked them in opposite order because one
+  read the working tree and the other history.
+- **"All repos" means all of them on GitHub**, not all cloned here. Check the count against the
+  private GitHub baseline register before calling a sweep complete; uncloned repos are mirrored by
+  the weekly audit.
+- **Test like an attacker:** secrets for fixtures are generated at runtime (never committed, even
+  fake-looking ones), external binaries are stubbed so tests are hermetic, each check is
+  mutation-tested (break the rule, watch the test fail), and read-only claims are proven by
+  comparing fixtures byte for byte. Everything runs from one `./test.sh` (D17).
 
 ## 14. Assistant guardrails
 
@@ -361,13 +426,19 @@ What an assistant may read and send, and how connectors are used:
 
 - `dotfiles/claude/hooks/guard-git-bypass.sh`, a Claude Code `PreToolUse` hook, denies
   `--no-verify`, `git commit -n`, `core.hooksPath`, `hook.*.enabled|command|event`, `GIT_CONFIG_*`
-  environment overrides, `SECURITY_GATE_*`, `HOME=… git`, and `/usr/bin/git`. It is a guardrail,
-  not a sandbox.
+  environment overrides, `SECURITY_GATE_*`, `HOME=… git`, and `/usr/bin/git`. It also catches
+  abbreviations (`--no-veri`), quoted flags (`'--no-verify'`), flag clusters (`-anm`) and
+  `git config --unset|--remove-section` on hook config. Quoted strings are stripped first, so a
+  commit message that *mentions* a flag passes. Without `jq` it searches the raw JSON: it fails
+  closed. It is a guardrail, not a sandbox.
 - `dotfiles/claude/hooks/guard-github-write.sh` denies writing repository content through the
   GitHub API: `gh api` writes to contents, git data, releases or gists; `gh gist create|edit`;
   `gh release create|upload`; `curl`/`wget` writes to the API; and GitHub MCP content-write tools.
   Those paths skip git, so the gate never sees them. Content goes through `git commit` and `git push`.
   Settings calls such as the baseline sweep are allowed.
+- `dotfiles/claude/hooks/session-start.sh` (a `SessionStart` hook, read-only) reports a dirty
+  tree, detached HEAD, unpushed commits, a missing upstream and a **missing `.gitignore`**, and
+  says nothing when all is well.
 - An assistant fixes a gate finding; it never bypasses the gate and never asks the user to set
   `SECURITY_GATE_BYPASS`.
 - An assistant confirms before outward-facing actions: pushing, changing visibility or repo
@@ -375,7 +446,32 @@ What an assistant may read and send, and how connectors are used:
 - An assistant never opens, prints or moves credential files (recovery codes, keys, `.env` values);
   it says where they are and hands back.
 
-## 15. Related
+## 15. Machine baseline
+
+The laptop is part of the perimeter: every repo, key and export sits on it.
+
+- **Least privilege for background jobs.** No Full Disk Access for `/bin/zsh` or any shell: the
+  grant covers every script that shell ever runs. A launchd job that can't reach a TCC-protected
+  folder does less and says so in [maintenance](../maintenance.md); it doesn't get a broader grant.
+- **Nothing listens beyond loopback.** Own services (Ollama, databases, dev servers) bind to
+  `127.0.0.1`. Check with `lsof -nP -iTCP -sTCP:LISTEN`: only macOS services should show `*:`.
+- **Local model routes stay local.** The Ollama LaunchAgent sets `OLLAMA_NO_CLOUD=1`; `bin/llm`
+  enforces the same from its side ([llm](../llm.md) § Zero-cloud guards).
+- **Nothing container-related starts at login.** Colima runs on demand
+  ([containers](../containers.md)); Docker credentials live in the keychain.
+- **Homebrew taps are trusted per formula** (`brew trust --formula`), not per tap.
+- **SSH:** `~/.ssh` is 700 and `~/.ssh/config` 600; keys load through the keychain
+  (`UseKeychain`, `AddKeysToAgent`). Account SSH keys and `gh` token scopes are reviewed by the
+  weekly audit; a key you can't place is removed.
+- **Secrets for the shell** live in `~/.zshrc.secret` (mode 600, untracked, sourced by `.zshrc`);
+  the tracked `shell/.zshrc.secret.template` shows the names, never values.
+- **Local state for the audit** (the mirror cache of uncloned repos) is mode 700 and capped at
+  1000 MB; reports are mode 600 under `~/dev/audit-reports/`.
+- **Scheduled jobs are listed** in [maintenance](../maintenance.md). The weekly audit and weekly
+  cleanup plists are tracked in `macos/`; the daily docs backup belongs to `~/docs` and is
+  documented there.
+
+## 16. Related
 
 - [Design decisions](../design-decisions.md) — why the gate, audit and public/private split look like this.
 - [Secure development](secure-development.md) · [privacy by design](privacy-by-design.md) · [supply chain](supply-chain.md) · [AI and external services](ai-and-external-services.md)

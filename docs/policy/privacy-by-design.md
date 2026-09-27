@@ -38,6 +38,9 @@ Every field an app stores, and every dataset a script processes, gets one class:
   is too late.
 - **Scripts over personal exports** (email, messages, bookmarks, contacts) read the minimum
   columns and write only the result, not a full working copy.
+- **A synthetic-data app doesn't quietly gain a real-data path.** Moving from synthetic to real
+  Personal data (a real voter file, a real customer list) is a decision entry of its own, with
+  source, legal basis, storage tier and retention answered first — not an importer added later.
 
 ## 3. Where it lives and who can reach it
 
@@ -47,6 +50,8 @@ Every field an app stores, and every dataset a script processes, gets one class:
   separate from application access.
 - **Local-only data stays out of synced folders** (iCloud Drive, Dropbox, Google Drive) unless
   syncing it is the intent. A synced folder is a third party (§6).
+- **Database dumps are the database.** They live outside every repo, mode 600, and are deleted
+  when their purpose is served. A dump holding session or refresh tokens is a credential file.
 - **Test and development use synthetic data**, per Tier C in the policy. Real Personal data never
   goes into a fixture, a screenshot or a bug report.
 

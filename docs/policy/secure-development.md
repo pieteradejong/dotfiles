@@ -79,6 +79,15 @@ the project also follows [privacy by design](privacy-by-design.md).
 | CSRF | The framework's protection on for cookie-authenticated state changes |
 | Rate limits | Sign-in, sign-up, password reset, OTP, and any endpoint that costs money (LLM calls, email, SMS) |
 
+**Local-only tools** (dashboards, control panels, anything served on `localhost`) are still web
+apps — any page open in the browser can reach them:
+
+- Bind to `127.0.0.1`, never `0.0.0.0`; make no outbound requests the user didn't ask for.
+- State-changing routes, above all those that spawn processes or touch files, check `Origin` (or
+  `Host`) is the tool's own, so a malicious page can't drive them (DNS rebinding, CSRF).
+- Local Postgres runs with `trust` auth for development only; nothing reachable beyond loopback
+  gets it.
+
 ## 6. Errors and logging
 
 - **Clients get a generic error and a request ID**; stack traces, SQL and file paths stay in the

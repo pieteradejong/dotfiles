@@ -165,9 +165,9 @@ the patterns are shared with the gate through `security/patterns.sh`.
 | `service-account-json`, `private-key-block`, `github-token`, `aws-access-key`, `openai-key`, `slack-token`, `google-api-key` | FAIL | Secret-shaped **content** in a tracked file. |
 | `ssh-config` | FAIL on public | A tracked ssh config with a real hostname or account name. |
 | `home-path` | FAIL on public | Absolute `/Users/…` paths in tracked files. |
-| `email` | FAIL on public | A real email address in a tracked file. The `…@users.noreply.github.com` form is excluded — that is the fix `CLAUDE.md` recommends, not a leak. |
-| `secret-assignment` | WARN | A tracked file assigns a quoted literal of 8+ characters to a `key`/`secret`/`token`/`password`-shaped name. This is the `CLAUDE.md` "grep for `api[_-]?key\|secret\|token\|password`" rule, narrowed to the shape that indicates a committed *value* — the bare grep matches ordinary code in most repos and would bury the rules above it. Placeholders (`${VAR}`, `<fill-me>`, empty) do not match. WARN because it is a heuristic. |
-| `committer-email` | FAIL on public | Commits carry a non-`noreply` committer address. `CLAUDE.md`: a public repo "permanently publishes the committer's name and email to anyone, including scrapers," and it cannot be scrubbed without rewriting history. Counted over the whole history, because that is what is published. The address is never printed. |
+| `email` | FAIL on public | A real email address in a tracked file. The `…@users.noreply.github.com` form is excluded — that is the fix [policy §6](policy/security-and-privacy.md#6-committer-identity) prescribes, not a leak. |
+| `secret-assignment` | WARN | A tracked file assigns a quoted literal of 8+ characters to a `key`/`secret`/`token`/`password`-shaped name. This is the old "grep for `api[_-]?key\|secret\|token\|password`" rule, narrowed to the shape that indicates a committed *value* — the bare grep matches ordinary code in most repos and would bury the rules above it. Placeholders (`${VAR}`, `<fill-me>`, empty) do not match. WARN because it is a heuristic. |
+| `committer-email` | FAIL on public | Commits carry a non-`noreply` committer address. [Policy §6](policy/security-and-privacy.md#6-committer-identity): a public repo "permanently publishes the committer's name and email to anyone, including scrapers," and it cannot be scrubbed without rewriting history. Counted over the whole history, because that is what is published. The address is never printed. |
 | `history-*` | FAIL | `--history` only. A path matching one of the tracked-file rules was committed at some point and is no longer in `HEAD`. Still in history, still fetchable. |
 | `gitleaks` | FAIL | `gitleaks` reported findings. Run with `--redact` so the report never carries the value; rerun by hand to see them. Its ~150-rule default set covers what the seven hand-written content rules do not: Anthropic, Stripe, Twilio, SendGrid, HuggingFace, database URLs with embedded passwords, JWTs, generic high-entropy strings. |
 | `gitleaks-skipped` | WARN | A repo's `.git` exceeded `GITLEAKS_MAX_GIT_MB` and **was not scanned**. Same principle as `gitleaks-timeout`: an unscanned repo must never be silently indistinguishable from a clean one. |
@@ -223,8 +223,8 @@ must not become a second copy of the secret. This is why nothing in
 targeting aid, so it must never be published.
 
 Default output is `~/dev/audit-reports/`. `~/dev` is not a git repo, so
-anything there is inherently local-only — the same reasoning that keeps
-`~/dev/DATA_PRIVACY.md` out of `dotfiles`.
+anything there is inherently local-only — the same reasoning that keeps the private registers in the private companion
+repo, not in `dotfiles`.
 
 Three guards, because one is not enough:
 
@@ -291,7 +291,7 @@ pipe puts the loop in a subshell and the counts are lost.
 ```
 scripts/dev-audit.sh              entrypoint: args, discovery, dispatch, summary
 scripts/audit/lib.sh              git_ro(), finding(), repo discovery, skip list
-scripts/audit/skiplist.conf       do-not-touch repos and forks, with reasons
+scripts/audit/skiplist.example.conf  format of the skip list; the real one is private/audit/skiplist.conf
 scripts/audit/10-git-hygiene.sh
 scripts/audit/20-policy.sh
 scripts/audit/30-privacy.sh
@@ -361,7 +361,7 @@ silently dropping a skip. Format `<mode>:<repo>:<reason>`:
   do-not-touch repos, where running anything at all is the problem. The report
   prints `SKIP <name> (<reason>)` so the absence is visible rather than silent.
 - `fork:` — excluded from **policy** checks only, since reshaping or
-  relicensing someone else's repo is against `CLAUDE.md`. Still gets git
+  relicensing someone else's repo is against [repo standards](policy/repo-standards.md#licensing). Still gets git
   hygiene, privacy and disk checks, which are about this machine.
 
 ## Not in scope

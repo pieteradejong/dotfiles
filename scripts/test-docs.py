@@ -13,8 +13,12 @@ Checks, over every docs/**/*.md in this repo:
              where a live file does not exist, e.g. in CI)
   enforced   every check id scripts/audit/20-policy.sh can emit has a row in
              repo-standards.md § Enforcement, and dev-CLAUDE.md points there
-  self-test  a fixture with a broken link and a broken anchor is reported, so a
-             checker that silently finds nothing fails
+  coverage   every filename the gate blocks (security/patterns.sh) and its rule id
+             appear in docs/policy/security-and-privacy.md; every hook in
+             claude/hooks/ and every LaunchAgent in macos/ is named in some doc (D25)
+  self-test  a fixture with a broken link and a broken anchor, and one with an
+             undocumented rule, rule id and hook, are reported, so a checker that
+             silently finds nothing fails
 
 Usage:  scripts/test-docs.py [--verbose]
         scripts/test-docs.py -h | --help
@@ -137,6 +141,50 @@ def enforcement_section():
     return m.group(1) if m else ""
 
 
+FILE_RULE_BLOCK = re.compile(r"^(?:TRACKED|GATE)_FILE_RULES='\n(.*?)^'", re.MULTILINE | re.DOTALL)
+
+
+def file_rules(patterns_text):
+    """{(rule_id, glob)} from the TRACKED_FILE_RULES and GATE_FILE_RULES blocks of patterns.sh."""
+    out = set()
+    for block in FILE_RULE_BLOCK.findall(patterns_text):
+        for line in block.splitlines():
+            rule, sep, glob = line.strip().partition("|")
+            if sep:
+                out.add((rule, glob))
+    return out
+
+
+def coverage_problems(patterns_text, policy_text, doc_texts, named):
+    """What is enforced but not written down. `named` is {filename: kind}; each must appear in a doc."""
+    problems = []
+    rules = file_rules(patterns_text)
+    for rule, glob in sorted(rules):
+        g = glob.removeprefix("*/")
+        forms = {g, g.lstrip("*")}
+        if not any(f"`{f}`" in policy_text or f"`{f}`," in policy_text for f in forms):
+            problems.append(f"coverage: blocked filename {glob} ({rule}) is not listed in security-and-privacy.md")
+    for rule in sorted({r for r, _ in rules}):
+        if f"`{rule}`" not in policy_text:
+            problems.append(f"coverage: rule id `{rule}` has no row in security-and-privacy.md § When the gate blocks")
+    for name, kind in sorted(named.items()):
+        if not any(name in t for t in doc_texts):
+            problems.append(f"coverage: {kind} {name} is not named in any doc")
+    return problems, len(rules)
+
+
+def coverage_self_test():
+    patterns = "TRACKED_FILE_RULES='\nenv-file|.env\n'\nGATE_FILE_RULES='\nnetrc|*/.netrc\nnew-rule|*.secretthing\n'\n"
+    policy = "blocks `.env` and `.netrc` (`env-file`, `netrc`)"
+    problems, n = coverage_problems(patterns, policy, [policy], {"undocumented-hook.sh": "hook"})
+    expected = {
+        "coverage: blocked filename *.secretthing (new-rule) is not listed in security-and-privacy.md",
+        "coverage: rule id `new-rule` has no row in security-and-privacy.md § When the gate blocks",
+        "coverage: hook undocumented-hook.sh is not named in any doc",
+    }
+    return set(problems) == expected and n == 3, problems
+
+
 def main(argv):
     verbose = False
     for arg in argv:
@@ -201,6 +249,22 @@ def main(argv):
     if "repo-standards.md` § Enforcement" not in claude:
         problems.append("enforced: claude/dev-CLAUDE.md does not point to repo-standards.md § Enforcement")
     results.append((not problems, f"enforced: {len(ids)} policy check ids are in the enforcement table", problems))
+
+    ok, got = coverage_self_test()
+    results.append((ok, "self-test: an undocumented rule, rule id and hook in a fixture are reported",
+                    [] if ok else got))
+
+    named = {p.name: "hook" for p in (REPO / "claude" / "hooks").glob("*.sh")}
+    named.update({p.name: "LaunchAgent" for p in (REPO / "macos").glob("com.pieterdejong.*.plist")})
+    problems, n_rules = coverage_problems(
+        (REPO / "security" / "patterns.sh").read_text(encoding="utf-8"),
+        POLICY_INDEX.read_text(encoding="utf-8"),
+        [f.read_text(encoding="utf-8") for f in files],
+        named,
+    )
+    results.append((not problems,
+                    f"coverage: {n_rules} blocked filenames, their rule ids, {len(named)} hooks and agents are documented",
+                    problems))
 
     failed = 0
     for ok, label, details in results:

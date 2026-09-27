@@ -28,6 +28,15 @@ content a connector fetches become part of a prompt sent to a hosted model. What
 | Sensitive, or any data about other people | **Only with a decision entry** naming the service and what it receives | Yes — the default route |
 | Credentials (keys, tokens, recovery codes, `.env` values) | **Never** | **Never** — they don't belong in any prompt |
 
+- **What makes a route "local"** — all of it, enforced and tested, or it is not local: every
+  endpoint resolves to loopback (a remote `OLLAMA_HOST` is a hard error, not a fallback); model
+  tags containing `cloud` are refused; no `*_API_KEY` is read or forwarded, proven by a canary
+  test; and the daemon itself runs with `OLLAMA_NO_CLOUD=1`. A "local" tool that silently falls
+  back to a hosted API is a hosted tool.
+- **Sensitive data is processed in a sandbox with its capabilities tested.** A project handling it
+  denies its data directories to the assistant in the project's `.claude/settings.json`, and for
+  each blocked capability (network, writes outside scratch) has a test that tries it and expects
+  refusal. Tests point at a scratch directory, never the real data.
 - **Point, don't paste.** When an assistant needs to know a credential exists, it is told the
   file and variable name, not the value.
 - **Bulk personal exports** (mailboxes, message archives, contacts) are processed by local
@@ -87,6 +96,13 @@ any command from the "not safe" column.
 - **Credential files are never opened**, whatever the allowlist permits — the rule in §14 of the
   policy stands on its own.
 - **Review the allowlist when it grows.** Entries accumulate from "always allow" clicks.
+- **Three files, one tested.** Rules come from the tracked `claude/settings.json` (tested), the
+  live `~/.claude/settings.json` (a copy, checked by `test-docs.py` only for hook registration)
+  and `~/dev/.claude/settings.local.json` (click-accumulated, untested). An entry in an untested
+  file is reviewed by hand at the monthly review ([maintenance](../maintenance.md)). Closing that
+  gap is an open finding.
+- **Deny is per project.** There is no global `deny` list; the hooks do the global denying. A
+  project holding sensitive data adds `deny` rules for its data paths (§2).
 
 ## 6. Publishing from an assistant
 
@@ -101,5 +117,11 @@ any command from the "not safe" column.
 
 - **Assistant memory files and session transcripts are local copies of what was discussed.**
   Treat them as Personal data: no credentials, no other people's Sensitive data in memory entries.
+- **Hooks see everything the assistant does.** A hook registered without a matcher receives every
+  tool call's input and every prompt. The terminal status hook (`~/.config/iterm2/cc-status`) is one:
+  a symlink to iTerm2's own signed utility inside the app bundle, which reports session state to
+  iTerm2 over a local socket. It is trusted as part of iTerm2 — the same trust as the terminal
+  that already sees everything on screen. Treat any other catch-all hook as a processor of the
+  whole session: tracked source, no network, no payload logs.
 - **Memory is not a register.** Durable security facts go in the private registers, where the
   audit and the review process can see them ([CLAUDE.md vs memory](ai-instructions.md#claudemd-vs-memory)).

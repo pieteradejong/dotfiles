@@ -33,6 +33,11 @@ reserved": nobody may legally use, copy or contribute to it — almost never the
 - **Third-party material keeps its own terms.** Vendored files ship their license text. A
   take-home assignment's prompt and starter code belong to the issuer — MIT on your solution
   doesn't cover them; leave such repos unlicensed unless the two are separated.
+- **Third-party data is fetched, not committed,** when its license forbids redistribution
+  (copyrighted text, NonCommercial or no-derivatives terms). A fetch script downloads it into a
+  gitignored directory and appends one row per file to a committed `MANIFEST.csv`: source URL,
+  sha256, license, fetch date. CI fails if raw or derived copies are ever tracked. Only data under
+  a license that allows it (CC0, CC-BY, public domain) is committed, with attribution.
 - **A LICENSE file is not a license.** Check it parses: names a license or asserts rights, and is
   more than a line. (Captured terminal output once passed a file-exists check for months.)
 - **CC licenses use the verbatim legal text.** A prepended header breaks GitHub's detection;
