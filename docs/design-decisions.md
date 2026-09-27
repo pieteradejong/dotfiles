@@ -539,7 +539,8 @@ stop. An accurate doc plus an open finding keeps both the rule and the gap visib
 - `sanitize_npmrc` deletes any `_authToken`, `_auth` or `_password` line whose value is not an
   env-var reference.
 - New `sanitize_docker_config` empties every `auths` entry, keeping registry names and
-  `credsStore`. Without `jq` it writes nothing, so it fails closed.
+  `credsStore`. Without `jq` it produces no output, and `sanitize_copy` now writes through a temp
+  file and keeps the existing tracked copy when a sanitizer fails or outputs nothing.
 
 **Why.** `tools/.npmrc` was safe only because the live file happened to use `${GITHUB_TOKEN}`,
 and `tools/docker-config.json` only because `credsStore` happened to keep `auths` empty. One

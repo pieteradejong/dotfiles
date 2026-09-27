@@ -81,7 +81,7 @@ any repo. The rules live in `security/patterns.sh`, shared with `dotaudit`; gitl
 | `private/` in the dotfiles repo | block | block | block |
 | gitleaks not installed | block | block | block |
 | Home paths, real emails, phone numbers, private personal values | warn (block if origin is public) | **block** (warn in a listed personal-data repo) | block |
-| Non-noreply author/committer email | warn | **block** (warn in a listed personal-data repo) | block |
+| Non-noreply author/committer email | warn (author only; the committer is checked at push and in CI) | **block** (warn in a listed personal-data repo) | block |
 | Repo standards, own repos only: pins, actions, lockfiles, media ([enforcement](repo-standards.md#enforcement)) | block what the commit adds | block what the push adds | block what the push adds |
 | Security CI present (`no-security-ci`), own GitHub repos | — | block | block |
 | LICENSE naming the canonical holder, own GitHub repos | — | — | block |
@@ -130,6 +130,8 @@ flowchart TD
   `.template` or `.sample` suffix, or `test`, `spec`, `mock` or `fixture` **anywhere in the path**
   (so `latest/` and `inspect.py` qualify too). That is looser than intended and an open finding;
   don't lean on it.
+- **Emails: the first 500 candidate lines of a change are checked**, so a pasted CSV can't stall a
+  commit. An address past that is not seen by the gate; dotaudit's full-tree scan still reports it.
 - **Placeholders are not personal data.** Emails at `example`/`test`/`acme`/`invalid` domains,
   `user@`/`you@`-style locals, `@localhost`, clone URLs (`git@github.…`) and the noreply form pass.
   Phone numbers match only E.164 (`+` and 10–15 digits) or a separated 3-3-4 number, so versions,
@@ -249,9 +251,10 @@ copy itself:
 - **Identity and hosts:** `~/.ssh/config` has every `HostName`, `User` and `Port` value replaced
   with a placeholder. `.gitconfig` is copied with home paths rewritten; its email is expected to
   already be the noreply address, and the gate blocks it otherwise.
-- **Home paths become a literal `$HOME` marker**, never `~`. The restore expands it back
-  losslessly (D20). `scripts/test-dotfiles-setup.sh` fails if any tracked file holds the real home
-  path.
+- **Home paths become a literal `$HOME` marker** in files that need absolute paths (editor
+  settings, plists); the restore expands it back losslessly (D20). `.gitconfig` gets `~/` instead,
+  which git expands itself, and is restored as a plain copy. `scripts/test-security-tools.sh` fails
+  if any tracked file holds the real home path.
 - **Binary plists are stored as XML text.** A binary file is invisible to every text scanner.
   Machine-local state (iTerm2's `NoSync*` keys, per-install UUIDs, window geometry,
   update-check timestamps) is dropped, since it only churns and reads as high-entropy noise.
@@ -334,6 +337,11 @@ jobs:
   by the commit that makes it.
 - `gitleaks-reusable.yml` still works for existing callers, but it is secrets-only and no longer
   satisfies the rule.
+- **The private lists never reach CI**, neither the personal values nor
+  `personal-data-repos.conf`. So a listed personal-data repo that calls the workflow is judged
+  strictly there: its personal data blocks in CI even though it only warns locally. And without
+  the workflow its pushes block on `no-security-ci`. The two rules conflict for listed repos; the
+  resolution is an open decision (private findings, EN-5).
 - The private personal-values list never reaches CI. The shape rules (home paths, emails, phone
   numbers, identities) do.
 - Scheduled and manual runs scan full history for secrets only. The gate judges what an event
@@ -435,6 +443,8 @@ What an assistant may read and send, and how connectors are used:
   GitHub API: `gh api` writes to contents, git data, releases or gists; `gh gist create|edit`;
   `gh release create|upload`; `curl`/`wget` writes to the API; and GitHub MCP content-write tools.
   Those paths skip git, so the gate never sees them. Content goes through `git commit` and `git push`.
+  **Limit:** it matches REST paths. A `gh api graphql` mutation that writes content
+  (`createCommitOnBranch`) is not caught; that gap is an open finding.
   Settings calls such as the baseline sweep are allowed.
 - `dotfiles/claude/hooks/session-start.sh` (a `SessionStart` hook, read-only) reports a dirty
   tree, detached HEAD, unpushed commits, a missing upstream and a **missing `.gitignore`**, and
@@ -466,7 +476,8 @@ The laptop is part of the perimeter: every repo, key and export sits on it.
 - **Secrets for the shell** live in `~/.zshrc.secret` (mode 600, untracked, sourced by `.zshrc`);
   the tracked `shell/.zshrc.secret.template` shows the names, never values.
 - **Local state for the audit** (the mirror cache of uncloned repos) is mode 700 and capped at
-  1000 MB; reports are mode 600 under `~/dev/audit-reports/`.
+  1000 MB **per repo** (a larger repo is skipped with a WARN; the cache as a whole has no cap);
+  reports are mode 600 under `~/dev/audit-reports/`.
 - **Scheduled jobs are listed** in [maintenance](../maintenance.md). The weekly audit and weekly
   cleanup plists are tracked in `macos/`; the daily docs backup belongs to `~/docs` and is
   documented there.
