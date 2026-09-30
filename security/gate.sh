@@ -5,6 +5,8 @@
 #   gate.sh pre-commit                       staged changes
 #   gate.sh pre-push <remote> <url>          commits being pushed (ref lines on stdin)
 #   gate.sh scan-tree                        everything a `git add -A` would commit now
+#   gate.sh ci [<base-sha>]                  base..HEAD (or all of HEAD), strict, no bypass —
+#                                            what .github/workflows/security-reusable.yml runs
 #   gate.sh status                           is the gate installed and intact?
 #
 # INSTALLATION is two config-based hooks in ~/.gitconfig (git >= 2.54), not
@@ -45,6 +47,11 @@ DOTFILES_DIR="$(cd "$GATE_DIR/.." && pwd)"
 . "$GATE_DIR/lib/visibility.sh"
 
 PERSONAL_PATTERNS_FILE="$DOTFILES_DIR/private/security/personal-patterns.conf"
+# owner/repo slugs, one per line, of PRIVATE GitHub repos that exist to hold
+# personal data (the private companion repo). Only there does personal data
+# warn instead of block on push. Central and private, so a repo cannot exempt
+# itself.
+PERSONAL_DATA_REPOS_FILE="${SECURITY_GATE_PERSONAL_DATA_REPOS:-$DOTFILES_DIR/private/security/personal-data-repos.conf}"
 BYPASS_LOG="${SECURITY_GATE_BYPASS_LOG:-$HOME/.local/state/security-gate/bypass.log}"
 GITLEAKS_CONFIG="$GATE_DIR/gitleaks.toml"
 MAX_FILE_BYTES=$((50 * 1024 * 1024))
@@ -272,9 +279,196 @@ run_gitleaks() {
   return 0
 }
 
+# --- repo standards (docs/policy/repo-standards.md § Enforcement) ------------------
+#
+# Secrets and personal data are checked in every repo. These standards bind only
+# repos owned by $OWN_GITHUB_OWNER (or with no GitHub remote yet): a fork or a
+# clone of someone else's code follows its upstream's rules, not these.
+#
+# Each check blocks what a change INTRODUCES — offenders in the new tree that
+# were not in the old one — so an old repo's existing debt never blocks an
+# unrelated commit. dotaudit FAILs the debt that is already there.
+#
+# Dependency and action names are printed: they are what needs fixing, and are
+# neither secrets nor personal data. Rule 1 above still holds for everything else.
+
+# is_own_url <url> — standards apply. No URL, or a non-GitHub one, counts as own.
+is_own_url() {
+  local slug
+  [ -n "${1:-}" ] || return 0
+  slug="$(gh_slug_from_url "$1" 2>/dev/null)" || return 0
+  [ "${slug%%/*}" = "$OWN_GITHUB_OWNER" ]
+}
+
+# is_personal_data_repo <url> — listed in the private personal-data-repos file.
+is_personal_data_repo() {
+  local slug
+  slug="$(gh_slug_from_url "$1" 2>/dev/null)" || return 1
+  [ -f "$PERSONAL_DATA_REPOS_FILE" ] || return 1
+  grep -vE '^[[:space:]]*(#|$)' "$PERSONAL_DATA_REPOS_FILE" 2>/dev/null | tr -d ' \t\r' | grep -qxF -- "$slug"
+}
+
+# show_at <tree-ish|INDEX|EMPTY> <path> — file content, empty when absent.
+show_at() {
+  case "$1" in
+    EMPTY) return 0 ;;
+    INDEX) git show ":$2" 2>/dev/null ;;
+    *)     git show "$1:$2" 2>/dev/null ;;
+  esac
+  return 0
+}
+
+# offenders <kind> — stdin: file content; stdout: sorted offending names.
+offenders() {
+  case "$1" in
+    npm)
+      jq -r --arg re "$NPM_RANGE_ERE" '
+        [.dependencies, .devDependencies, .optionalDependencies]
+        | map(select(type == "object")) | add // {} | to_entries[]
+        | select((.value | type) == "string")
+        | select(.value | sub("^npm:[^@]+@"; "") | test($re)) | .key' 2>/dev/null ;;
+    pip)
+      sed -E 's/[[:space:]]+#.*$//; s/^[[:space:]]+//' \
+        | grep -vE '^(#|$|-)' | grep -v '==' \
+        | sed -E 's/[[:space:]]*[;@<>=!~\[].*$//' ;;
+    pyproject)
+      python3 -c '
+import sys
+import tomllib
+try:
+    d = tomllib.loads(sys.stdin.read())
+except Exception:
+    sys.exit(0)
+def name(s):
+    import re
+    return re.split(r"[\s;@<>=!~\[]", s.strip(), maxsplit=1)[0]
+p = d.get("project", {})
+specs = list(p.get("dependencies", []))
+for v in p.get("optional-dependencies", {}).values():
+    specs += v
+for v in d.get("dependency-groups", {}).values():
+    specs += [s for s in v if isinstance(s, str)]
+for s in specs:
+    if "==" not in s:
+        print(name(s))
+poetry = d.get("tool", {}).get("poetry", {})
+tables = [poetry.get("dependencies", {}), poetry.get("dev-dependencies", {})]
+tables += [g.get("dependencies", {}) for g in poetry.get("group", {}).values()]
+for t in tables:
+    for k, v in t.items():
+        if k == "python":
+            continue
+        ver = v.get("version") if isinstance(v, dict) else v
+        if ver is None:
+            continue
+        ver = str(ver).strip()
+        if not (ver.startswith("==") or ver[:1].isdigit()) or any(c in ver for c in "^~*<>,|"):
+            print(k)
+' ;;
+    action)
+      grep -E '^[[:space:]]*-?[[:space:]]*uses:' \
+        | sed -E 's/^[^u]*uses:[[:space:]]*//; s/[[:space:]]+#.*$//; s/["'"'"']//g; s/[[:space:]]+$//' \
+        | grep -vE -- "$ACTION_PINNED_ERE" | grep -vE "^${OWN_GITHUB_OWNER}/" | sed -E 's/@.*$//' ;;
+  esac | LC_ALL=C sort -u
+}
+
+# kind_of <path> — which offender check a file gets, if any.
+kind_of() {
+  case "$1" in
+    package.json|*/package.json) case "$1" in *node_modules/*) return 1 ;; esac; echo npm ;;
+    requirements*.txt|*/requirements*.txt) echo pip ;;
+    pyproject.toml|*/pyproject.toml) echo pyproject ;;
+    .github/workflows/*.yml|.github/workflows/*.yaml|*/.github/workflows/*.yml|*/.github/workflows/*.yaml) echo action ;;
+    action.yml|action.yaml|*/action.yml|*/action.yaml) echo action ;;
+    *) return 1 ;;
+  esac
+}
+
+# check_standards <old: tree-ish|EMPTY> <new: tree-ish|INDEX> <file of changed paths>
+check_standards() {
+  local old="$1" new="$2" list="$3" f kind added pins="" acts="" locks="" lf dir other grp
+  : > "$TMPD/std-pins"; : > "$TMPD/std-acts"
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    kind="$(kind_of "$f")" || continue
+    if [ "$kind" = npm ] && ! command -v jq >/dev/null 2>&1; then
+      block jq-missing "jq is not installed, so $f cannot be checked for unpinned dependencies (brew install jq)"; continue
+    fi
+    if [ "$kind" = pyproject ] && ! python3 -c 'import tomllib' >/dev/null 2>&1; then
+      warn pyproject-unchecked "python3 has no tomllib (need 3.11+), so $f was not checked for unpinned dependencies"; continue
+    fi
+    show_at "$new" "$f" | offenders "$kind" > "$TMPD/std-new"
+    show_at "$old" "$f" | offenders "$kind" > "$TMPD/std-old"
+    added="$(LC_ALL=C comm -23 "$TMPD/std-new" "$TMPD/std-old" | awk 'NF' | head -n 20 | paste -sd, - | sed 's/,/, /g')"
+    [ -n "$added" ] || continue
+    if [ "$kind" = action ]; then printf '%s: %s\n' "$f" "$added" >> "$TMPD/std-acts"
+    else printf '%s: %s\n' "$f" "$added" >> "$TMPD/std-pins"; fi
+  done < "$list"
+  [ -s "$TMPD/std-pins" ] && pins="$(join_lines "$TMPD/std-pins" 3)" && \
+    block unpinned-dependency "exact versions only (no ^ ~ >= * latest) — $pins"
+  [ -s "$TMPD/std-acts" ] && acts="$(join_lines "$TMPD/std-acts" 3)" && \
+    block unpinned-action "pin every action to a full 40-hex commit SHA (# vX.Y.Z comment) — $acts"
+
+  # A lockfile added next to a same-ecosystem lockfile of another manager.
+  : > "$TMPD/std-locks"
+  while IFS= read -r f; do
+    lf="${f##*/}"
+    case " $JS_LOCKFILES " in *" $lf "*) grp="$JS_LOCKFILES" ;; *)
+      case " $PY_LOCKFILES " in *" $lf "*) grp="$PY_LOCKFILES" ;; *) continue ;; esac ;; esac
+    case "$f" in */*) dir="${f%/*}/" ;; *) dir="" ;; esac
+    for other in $grp; do
+      [ "$other" = "$lf" ] && continue
+      if [ "$new" = INDEX ]; then
+        git ls-files --error-unmatch -- "$dir$other" >/dev/null 2>&1 || continue
+      else
+        git cat-file -e "$new:$dir$other" 2>/dev/null || continue
+      fi
+      printf '%s%s + %s\n' "$dir" "$lf" "$other" >> "$TMPD/std-locks"
+    done
+  done < "$list"
+  [ -s "$TMPD/std-locks" ] && locks="$(LC_ALL=C sort -u "$TMPD/std-locks" > "$TMPD/std-locks2"; join_lines "$TMPD/std-locks2")" && \
+    block multiple-lockfiles "one package manager per project — $locks"
+  return 0
+}
+
+# check_media <file of "size<TAB>path"> — video/audio/weights at any size, big images.
+check_media() {
+  MEDIA_RE="$MEDIA_EXT_ERE" IMG_RE="$IMAGE_EXT_ERE" awk -F'\t' -v imax="$IMAGE_MAX_BYTES" '
+    BEGIN { m = ENVIRON["MEDIA_RE"]; i = ENVIRON["IMG_RE"] }
+    { p = tolower($2) }
+    p ~ m { print $2; next }
+    p ~ i && $1 + 0 > imax { print $2 " (" int($1 / 1048576) " MB image)" }' "$1" > "$TMPD/media"
+  [ -s "$TMPD/media" ] && block media-file \
+    "no video, audio or model weights in git, and no image over $((IMAGE_MAX_BYTES / 1048576)) MB — keep them in storage outside the repo: $(join_lines "$TMPD/media")"
+  return 0
+}
+
+# check_repo_at <tip> <visibility> — whole-repo rules a push must satisfy.
+check_repo_at() {
+  local tip="$1" vis="$2" wf lic found=""
+  git ls-tree -r --name-only "$tip" -- .github/workflows 2>/dev/null | grep -E '\.ya?ml$' > "$TMPD/wfs"
+  while IFS= read -r wf; do
+    git show "$tip:$wf" 2>/dev/null | grep -qE -- "$SECURITY_CI_ERE" && { found=1; break; }
+  done < "$TMPD/wfs"
+  [ -n "$found" ] || block no-security-ci \
+    "no workflow calls pieteradejong/dotfiles/.github/workflows/security-reusable.yml — add .github/workflows/security.yml (docs/policy/security-and-privacy.md §9)"
+
+  [ "$vis" = PRIVATE ] && return 0
+  for lic in LICENSE LICENSE.md LICENSE.txt COPYING; do
+    git cat-file -e "$tip:$lic" 2>/dev/null && break
+    lic=""
+  done
+  if [ -z "$lic" ]; then
+    block no-license "pushing to a public (or unknown-visibility) repo without a LICENSE file (docs/policy/repo-standards.md § Licensing)"
+  elif ! git show "$tip:$lic" 2>/dev/null | grep -qF -- "$CANONICAL_HOLDER"; then
+    block license-holder "$lic does not name the canonical holder \"$CANONICAL_HOLDER\""
+  fi
+  return 0
+}
+
 # --- pre-commit -----------------------------------------------------------------
 cmd_pre_commit() {
-  local names="$TMPD/staged-names" raw="$TMPD/staged-raw" author
+  local names="$TMPD/staged-names" raw="$TMPD/staged-raw" author old
   git diff --cached --name-only --no-renames --diff-filter=ACMR > "$names" 2>/dev/null
   git diff --cached --raw --no-abbrev --no-renames --diff-filter=ACMR > "$raw" 2>/dev/null
   [ -s "$names" ] || return 0
@@ -306,17 +500,76 @@ cmd_pre_commit() {
 
   author="$(git var GIT_AUTHOR_IDENT 2>/dev/null | sed -E 's/.*<([^>]*)>.*/\1/')"
   if [ -n "$author" ] && ! printf '%s\n' "$author" | grep -qE "$NOREPLY_RE"; then
-    warn author-email "this commit's author address is not a GitHub noreply address; pushing it to a public repo will be blocked"
+    warn author-email "this commit's author address is not a GitHub noreply address; pushing it to GitHub will be blocked"
+  fi
+
+  if is_own_url "$(git config --get remote.origin.url 2>/dev/null)"; then
+    paste "$TMPD/sizes" "$TMPD/shas" | awk -F'\t' '{ print $1 "\t" $3 }' > "$TMPD/size-path"
+    check_media "$TMPD/size-path"
+    old=EMPTY; git rev-parse -q --verify 'HEAD^{commit}' >/dev/null 2>&1 && old=HEAD
+    check_standards "$old" INDEX "$names"
+  fi
+  return 0
+}
+
+# scan_range <label> <base|EMPTY> <tip> <url> <visibility> <rev-list args...>
+#
+# Everything one pushed ref (or one CI run) brings: secrets, forbidden files,
+# sizes, personal data, identities and, in own repos on GitHub, the standards.
+scan_range() {
+  local label="$1" base="$2" tip="$3" url="$4" vis="$5" names="$TMPD/push-names"
+  shift 5
+  git log --format= --name-only --no-renames --diff-filter=ACMR "$@" 2>/dev/null | LC_ALL=C sort -u | grep -v '^$' > "$names"
+  check_names "$names"
+  check_private_dir "$names"
+
+  git rev-list --objects "$@" 2>/dev/null \
+    | git cat-file --batch-check='%(objecttype)	%(objectsize)	%(rest)' 2>/dev/null \
+    | awk -F'\t' '$1 == "blob" && $3 != "" { print $2 "\t" $3 }' | LC_ALL=C sort -u > "$TMPD/size-path"
+  awk -F'\t' -v max="$MAX_FILE_BYTES" '$1+0 > max { print $2 " (" int($1/1048576) " MB)" }' "$TMPD/size-path" > "$TMPD/big"
+  [ -s "$TMPD/big" ] && block large-file "over 50 MB in $label — keep media and datasets outside git: $(join_lines "$TMPD/big")"
+
+  if require_gitleaks; then
+    run_gitleaks "$label" --log-opts="$*"
+  fi
+
+  git log -p -U0 --no-color --no-ext-diff --no-merges --no-renames --diff-filter=ACMR --format= "$@" 2>/dev/null \
+    | diff_to_added > "$TMPD/added"
+  command -v gitleaks >/dev/null 2>&1 && scan_lockfile_secrets "$TMPD/added"
+  scan_added "$TMPD/added"
+
+  git log --format='%ae%n%ce' "$@" 2>/dev/null | LC_ALL=C sort -u | grep -vE "$NOREPLY_RE" | grep -v '^$' > "$TMPD/ids" || true
+  if [ -s "$TMPD/ids" ]; then
+    personal author-email "$(num "$(wc -l < "$TMPD/ids")") non-noreply author/committer address(es) on $label — GitHub shows them to everyone who can read the repo"
+  fi
+
+  # Standards: own repos on GitHub only. A push to a local backup remote
+  # publishes nothing, so it is held to secrets and privacy alone.
+  if is_own_url "$url" && gh_slug_from_url "$url" >/dev/null 2>&1; then
+    check_media "$TMPD/size-path"
+    if [ "$base" = EMPTY ]; then
+      git ls-tree -r --name-only "$tip" > "$TMPD/std-names" 2>/dev/null
+    else
+      git diff --name-only --no-renames --diff-filter=ACMR "$base" "$tip" > "$TMPD/std-names" 2>/dev/null
+    fi
+    check_standards "$base" "$tip" "$TMPD/std-names"
+    check_repo_at "$tip" "$vis"
   fi
   return 0
 }
 
 # --- pre-push -------------------------------------------------------------------
 cmd_pre_push() {
-  local remote="${1:-}" url="${2:-}" vis lref lsha rref rsha range_log names n any=0 name
+  local remote="${1:-}" url="${2:-}" vis lref lsha rref rsha n any=0 name base tips
   vis="$(remote_visibility "$url")"
-  case "$vis" in PRIVATE) STRICT_PERSONAL=0 ;; *) STRICT_PERSONAL=1 ;; esac
-  say "${C_DIM}security-gate: push to ${remote:-?} — remote visibility: $vis$( [ "$vis" = UNKNOWN ] && printf ' (treated as public)')${C_RST}"
+  # Personal data blocks on every push, private GitHub repos included: private
+  # GitHub is still a third party, and one setting away from public. The one
+  # exception is a private repo that exists to hold personal data.
+  case "$vis" in
+    PRIVATE) if is_personal_data_repo "$url"; then STRICT_PERSONAL=0; else STRICT_PERSONAL=1; fi ;;
+    *) STRICT_PERSONAL=1 ;;
+  esac
+  say "${C_DIM}security-gate: push to ${remote:-?} — remote visibility: $vis$( [ "$vis" = UNKNOWN ] && printf ' (treated as public)')$( [ "$STRICT_PERSONAL" = 0 ] && printf ' — listed personal-data repo, personal data warns')${C_RST}"
 
   # A push by URL rather than remote name: find the name, so already-pushed
   # commits can be excluded. Failing that, the whole branch is scanned.
@@ -326,52 +579,52 @@ cmd_pre_push() {
     done
   fi
 
-  # shellcheck disable=SC2034 # lref/rref document git's stdin format
+  # shellcheck disable=SC2034 # lref documents git's stdin format
   while read -r lref lsha rref rsha; do
     [ -n "${lsha:-}" ] || continue
     is_zero_sha "$lsha" && continue                        # branch deletion
     if ! is_zero_sha "$rsha" && git cat-file -e "$rsha^{commit}" 2>/dev/null; then
-      range_log="$rsha..$lsha"
+      set -- "$rsha..$lsha"; base="$rsha"
     else
-      range_log="$lsha --not --remotes=$remote"            # new branch, or remote tip unknown here
+      set -- "$lsha" --not --remotes="$remote"             # new branch, or remote tip unknown here
+      tips="$(git for-each-ref --format='%(objectname)' "refs/remotes/$remote" 2>/dev/null)"
+      base=""
+      # shellcheck disable=SC2086 # one argument per remote-tracking tip
+      [ -n "$tips" ] && base="$(git merge-base "$lsha" $tips 2>/dev/null | head -n 1)"
+      [ -n "$base" ] || base=EMPTY
     fi
-    # shellcheck disable=SC2086 # range_log is deliberately word-split
-    n="$(num "$(git rev-list $range_log 2>/dev/null | wc -l)")"
+    n="$(num "$(git rev-list "$@" 2>/dev/null | wc -l)")"
     [ "${n:-0}" -gt 0 ] || continue
     any=1
     say "${C_DIM}  scanning $n commit(s) for $rref${C_RST}"
-
-    names="$TMPD/push-names"
-    # shellcheck disable=SC2086
-    git log --format= --name-only --no-renames --diff-filter=ACMR $range_log 2>/dev/null | LC_ALL=C sort -u | grep -v '^$' > "$names"
-    check_names "$names"
-    check_private_dir "$names"
-
-    # shellcheck disable=SC2086
-    git rev-list --objects $range_log 2>/dev/null \
-      | git cat-file --batch-check='%(objecttype)	%(objectsize)	%(rest)' 2>/dev/null \
-      | awk -F'\t' -v max="$MAX_FILE_BYTES" '$1 == "blob" && $2+0 > max { print $3 " (" int($2/1048576) " MB)" }' \
-      | LC_ALL=C sort -u > "$TMPD/big"
-    [ -s "$TMPD/big" ] && block large-file "over 50 MB in pushed history — keep media and datasets outside git: $(join_lines "$TMPD/big")"
-
-    if require_gitleaks; then
-      run_gitleaks "$n pushed commit(s)" --log-opts="$range_log"
-    fi
-
-    # shellcheck disable=SC2086
-    git log -p -U0 --no-color --no-ext-diff --no-merges --no-renames --diff-filter=ACMR --format= $range_log 2>/dev/null \
-      | diff_to_added > "$TMPD/added"
-    command -v gitleaks >/dev/null 2>&1 && scan_lockfile_secrets "$TMPD/added"
-    scan_added "$TMPD/added"
-
-    # shellcheck disable=SC2086
-    git log --format='%ae%n%ce' $range_log 2>/dev/null | LC_ALL=C sort -u | grep -vE "$NOREPLY_RE" | grep -v '^$' > "$TMPD/ids" || true
-    if [ -s "$TMPD/ids" ]; then
-      personal author-email "$(num "$(wc -l < "$TMPD/ids")") non-noreply author/committer address(es) on pushed commits — a public repo publishes them permanently"
-    fi
+    scan_range "$n pushed commit(s)" "$base" "$lsha" "$url" "$vis" "$@"
   done
   [ "$any" = 1 ] || say "${C_DIM}  nothing new to scan${C_RST}"
   return 0
+}
+
+# --- ci ---------------------------------------------------------------------------
+# The server-side copy of pre-push, run by security-reusable.yml on every push
+# and pull request, so commits that never passed this machine's hooks (another
+# machine, --no-verify, the web editor, a bot) get the same scan. Always strict,
+# the bypass variable is ignored. Visibility comes from the workflow, which reads
+# it from the event payload into SECURITY_GATE_VISIBILITY (PUBLIC or PRIVATE).
+cmd_ci() {
+  local base="${1:-}" url vis n
+  url="$(git config --get remote.origin.url 2>/dev/null)"
+  case "${SECURITY_GATE_VISIBILITY:-}" in PUBLIC|PRIVATE) vis="$SECURITY_GATE_VISIBILITY" ;; *) vis=UNKNOWN ;; esac
+  STRICT_PERSONAL=1
+  [ "$vis" = PRIVATE ] && is_personal_data_repo "$url" && STRICT_PERSONAL=0
+  unset SECURITY_GATE_BYPASS
+  if [ -n "$base" ] && ! is_zero_sha "$base" && git cat-file -e "$base^{commit}" 2>/dev/null; then
+    set -- "$base..HEAD"
+  else
+    base=EMPTY; set -- HEAD
+  fi
+  n="$(num "$(git rev-list "$@" 2>/dev/null | wc -l)")"
+  say "${C_DIM}security-gate: ci — visibility $vis — scanning ${n:-0} commit(s)${C_RST}"
+  [ "${n:-0}" -gt 0 ] || return 0
+  scan_range "${n:-0} commit(s)" "$base" "$(git rev-parse HEAD)" "$url" "$vis" "$@"
 }
 
 # --- scan-tree --------------------------------------------------------------------
@@ -431,7 +684,7 @@ cmd_status() {
 finish() {
   local event="$1" reason="${SECURITY_GATE_BYPASS:-}" top
   if [ "$N_BLOCK" -gt 0 ]; then
-    if [ "$event" != scan-tree ] && [ "${#reason}" -ge 10 ]; then
+    if [ "$event" != scan-tree ] && [ "$event" != ci ] && [ "${#reason}" -ge 10 ]; then
       top="$(git rev-parse --show-toplevel 2>/dev/null)"
       mkdir -p "$(dirname "$BYPASS_LOG")" 2>/dev/null
       printf '%s\t%s\t%s\t%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$top" "$event" "${RULES_HIT# }" \
@@ -443,7 +696,7 @@ finish() {
     [ -n "$reason" ] && [ "$event" != scan-tree ] && say "SECURITY_GATE_BYPASS was set but the reason is under 10 characters — not accepted."
     say ""
     say "${C_RED}${C_BOLD}security-gate: $event BLOCKED${C_RST} — $N_BLOCK blocking, $N_WARN warning(s)."
-    if [ "$event" != scan-tree ]; then
+    if [ "$event" != scan-tree ] && [ "$event" != ci ]; then
       say "  Fix the findings above (git restore --staged <file>; move values to env vars)."
       say "  Genuine false positive in personal data: add 'security-gate:allow' to that line."
       say "  Deliberate override, logged:  SECURITY_GATE_BYPASS=\"<why>\" git ${event#pre-} ..."
@@ -460,8 +713,8 @@ main() {
   [ $# -gt 0 ] && shift
   case "$event" in
     status) cmd_status; exit $? ;;
-    pre-commit|pre-push|scan-tree) ;;
-    *) say "usage: gate.sh pre-commit | pre-push <remote> <url> | scan-tree | status"; exit 2 ;;
+    pre-commit|pre-push|scan-tree|ci) ;;
+    *) say "usage: gate.sh pre-commit | pre-push <remote> <url> | scan-tree | ci [<base-sha>] | status"; exit 2 ;;
   esac
   TMPD="$(mktemp -d "${TMPDIR:-/tmp}/security-gate.XXXXXX")" || { say "security-gate: cannot create temp dir"; exit 1; }
   cd "$(git rev-parse --show-toplevel 2>/dev/null || pwd)" || exit 1
@@ -469,6 +722,7 @@ main() {
     pre-commit) cmd_pre_commit ;;
     pre-push)   cmd_pre_push "$@" ;;
     scan-tree)  cmd_scan_tree ;;
+    ci)         cmd_ci "$@" ;;
   esac
   finish "$event"
 }

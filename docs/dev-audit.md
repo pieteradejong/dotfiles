@@ -23,7 +23,9 @@ snapshot that went stale the day it was written:
 maintained."* That phrase was the problem. `BACKUP_AUDIT_2026-09-06.md` §13
 named the missing piece directly: *"Add a `git-hygiene.sh`."*
 
-Everything checked here is **already a rule in `~/dev/CLAUDE.md`**. The only
+Everything checked here is **already a written rule** — the hard rules in `~/dev/CLAUDE.md` and
+the policy docs under [`docs/policy/`](policy/), mapped check by check in
+[repo-standards.md § Enforcement](policy/repo-standards.md#enforcement). The only
 thing that changes is that checking takes 70 seconds instead of an afternoon,
 so drift is caught in days rather than months.
 
@@ -125,23 +127,37 @@ question — treating the credential as disclosed and rotating it.
 | `behind` | INFO | Behind upstream. |
 | `stale-branches` | INFO | Merged branches untouched 90+ days. |
 
-### `policy` — the rules in `CLAUDE.md`
+### `policy` — the repo standards
 
-| Check | Sev | `CLAUDE.md` rule |
+Every check id here is a row in [repo-standards.md § Enforcement](policy/repo-standards.md#enforcement),
+which also says whether the commit/push gate blocks the same rule. The gate blocks what a commit
+or push *introduces*; these checks FAIL what is *already there*, so existing debt stays visible
+until the repo is next touched. The patterns are shared with the gate through
+`security/patterns.sh`.
+
+| Check | Sev | Rule |
 |---|---|---|
-| `no-license` | FAIL on public | *"Public repo ⇒ LICENSE file, in the first commit."* A public repo with no LICENSE is all-rights-reserved. |
-| `copyright-drift` | WARN | *"Canonical copyright line: `Copyright (c) <year> Pieter de Jong`."* Catches the existing "Peter" / "Pieter Arthur" drift. |
-| `license-mismatch` | WARN | *"Keep the manifest field and the LICENSE file in agreement."* Catches `npm init -y`'s `"ISC"` default. |
-| `no-gitignore` | FAIL | *"Every project should have a `.gitignore` before the first commit."* |
-| `gitignore-gaps` | WARN | The baseline set is missing. Tested with `git check-ignore` — what git actually does — not by grepping the `.gitignore` text, which misses negations and directory scoping. |
-| `no-ci` | INFO | No `.github/workflows`. Informational: `CLAUDE.md` does not require CI everywhere. |
+| `no-license` | FAIL on public | [Licensing](policy/repo-standards.md#licensing): *"Public repo ⇒ LICENSE in the first commit."* A public repo with no LICENSE is all-rights-reserved. |
+| `license-malformed` | FAIL | A LICENSE file that is not a license (no license text, or captured terminal output). |
+| `copyright-drift` | WARN | Canonical line `Copyright (c) <year> Pieter de Jong`. Catches the existing "Peter" / "Pieter Arthur" drift. |
+| `license-mismatch` | WARN | The manifest `license` field and the LICENSE file must agree. Catches `npm init -y`'s `"ISC"` default. |
+| `no-gitignore` | FAIL | [`.gitignore` baseline](policy/repo-standards.md#gitignore-baseline): every project has one before the first commit. |
+| `gitignore-env` | FAIL | `.env` or `.env.local` is not ignored — a stray `git add -A` publishes it. |
+| `gitignore-gaps` | WARN | The rest of the baseline (caches, `.vscode/`, `.idea/`, logs, …) is missing. Tested with `git check-ignore` — what git actually does — not by grepping the `.gitignore` text, which misses negations and directory scoping. |
+| `no-security-ci` | FAIL | Hard rule: every repo's CI calls the reusable `security-reusable.yml` (gitleaks over full history + the gate over what was pushed). A workflow calling only `gitleaks-reusable.yml` is secrets-only and does not count. Replaces the old INFO `no-ci`. |
+| `unpinned-deps` | FAIL | Hard rule: exact version pins. Counts `package.json` dependency/dev/optional specs that are ranges (`^`, `~`, `>=`, `*`, `x`, `latest`), `requirements*.txt` lines without `==`, and `pyproject.toml` PEP 508 / Poetry specs that are not exact (`python` exempt). `peerDependencies` are not checked: they declare compatibility and install nothing. Reports counts and files, never specs. |
+| `unpinned-deps-skipped` | WARN | `jq` or Python 3.11+ (`tomllib`) is missing, so a manifest was **not** checked. An unchecked repo must not look like a clean one. |
+| `multiple-lockfiles` | FAIL | [Dependencies](policy/repo-standards.md#dependencies): one package manager per project. Two lockfiles from the same ecosystem (npm/yarn/pnpm/bun, or poetry/uv/pipenv/pdm) in one directory. |
+| `tracked-media` | FAIL | Hard rule: no media or large binaries in git, not even private. Video, audio and model weights at any size; images over 5 MB. |
+| `unpinned-action` | FAIL | [Supply chain](policy/supply-chain.md): GitHub Actions `uses:` pinned to a 40-hex commit SHA. Local actions, docker digests and own reusable workflows (`pieteradejong/…`, called `@main` on purpose) are exempt. |
 
-Forks are skipped for this whole category. `CLAUDE.md`: *"Never relicense a
-fork or an upstream clone."*
+Forks are skipped for this whole category: *"Never relicense or reshape a fork
+or an upstream clone."*
 
 ### `privacy` — what got committed that should not have been
 
-Implements the `CLAUDE.md` § Security & privacy checklist.
+Implements [security-and-privacy.md](policy/security-and-privacy.md) over what is already tracked;
+the patterns are shared with the gate through `security/patterns.sh`.
 
 | Check | Sev | What it means |
 |---|---|---|

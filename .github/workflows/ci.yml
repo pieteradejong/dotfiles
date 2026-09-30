@@ -1,7 +1,8 @@
 # dotfiles CI. This repo is PUBLIC; its private companion lives at private/ on
 # disk only. These jobs are the server-side layer behind the local gate:
 #
-#   gitleaks       full-history secret scan (the same reusable job other repos call)
+#   security       full-history gitleaks + the gate in ci mode over what was pushed
+#                  (the same reusable workflow every other repo calls)
 #   private-guard  private/ must never be tracked, nor any submodule/gitlink
 #   tests          ./test.sh — gate, guard hook, sweep, audit, dotaudit, shellcheck, ruff, docs
 
@@ -18,8 +19,8 @@ permissions:
   contents: read
 
 jobs:
-  gitleaks:
-    uses: ./.github/workflows/gitleaks-reusable.yml
+  security:
+    uses: ./.github/workflows/security-reusable.yml
     with:
       policy-ref: ${{ github.sha }}
 

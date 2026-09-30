@@ -3,6 +3,8 @@
 # test-security-tools.sh — tests for everything around the gate:
 #
 #   claude/hooks/guard-git-bypass.sh    the assistant cannot switch the gate off
+#   claude/hooks/guard-github-write.sh  the assistant cannot write content past it
+#                                       through the GitHub API
 #   scripts/github-security-sweep.sh    GitHub settings sweep (stub gh, no network)
 #   scripts/security-audit.sh           the weekly audit (--quick, stub gh)
 #   scripts/audit/50-gate.sh            dotaudit's gate module
@@ -83,6 +85,69 @@ guard 0 'ls -la'
 printf '{"tool_name":"Read","tool_input":{"file_path":"/x"}}' | "$GUARD" > "$OUT" 2>&1 && pass "allows non-Bash tool input" || fail "non-Bash tool input was denied"
 printf '%s' '{"tool_name":"Bash","tool_input":{"command":"git commit --no-verify"}}' | "$GUARD" > "$OUT" 2>&1
 grep -q 'Blocked by guard-git-bypass' "$OUT" && pass "denial explains itself on stderr" || fail "denial message missing"
+
+# ================================================================================
+header "guard-github-write.sh (Claude Code PreToolUse hook)"
+WGUARD="$DOTFILES_DIR/claude/hooks/guard-github-write.sh"
+wguard() { # <expected exit> <command string>
+  local want="$1" c="$2" rc json
+  json="$(jq -n --arg c "$c" '{tool_name: "Bash", tool_input: {command: $c}}')"
+  printf '%s' "$json" | "$WGUARD" > "$OUT" 2>&1; rc=$?
+  if [ "$rc" = "$want" ]; then pass "$([ "$want" = 2 ] && echo denies || echo allows): $c"
+  else fail "$([ "$want" = 2 ] && echo 'should deny' || echo 'should allow'): $c (exit $rc)"; fi
+}
+wmcp() { # <expected exit> <tool name>
+  local want="$1" t="$2" rc
+  jq -n --arg t "$t" '{tool_name: $t, tool_input: {owner: "o", repo: "r", path: "f", content: "x"}}' \
+    | "$WGUARD" > "$OUT" 2>&1; rc=$?
+  if [ "$rc" = "$want" ]; then pass "$([ "$want" = 2 ] && echo denies || echo allows) MCP: $t"
+  else fail "$([ "$want" = 2 ] && echo 'should deny' || echo 'should allow') MCP: $t (exit $rc)"; fi
+}
+wguard 2 'gh api -X PUT repos/o/r/contents/README.md -f message=x -f content=eA=='
+wguard 2 'gh api --method PUT repos/o/r/contents/a/b.txt --input body.json'
+wguard 2 'gh api repos/o/r/contents/f.txt -f message=x -f content=eA=='
+wguard 2 'gh api -X POST repos/o/r/git/blobs -f content=x'
+wguard 2 'gh api -X POST repos/o/r/git/trees --input t.json'
+wguard 2 'gh api -X POST repos/o/r/git/commits --input c.json'
+wguard 2 'gh api -X PATCH repos/o/r/git/refs/heads/main -f sha=abc'
+wguard 2 'gh api -X POST repos/o/r/git/tags --input t.json'
+wguard 2 'gh api -X POST repos/o/r/releases -f tag_name=v1'
+wguard 2 'gh api -X POST gists --input g.json'
+wguard 2 'gh api -X DELETE repos/o/r/contents/f.txt -f sha=abc -f message=x'
+wguard 2 'gh gist create notes.md --public'
+wguard 2 'gh gist edit abc123 -a more.md'
+wguard 2 'gh release create v1.0 dist/app.zip'
+wguard 2 'gh release upload v1.0 dist/app.zip'
+wguard 2 'curl -X PUT -H "Accept: application/json" https://api.github.com/repos/o/r/contents/f -d @body.json'
+wguard 2 'curl --data @b.json https://api.github.com/gists'
+wguard 2 'curl -T app.zip "https://uploads.github.com/repos/o/r/releases/1/assets?name=app.zip"'
+wguard 2 'wget --method=PUT --body-file=b.json https://api.github.com/repos/o/r/contents/f'
+wguard 0 'gh api repos/o/r'
+wguard 0 'gh api -X GET repos/o/r/contents/README.md'
+wguard 0 'gh api repos/o/r/contents/README.md --jq .sha'
+wguard 0 'gh api -X GET search/code -f q=needle'
+wguard 0 'gh pr view 12'
+wguard 0 'gh repo create x --private --source . --push'
+wguard 0 'gh api -X PATCH repos/o/r --input - <<< {"security_and_analysis":{"secret_scanning":{"status":"enabled"}}}'
+wguard 0 'curl -s https://api.github.com/repos/o/r'
+wguard 0 'git push origin main'
+wguard 0 'ls -la'
+wmcp 2 'mcp__plugin_engineering_github__create_or_update_file'
+wmcp 2 'mcp__github__push_files'
+wmcp 2 'mcp__github__create_gist'
+wmcp 2 'mcp__github__create_release'
+wmcp 2 'mcp__github__update_ref'
+wmcp 0 'mcp__github__get_file_contents'
+wmcp 0 'mcp__github__list_pull_requests'
+wmcp 0 'mcp__claude_ai_Google_Drive__create_file'
+printf '{"tool_name":"Read","tool_input":{"file_path":"/x"}}' | "$WGUARD" > "$OUT" 2>&1 && pass "allows non-Bash tool input" || fail "non-Bash tool input was denied"
+printf '%s' '{"tool_name":"Bash","tool_input":{"command":"gh gist create x"}}' | "$WGUARD" > "$OUT" 2>&1
+grep -q 'Blocked by guard-github-write' "$OUT" && pass "denial explains itself on stderr" || fail "denial message missing"
+SET="$DOTFILES_DIR/claude/settings.json"
+jq -e '[.hooks.PreToolUse[] | select(.matcher == "Bash") | .hooks[].command] | any(test("guard-github-write\\.sh$"))' "$SET" >/dev/null \
+  && pass "settings.json registers guard-github-write for Bash" || fail "guard-github-write not registered for Bash"
+jq -e '[.hooks.PreToolUse[] | select(.matcher == "mcp__.*github.*") | .hooks[].command] | any(test("guard-github-write\\.sh$"))' "$SET" >/dev/null \
+  && pass "settings.json registers guard-github-write for GitHub MCP tools" || fail "guard-github-write not registered for GitHub MCP tools"
 
 # ================================================================================
 header "github-security-sweep.sh (stub gh)"

@@ -1,0 +1,157 @@
+# Reusable security + privacy check — the CI job every own repo calls.
+#
+# Call it from any repo's .github/workflows/security.yml:
+#
+#   name: security
+#   on: [push, pull_request]
+#   permissions:
+#     contents: read
+#   jobs:
+#     security:
+#       uses: pieteradejong/dotfiles/.github/workflows/security-reusable.yml@main
+#
+# Two jobs, the server-side layer behind the local commit/push gate. They catch
+# whatever reached GitHub without passing this machine's hooks: another machine,
+# `--no-verify`, the web editor, a bot.
+#
+#   gitleaks  secrets over the FULL history, with the shared security/gitleaks.toml,
+#             so a repo's own .gitleaks.toml cannot allowlist its way past it.
+#   gate      security/gate.sh ci over what this push or pull request brings:
+#             secrets, forbidden files, sizes, personal data (home paths, real
+#             emails, phone numbers), non-noreply commit identities and, in own
+#             repos, the repo standards (pins, actions, lockfiles, media,
+#             LICENSE when public, this workflow being present). Always strict;
+#             no bypass.
+#
+# The private personal-values list is never available here (it is private); the
+# shape-based personal-data rules are. See docs/policy/security-and-privacy.md §9.
+#
+# Called @main on purpose, so a rule change reaches every repo at once; the
+# gate's and dotaudit's unpinned-action checks exempt pieteradejong/* for that
+# reason. Everything this workflow itself uses is pinned by SHA or checksum.
+
+name: security (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      gitleaks-version:
+        description: gitleaks release to run
+        type: string
+        default: "8.30.1"
+      gitleaks-sha256:
+        description: SHA-256 of gitleaks_<version>_linux_x64.tar.gz (must match gitleaks-version)
+        type: string
+        default: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
+      policy-ref:
+        description: ref of pieteradejong/dotfiles whose security/ rules are used
+        type: string
+        default: main
+
+permissions:
+  contents: read
+
+jobs:
+  gitleaks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository (full history)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Fetch shared policy
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: pieteradejong/dotfiles
+          ref: ${{ inputs.policy-ref }}
+          path: .security-policy
+          sparse-checkout: security/gitleaks.toml
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: Install gitleaks (SHA-256 verified)
+        env:
+          VERSION: ${{ inputs.gitleaks-version }}
+          SHA256: ${{ inputs.gitleaks-sha256 }}
+        run: |
+          set -euo pipefail
+          f="gitleaks_${VERSION}_linux_x64.tar.gz"
+          curl -sSfL -o "$RUNNER_TEMP/$f" "https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/$f"
+          echo "${SHA256}  $RUNNER_TEMP/$f" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/$f" -C "$RUNNER_TEMP" gitleaks
+          "$RUNNER_TEMP/gitleaks" version
+
+      - name: Scan full history
+        run: |
+          "$RUNNER_TEMP/gitleaks" git \
+            --config .security-policy/security/gitleaks.toml \
+            --redact --no-banner --exit-code 1 \
+            --log-opts="--all" .
+
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out the pushed commit (full history)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The PR head itself, not GitHub's synthetic merge commit.
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Fetch shared policy
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: pieteradejong/dotfiles
+          ref: ${{ inputs.policy-ref }}
+          path: .security-policy
+          sparse-checkout: security
+          persist-credentials: false
+
+      - name: Install gitleaks (SHA-256 verified)
+        env:
+          VERSION: ${{ inputs.gitleaks-version }}
+          SHA256: ${{ inputs.gitleaks-sha256 }}
+        run: |
+          set -euo pipefail
+          f="gitleaks_${VERSION}_linux_x64.tar.gz"
+          curl -sSfL -o "$RUNNER_TEMP/$f" "https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/$f"
+          echo "${SHA256}  $RUNNER_TEMP/$f" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/$f" -C "$RUNNER_TEMP" gitleaks
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+
+      - name: Run the gate over what this event brings
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          REF_NAME: ${{ github.ref_name }}
+          IS_PRIVATE: ${{ github.event.repository.private }}
+        run: |
+          set -uo pipefail
+          # The range: a PR's base, or the previous tip of the pushed branch. A
+          # new branch (all-zero "before") is measured from the default branch.
+          # The gate judges what an event BRINGS, so a scheduled or manual run
+          # has nothing to judge; the gitleaks job still scans full history, and
+          # history debt is dotaudit's to report, not a reason to fail every run.
+          case "$EVENT" in
+            pull_request|pull_request_target) base="$PR_BASE" ;;
+            push) base="$BEFORE" ;;
+            *) echo "security-gate: $EVENT run — nothing pushed to judge"; exit 0 ;;
+          esac
+          if [ "$EVENT" = push ] && [ -n "$base" ] && [ -z "${base//0/}" ]; then
+            if [ -n "$DEFAULT_BRANCH" ] && [ "$REF_NAME" != "$DEFAULT_BRANCH" ]; then
+              # A new branch: what it adds on top of the default branch. Empty
+              # (so all of HEAD) when they share no history.
+              base="$(git merge-base HEAD "origin/$DEFAULT_BRANCH" 2>/dev/null || true)"
+            else
+              base=""   # the default branch's first push: all of it is new
+            fi
+          fi
+          if [ "$IS_PRIVATE" = true ]; then vis=PRIVATE; else vis=PUBLIC; fi
+          SECURITY_GATE_VISIBILITY="$vis" .security-policy/security/gate.sh ci "$base"

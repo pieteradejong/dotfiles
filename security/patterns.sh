@@ -112,6 +112,43 @@ is_template_path() {
   return 1
 }
 
+# --- repo standards (repo-standards.md § Enforcement) ---------------------------
+# Shared by the gate (blocks what a commit or push introduces) and dotaudit's
+# policy module (FAILs what is already there). Lowercase extensions, matched
+# case-insensitively against the path.
+
+# Never in git at any size: video, audio, model weights. Not `.ts` — TypeScript.
+MEDIA_EXT_ERE='\.(mp4|mov|m4v|avi|mkv|webm|wmv|flv|mpg|mpeg|mp3|wav|flac|aac|ogg|oga|m4a|aif|aiff|opus|safetensors|gguf|ggml|ckpt|pth|pt|onnx|h5|tflite|mlmodel)$'
+# Images are fine in git until they are this big.
+IMAGE_EXT_ERE='\.(png|jpe?g|gif|webp|tiff?|heic|bmp|psd)$'
+IMAGE_MAX_BYTES=$((5 * 1024 * 1024))
+
+# Lockfiles, grouped by ecosystem: two from one group in one directory means two
+# package managers for one project.
+JS_LOCKFILES='package-lock.json npm-shrinkwrap.json yarn.lock pnpm-lock.yaml bun.lock bun.lockb'
+PY_LOCKFILES='poetry.lock uv.lock Pipfile.lock pdm.lock'
+
+# A package.json dependency spec that is not an exact version. Exact versions,
+# workspace:/file:/link: references and npm: aliases to exact versions pass.
+# peerDependencies are never checked: a peer spec is a compatibility range.
+NPM_RANGE_ERE='^(\^|~|>|<|\*|=)|^(latest|next|x)?$|(^|\.)[xX*](\.|$)|\|\|| - '
+
+# A GitHub Actions `uses:` target that is pinned: local, a docker digest, or a
+# full 40-hex commit SHA. Callers also exempt $OWN_GITHUB_OWNER/...: the policy's
+# own reusable workflows are called @main on purpose, so a rule change reaches
+# every repo at once.
+ACTION_PINNED_ERE='^(\./|docker://.*@sha256:[0-9a-f]{64}$)|@[0-9a-f]{40}$'
+
+# The reusable CI workflow every own repo must call: gitleaks over full history
+# plus the gate itself (`gate.sh ci`) over what was pushed. gitleaks-reusable.yml
+# alone is secrets-only and no longer satisfies the rule.
+SECURITY_CI_ERE='security-reusable\.yml'
+
+# The GitHub owner whose repos these standards bind. Everything else is a fork or
+# a clone of someone else's code: secrets and privacy still apply, standards not.
+OWN_GITHUB_OWNER='pieteradejong'
+CANONICAL_HOLDER='Pieter de Jong'
+
 # Dependency lockfiles embed third-party maintainers' addresses (npm deprecation
 # notices, author fields) that no one here can change. Exempt from the gate's
 # personal-data rules only — secrets in them are still scanned and blocked.
