@@ -181,16 +181,16 @@ independently (layer two).
 ### Secrets pattern
 
 Anything that shouldn't be public (API keys, personal tokens, etc.) goes in
-`~/.zshrc.secrets` — a file that lives outside this repo and is never
+`~/.zshrc.secret` — a file that lives outside this repo and is never
 committed:
 
-1. Copy the template: `cp shell/.zshrc.secrets.template ~/.zshrc.secrets`
-2. Fill in real values in `~/.zshrc.secrets` (exports, aliases — anything
+1. Copy the template: `cp shell/.zshrc.secret.template ~/.zshrc.secret`
+2. Fill in real values in `~/.zshrc.secret` (exports, aliases — anything
    you don't want public).
 3. `shell/.zshrc` sources it automatically if present:
-   `[ -f ~/.zshrc.secrets ] && source ~/.zshrc.secrets` — no per-machine
+   `[ -f ~/.zshrc.secret ] && source ~/.zshrc.secret` — no per-machine
    setup needed beyond creating the file.
-4. `.gitignore` blocks `.zshrc.secrets`, `.zshrc.local`, and any
+4. `.gitignore` blocks `.zshrc.secret`, `.zshrc.local`, and any
    `*secret*`-matching filename (except `*.template` files, which are meant
    to be committed as examples) — so `dotbackup` can never accidentally
    commit it.
@@ -290,9 +290,9 @@ zsh ~/dev/dotfiles/scripts/sync-dotfiles.sh restore
 Items identified in the last audit — most are now done; a couple were
 deliberately decided against or accepted as-is rather than "fixed":
 
-- [ ] **Secrets filename mismatch — singular vs plural** ⚠️ *regressed 2026-09-01*: The live (and now tracked) `shell/.zshrc` sources `~/.zshrc.secret` (**singular**, line 2), which is the file that actually exists and holds the real values. But `shell/.zshrc.secrets.template`, the [Secrets pattern](#secrets-pattern) section above, and `scripts/test/assertions.sh:56` all reference `.zshrc.secrets` (**plural**) — so **that assertion currently fails**. Not a security hole: `.gitignore` covers both via `*secret*`, and no secrets file has ever been committed. Fix by picking one name — aligning the docs/template/test to the singular reality is the lower-risk direction, since it doesn't touch a live file holding real credentials.
+- [x] **Secrets filename mismatch — singular vs plural**: settled 2026-09-27 on the singular `~/.zshrc.secret`, the live file that holds the values (renaming it would mean moving a credential file). Template renamed to `shell/.zshrc.secret.template`; this README, `SETUP.md` and `scripts/test/assertions.sh` follow.
 - [x] ~~**`shell/.zshrc` sources a dead path** (`~/scripts/ollm.zsh`)~~: Obsolete as written — the source line is gone from the live `~/.zshrc`, and `ollm.zsh` was itself deleted rather than moved when `llm` replaced it, so there was no path to repoint at. The directory it lived in (`~/dev/projects/scripts/`) is also gone: its contents are now `bin/` in this repo (2026-09-22).
-- [x] **`.gitignore` — add missing patterns**: `.zshrc.secrets`, `.zshrc.local`, and `*secret*` are all covered (verified 2026-09-04)
+- [x] **`.gitignore` — add missing patterns**: `.zshrc.secret`, `.zshrc.local`, and `*secret*` are all covered (verified 2026-09-04)
 - [ ] ~~**Create `install.sh`**~~: Skipped — `sync-dotfiles.sh restore` already handles file placement; a separate `install.sh` adds no real value
 - [x] **README — expand secrets pattern section**: See [Secrets pattern](#secrets-pattern) above
 - [x] **README — add recovery section**: See [Recovery](#-recovery) below

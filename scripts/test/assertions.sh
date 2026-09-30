@@ -55,25 +55,23 @@ for alias_name in dotbackup dotrestore dotstatus; do
         || fail "alias ${alias_name} missing from .zshrc"
 done
 
-# .zshrc sources .zshrc.secrets
-# NOTE: will fail until the open TODO in README is addressed
+# .zshrc sources .zshrc.secret
 grep -q '\.zshrc\.secrets' "$HOME/.zshrc" \
-    && pass ".zshrc sources .zshrc.secrets" \
-    || fail ".zshrc does not source .zshrc.secrets (open TODO)"
+    && pass ".zshrc sources .zshrc.secret" \
+    || fail ".zshrc does not source .zshrc.secret"
 
-# .zshrc.secrets must NOT be present in the repo or placed by restore
-[ ! -f "$HOME/.zshrc.secrets" ] \
-    && pass ".zshrc.secrets absent (not committed)" \
-    || fail ".zshrc.secrets present — must not be committed"
+# .zshrc.secret must NOT be present in the repo or placed by restore
+[ ! -f "$HOME/.zshrc.secret" ] \
+    && pass ".zshrc.secret absent (not committed)" \
+    || fail ".zshrc.secret present — must not be committed"
 
 # Secrets template exists in repo with the correct name
-# NOTE: will fail until the rename TODO in README is addressed
-[ -f "$DOTFILES/shell/.zshrc.secrets.template" ] \
-    && pass ".zshrc.secrets.template present in repo" \
-    || fail ".zshrc.secrets.template missing (open TODO: rename from zshrc.secret.template)"
+[ -f "$DOTFILES/shell/.zshrc.secret.template" ] \
+    && pass ".zshrc.secret.template present in repo" \
+    || fail ".zshrc.secret.template missing"
 
 # .gitignore covers critical patterns
-for pattern in '.zshrc.secrets' '*.key' '*.pem' '.env'; do
+for pattern in '.zshrc.secret' '*.key' '*.pem' '.env'; do
     grep -q "$pattern" "$DOTFILES/.gitignore" \
         && pass ".gitignore covers: $pattern" \
         || fail ".gitignore missing: $pattern"

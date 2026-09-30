@@ -12,7 +12,7 @@ I have two local repos that need to be resolved into one:
 
 **End state:**
 - `~/dev/dotfiles` is the single source of truth, public on GitHub, fully safe to share
-- Secrets are gitignored and sourced from a local-only `~/.zshrc.secrets` file
+- Secrets are gitignored and sourced from a local-only `~/.zshrc.secret` file
 - `~/config` is archived/superseded
 - A new machine can be bootstrapped from a single `git clone` + `./install.sh`
 
@@ -80,7 +80,7 @@ Confirm that `~/dev/dotfiles/shell/.zshrc` (or whichever file is the active zshr
 at the bottom:
 
 ```bash
-[ -f ~/.zshrc.secrets ] && source ~/.zshrc.secrets
+[ -f ~/.zshrc.secret ] && source ~/.zshrc.secret
 ```
 
 If it's missing, add it.
@@ -89,7 +89,7 @@ If it's missing, add it.
 Confirm `~/dev/dotfiles/.gitignore` includes at minimum:
 
 ```
-.zshrc.secrets
+.zshrc.secret
 .zshrc.local
 *.local
 .env
@@ -102,19 +102,19 @@ Confirm `~/dev/dotfiles/.gitignore` includes at minimum:
 
 Add any missing entries.
 
-### 2d. `.zshrc.secrets.template`
-If `~/dev/dotfiles/shell/.zshrc.secrets.template` doesn't exist:
-- Read `~/.zshrc.secrets` (local only — never commit it) and extract key names only
+### 2d. `.zshrc.secret.template`
+If `~/dev/dotfiles/shell/.zshrc.secret.template` doesn't exist:
+- Read `~/.zshrc.secret` (local only — never commit it) and extract key names only
 - Create the template with empty values, e.g.:
   ```bash
-  # Copy to ~/.zshrc.secrets and fill in actual values
-  # This file is gitignored — never commit ~/.zshrc.secrets itself
+  # Copy to ~/.zshrc.secret and fill in actual values
+  # This file is gitignored — never commit ~/.zshrc.secret itself
 
   export ANTHROPIC_API_KEY=""
   export OPENAI_API_KEY=""
-  # add others from your actual ~/.zshrc.secrets
+  # add others from your actual ~/.zshrc.secret
   ```
-- If `~/.zshrc.secrets` doesn't exist, create a minimal template with common keys
+- If `~/.zshrc.secret` doesn't exist, create a minimal template with common keys
 
 Commit Step 2 changes with message `chore: secrets pattern, gitignore, zshrc sourcing`.
 
@@ -147,10 +147,10 @@ The README must document:
    - Install Homebrew if needed
    - `brew bundle install --file=tools/Brewfile`
    - `./install.sh`
-   - Copy `shell/.zshrc.secrets.template` to `~/.zshrc.secrets` and fill in values
+   - Copy `shell/.zshrc.secret.template` to `~/.zshrc.secret` and fill in values
    - Reload shell
 3. **Commands** — `dotbackup`, `dotrestore`, `dotstatus` (what each does)
-4. **Secrets pattern** — explain `.zshrc.secrets`, the template, and why it's gitignored
+4. **Secrets pattern** — explain `.zshrc.secret`, the template, and why it's gitignored
 5. **Recovery** — how to restore from a backup in `~/.dotfiles-backup/`
 
 Show me the diff vs the current README before committing.
@@ -166,9 +166,9 @@ Run a final check and report pass/fail for each item:
 - [ ] Secrets scan from Step 0 is clean (no hits in tracked files)
 - [ ] All unique `~/config` content migrated
 - [ ] Stray `.gitignore_global` at root removed
-- [ ] `.zshrc` sources `~/.zshrc.secrets`
+- [ ] `.zshrc` sources `~/.zshrc.secret`
 - [ ] `.gitignore` covers all sensitive patterns
-- [ ] `.zshrc.secrets.template` committed (with no real values)
+- [ ] `.zshrc.secret.template` committed (with no real values)
 - [ ] `install.sh` present, idempotent, and covers all key dotfiles
 - [ ] README is complete and accurate
 - [ ] `git remote -v` shows the correct GitHub origin
@@ -204,7 +204,7 @@ After `~/dev/dotfiles` is confirmed public:
 ## Rules
 
 - **Stop after Step 0** and wait for my confirmation before proceeding
-- **Never commit** `~/.zshrc.secrets` or any file containing actual secret values
+- **Never commit** `~/.zshrc.secret` or any file containing actual secret values
 - **Show diffs** for any changes to `.zshrc`, `install.sh`, and `README.md` before committing
 - **Commit each step separately** with the message specified
 - **Ask before acting** on anything ambiguous — don't infer or guess
