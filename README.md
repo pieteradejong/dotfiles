@@ -1,17 +1,32 @@
 # dotfiles
 
-> 🔄 **Backup & Reproducible System Configuration** - Version-controlled dotfiles for rapid development environment setup
+My macOS dev and home setup, kept in git for two reasons.
 
-A copy-based dotfiles management system that backs up your live configuration files and enables rapid restoration on new machines. Perfect for maintaining consistent development environments across work and personal machines.
+## 🎯 Goals
 
-## 🎯 Purpose
+1. **Back up this machine's setup.** If this Mac dies, a new one gets back to a working state
+   from `git clone`, `sync-dotfiles.sh restore` and `brew bundle` (Quick Start below), without
+   hunting through memory. Deliberately **not** backed up here: secrets (`~/.zshrc.secret`, keys,
+   tokens; see the secrets pattern below), app data, and the repos under `~/dev`, which live on
+   GitHub.
+2. **Let other people copy what they like.** Take a file, not the repo: each one below stands on
+   its own, and the repo is MIT-licensed. Home paths are stored as `$HOME` and personal values
+   are scrubbed, so what you copy is generic.
 
-This repo exists so the entire computer — dev environment, shell, editor
-config, tool versions, macOS app settings — can be reproduced from
-scratch on a new machine, using nothing but `git clone` and this repo.
-If this Mac dies or gets replaced, cloning the repo and running
-`dotrestore` should get a new one back to a working state without
-hunting through memory for what was configured where.
+| Take | What it is | Needs |
+|---|---|---|
+| `shell/.zshrc`, `shell/.p10k.zsh` | zsh setup, aliases, Powerlevel10k prompt | oh-my-zsh, powerlevel10k |
+| `git/.gitconfig`, `git/.gitignore_global` | git defaults | git |
+| `tools/Brewfile` | every Homebrew package on this Mac | Homebrew |
+| `editors/*` | VS Code and Cursor settings and extension lists | the editor |
+| `macos/*.plist` | iTerm2 and Rectangle preferences | the app |
+| `bin/llm` | prompt a local model, never the cloud ([docs/llm.md](docs/llm.md)) | Ollama, `jq` |
+| `scripts/sync-dotfiles.sh` | copy-based backup/restore that sanitizes on the way in | bash, `jq` |
+
+**Scope test for anything new:** *does it help restore this machine, or would someone copy it?*
+If neither, it belongs somewhere else, or nowhere. The workspace security tooling
+(`security/`, the audits, `docs/policy/`) fails that test. It governs every repo under `~/dev`,
+not this setup, and is moving to its own repo. Retired material goes to [`archive/`](archive/).
 
 ## 🚀 Quick Start
 
@@ -132,6 +147,7 @@ dotfiles/
 │   ├── maintenance.md              # everything scheduled, and the monthly manual checklist
 │   └── dev-audit.md                # dotaudit: checks, design rules, gotchas
 ├── test.sh         # runs every test suite
+├── archive/        # retired files, kept for reference; never loaded, run or linked from active docs
 └── private/        # NOT PART OF THIS REPO — a separate private repo cloned in place, gitignored
 ```
 
@@ -167,6 +183,11 @@ reasoning in [docs/design-decisions.md](docs/design-decisions.md). In short:
   gitignored, refused by the gate at commit and push, and refused again by CI.
 - **CI** runs a full-history gitleaks scan, the `private/` guard and `./test.sh` on every push.
 - **Weekly**, `scripts/security-audit.sh` audits every repo, GitHub's settings and this machine.
+
+**Quick safety check** before committing here (about a second): `security/gate.sh scan-tree`
+checks everything `git add -A` would commit (secrets, credential files, personal data) and prints
+nothing when clean. `./test.sh` (a few minutes; run it as `./test.sh </dev/null`) tests the tooling
+itself.
 
 ### Never Committed
 

@@ -12,7 +12,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - **Shell**: zsh 5.9 with oh-my-zsh and Powerlevel10k theme
 - **Terminal**: iTerm2 3.6.10
-- Use `zsh`-compatible syntax in all shell scripts and commands. Avoid bash-isms.
+- Commands typed at the prompt: `zsh`-compatible syntax. Committed scripts: `#!/usr/bin/env bash`,
+  bash 3.2-compatible (macOS `/bin/bash`), unless a project says otherwise — the convention in
+  `~/dev/dotfiles/docs/design-decisions.md` D21 and `repo-standards.md`.
 - The `zsh` git plugin is active — aliases like `gst`, `gco`, `gcmsg` are available.
 
 ## Package Managers
