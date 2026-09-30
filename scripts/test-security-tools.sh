@@ -361,6 +361,17 @@ case "$out" in
   *) fail "sanitize_docker_config output unexpected (got: $out)" ;;
 esac
 
+# --- sanitize_copy: a failing sanitizer keeps the old copy, not a truncated one
+printf 'ORIGINAL\n' > "$T/sc-dst"
+# shellcheck disable=SC2034,SC2329 # DRY_RUN, success and log are read by sanitize_copy
+out="$(DRY_RUN=false; success() { :; }; log() { :; }
+       sanitize_copy "$T/docker.json" "$T/sc-dst" false; echo "rc=$?")"
+if [ "$out" = "rc=1" ] && [ "$(cat "$T/sc-dst")" = ORIGINAL ] && ! ls "$T"/sc-dst.tmp.* >/dev/null 2>&1; then
+  pass "sanitize_copy keeps the existing copy when the sanitizer fails"
+else
+  fail "sanitize_copy keeps the existing copy when the sanitizer fails (got: $out, $(cat "$T/sc-dst"))"
+fi
+
 # --- home-path sanitizer: XML and JSON, both round-tripping losslessly -------
 # The stored marker is a literal $HOME, not ~. That is the correctness argument:
 # iTerm2's real prefs already contain a genuine ~/Library/... value, and a

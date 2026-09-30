@@ -113,7 +113,12 @@ sanitize_copy() {
         log "  [DRY-RUN] Would copy (sanitized): $(basename "$1")"
         return 0
     fi
-    "$3" < "$1" > "$2" && success "$(basename "$1") (sanitized)" && return 0
+    # Through a temp file: a sanitizer that fails (e.g. jq missing) must leave
+    # the tracked copy as it was, not truncated.
+    if "$3" < "$1" > "$2.tmp.$$" && [ -s "$2.tmp.$$" ]; then
+        mv "$2.tmp.$$" "$2" && success "$(basename "$1") (sanitized)" && return 0
+    fi
+    rm -f "$2.tmp.$$"
     return 1
 }
 
