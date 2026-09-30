@@ -443,13 +443,17 @@ check_media() {
   return 0
 }
 
-# check_repo_at <tip> <visibility> — whole-repo rules a push must satisfy.
+# check_repo_at <tip> <visibility> <url> — whole-repo rules a push must satisfy.
 check_repo_at() {
-  local tip="$1" vis="$2" wf lic found=""
+  local tip="$1" vis="$2" url="${3:-}" wf lic found=""
   git ls-tree -r --name-only "$tip" -- .github/workflows 2>/dev/null | grep -E '\.ya?ml$' > "$TMPD/wfs"
   while IFS= read -r wf; do
     git show "$tip:$wf" 2>/dev/null | grep -qE -- "$SECURITY_CI_ERE" && { found=1; break; }
   done < "$TMPD/wfs"
+  # A private personal-data repo (personal-data-repos.conf) is exempt: CI can't
+  # read that private list, so the workflow would judge it strictly and fail on
+  # the data the repo exists to hold. The local gate covers it instead.
+  [ -z "$found" ] && [ "$vis" = PRIVATE ] && is_personal_data_repo "$url" && found=exempt
   [ -n "$found" ] || block no-security-ci \
     "no workflow calls pieteradejong/dotfiles/.github/workflows/security-reusable.yml — add .github/workflows/security.yml (docs/policy/security-and-privacy.md §9)"
 
@@ -553,7 +557,7 @@ scan_range() {
       git diff --name-only --no-renames --diff-filter=ACMR "$base" "$tip" > "$TMPD/std-names" 2>/dev/null
     fi
     check_standards "$base" "$tip" "$TMPD/std-names"
-    check_repo_at "$tip" "$vis"
+    check_repo_at "$tip" "$vis" "$url"
   fi
   return 0
 }

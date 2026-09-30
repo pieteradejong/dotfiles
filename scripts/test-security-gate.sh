@@ -537,6 +537,21 @@ out_lacks 'no-license' "LICENSE is not required on a PRIVATE push"
 security_ci
 expect 0 "own PRIVATE repo with security CI, no LICENSE: allowed" git push -q origin main
 
+# A listed personal-data repo can't use the CI workflow (CI can't read the
+# private list and would fail on its data), so it is exempt from no-security-ci.
+newrepo pdata-own
+answer PRIVATE
+own pdata-own
+printf 'pieteradejong/pdata-own\n' >> "$T/personal-data-repos.conf"
+expect 0 "listed PRIVATE personal-data repo without security CI: allowed" git push -q origin main
+out_lacks 'no-security-ci' "no-security-ci is not raised for a listed personal-data repo"
+answer PUBLIC
+echo more >> README.md; git add README.md; git commit -qm more >/dev/null 2>&1
+expect 1 "the same repo turned PUBLIC needs security CI again" git push -q origin main
+out_has 'BLOCK no-security-ci' "no-security-ci is back once the repo is public"
+answer PRIVATE
+cd "$T/std-priv" || exit 1
+
 printf '{ "dependencies": { "a": "^1.0.0" } }\n' > package.json; git add package.json; git commit -n -qm dep >/dev/null 2>&1
 expect 1 "an unpinned dependency committed with -n is caught at push" git push -q origin main
 out_has 'BLOCK unpinned-dependency' "unpinned-dependency finding on push"
