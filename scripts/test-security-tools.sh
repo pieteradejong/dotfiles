@@ -332,6 +332,35 @@ case "$out" in
   *) pass "sanitize_ssh_config removes host, user and port" ;;
 esac
 
+# --- npmrc: literal auth values dropped, env-var references and settings kept -
+# The token is built at runtime so no token-shaped literal is ever committed.
+tok="npm_$(printf 'a%.0s' 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36)"
+{
+  printf '//registry.npmjs.org/:_authToken=%s\n' "$tok"
+  printf '_auth=%s\n' "$(printf 'someone:pw' | base64)"
+  # shellcheck disable=SC2016 # ${GITHUB_TOKEN} is a literal reference, not an expansion
+  printf '//npm.pkg.github.com/:_authToken=${GITHUB_TOKEN}\n'
+  printf '@someorg:registry=https://npm.pkg.github.com\n'
+  printf 'save-exact=true\n'
+} > "$T/npmrc"
+out="$(sanitize_npmrc < "$T/npmrc")"
+# shellcheck disable=SC2016 # matching the literal reference
+case "$out" in
+  *"$tok"*|*"_auth="*|*someorg*) fail "sanitize_npmrc drops literal auth values and scoped registries (got: $out)" ;;
+  *'_authToken=${GITHUB_TOKEN}'*save-exact=true*) pass "sanitize_npmrc drops literal auth values and scoped registries, keeps references" ;;
+  *) fail "sanitize_npmrc keeps env-var references and settings (got: $out)" ;;
+esac
+
+# --- docker config: auth entries emptied, registry names and credsStore kept -
+b64="$(printf 'someone:pw' | base64)"
+printf '{"auths":{"ghcr.io":{"auth":"%s"}},"credsStore":"osxkeychain"}\n' "$b64" > "$T/docker.json"
+out="$(sanitize_docker_config < "$T/docker.json" 2>/dev/null)"
+case "$out" in
+  *"$b64"*) fail "sanitize_docker_config drops auth values" ;;
+  *ghcr.io*osxkeychain*) pass "sanitize_docker_config drops auth values, keeps registries and credsStore" ;;
+  *) fail "sanitize_docker_config output unexpected (got: $out)" ;;
+esac
+
 # --- home-path sanitizer: XML and JSON, both round-tripping losslessly -------
 # The stored marker is a literal $HOME, not ~. That is the correctness argument:
 # iTerm2's real prefs already contain a genuine ~/Library/... value, and a

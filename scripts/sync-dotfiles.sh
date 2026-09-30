@@ -92,8 +92,18 @@ expand_home_paths() {
 
 # Scoped registry lines (@<org>:registry=...) name the orgs whose private
 # packages this machine can install — a client relationship, not a setting.
+# Auth lines survive only as an env-var reference (`_authToken=${NPM_TOKEN}`);
+# a literal token, _auth or _password value is dropped, never copied.
 sanitize_npmrc() {
-    sed -E -e '/^@[^:]+:registry[[:space:]]*=/d'
+    sed -E -e '/^@[^:]+:registry[[:space:]]*=/d' \
+        -e '/^[[:space:]]*([^=]*:)?(_authToken|_auth|_password)[[:space:]]*=[[:space:]]*[^$[:space:]]/d'
+}
+
+# Docker keeps credentials in the keychain (credsStore), but a `docker login`
+# without a helper writes base64 user:password into auths.<registry>.auth. Keep
+# the registry names, empty every entry. No jq, no output: fail closed.
+sanitize_docker_config() {
+    jq '.auths |= ((. // {}) | with_entries(.value = {}))'
 }
 
 # safe_copy, but the source passes through $3 on the way to the destination.
@@ -144,7 +154,7 @@ do_backup() {
         command -v cursor &>/dev/null && cursor --list-extensions > "$EDITORS_DIR/cursor-extensions.txt" 2>/dev/null && success "cursor-extensions.txt"
     fi
     log ""; log "${BLUE}Tools:${NC}"
-    sanitize_copy ~/.npmrc "$TOOLS_DIR/.npmrc" sanitize_npmrc || true; safe_copy ~/.docker/config.json "$TOOLS_DIR/docker-config.json" || true
+    sanitize_copy ~/.npmrc "$TOOLS_DIR/.npmrc" sanitize_npmrc || true; sanitize_copy ~/.docker/config.json "$TOOLS_DIR/docker-config.json" sanitize_docker_config || true
     if [ "$DRY_RUN" = true ]; then
         command -v node &>/dev/null && log "  [DRY-RUN] Would export: .nvmrc"
         command -v brew &>/dev/null && log "  [DRY-RUN] Would export: Brewfile"
