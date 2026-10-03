@@ -10,6 +10,9 @@ under `templates/`, and `dotfiles/` — the public repo holding the security gat
 and the policy docs, with its private companion repo cloned at `dotfiles/private/`. `~/dev` itself
 is not a git repo.
 
+The root is the meta layer — workspace docs, `dotfiles/`, `templates/`, audit output. Every distinct
+project, scratch code included (`projects/scratch/`), lives under `projects/`, never at the root.
+
 `dotfiles` has two goals: back up this machine's setup, and let others copy what they like. For
 anything added there, ask *does it help restore this machine, or would someone copy it?* If
 neither, it goes elsewhere or nowhere. Retired material goes to `dotfiles/archive/`.

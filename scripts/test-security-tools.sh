@@ -528,6 +528,18 @@ else
   fail "unsafe auto-allow entries in claude/settings.json:$bad"
 fi
 
+# The deny list backs up the credential and force-push rules (D25); a deny wins over any allow.
+missing=""
+for d in 'Read(~/.ssh/**)' 'Read(~/.aws/**)' 'Read(**/.env)' 'Read(**/.env.*)' \
+         'Bash(git push --force:*)' 'Bash(git push -f:*)'; do
+  jq -e --arg d "$d" '(.permissions.deny // []) | index($d)' "$SETTINGS" >/dev/null || missing="$missing $d"
+done
+if [ -z "$missing" ]; then
+  pass "deny list covers credential reads and force pushes"
+else
+  fail "claude/settings.json deny list is missing:$missing"
+fi
+
 # ================================================================================
 header "Summary"
 echo -e "  ${GREEN}Passed${NC}: $PASS_COUNT"

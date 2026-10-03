@@ -74,7 +74,7 @@ to the model unreviewed.
 | Safe to auto-allow | Why | Not safe | Why |
 |---|---|---|---|
 | `git status`, `git log` | read tracked repo state | `git:*`, `git diff`, `git show` | `git:*` includes `push`, `config`, `clean -fdx`; `git diff --no-index <file> /dev/null` prints any file |
-| `ls`, `pwd`, `which`, `sw_vers`, `uname`, `df`, `du`, `whoami`, `hostname`, `top` | metadata only | `cat`, `head`, `tail`, `less`, `grep`, `find` | print any file, `.env` and keys included (`find -exec`, `grep -r`) |
+| `ls`, `pwd`, `which`, `sw_vers`, `uname`, `df`, `du`, `whoami`, `hostname` | metadata only | `cat`, `head`, `tail`, `less`, `grep`, `find` | print any file, `.env` and keys included (`find -exec`, `grep -r`) |
 | `brew list`, `brew info`, `npm list`, `pip3 list` | inventories | `env`, `printenv`, `echo`, `ps` | print exported tokens (`echo $TOKEN`, `ps eww` shows other processes' environments) |
 | Fixed `--version` probes | print a version | `npx`, `node`, `python3`, `time`, `xargs`, `./run.sh`, `brew:*` | run arbitrary code, fetched, inline or from whatever repo is the working directory |
 | | | `cp`, `mv`, `rm` | overwrite or destroy files silently |
@@ -87,6 +87,10 @@ any command from the "not safe" column.
 - **Credential files are never opened**, whatever the allowlist permits — the rule in §14 of the
   policy stands on its own.
 - **Review the allowlist when it grows.** Entries accumulate from "always allow" clicks.
+- **A deny list backs up the credential rule.** `claude/settings.json` denies reading `~/.ssh`,
+  `~/.aws` and `.env` files, and force pushes. A deny wins over any allow and over "always allow"
+  clicks, so it holds even when the allowlist grows. The hooks remain the enforcement layer (D25).
+- **No interactive commands.** `top` and similar never exit without a TTY and hang the session (D25).
 
 ## 6. Publishing from an assistant
 

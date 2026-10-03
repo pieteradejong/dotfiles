@@ -465,3 +465,42 @@ checks need Python 3.11+ (`tomllib`); without it the gate warns and does not che
   judges only what an event brings.
 - NOT YET: the workflow's first run on GitHub, the live `~/.claude/settings.json` hook
   registration, and the first strict dotaudit baseline.
+
+## D25 — Assistant config review: a deny list, no stray instruction copies · 2026-10-01
+
+**Problem.** A review of the Claude Code config found three gaps. Nothing but the hooks and the
+assistant's judgement stood between a session and `~/.ssh`, `~/.aws` or a `.env` file, and the
+allowlist only grows over time. `Bash(top:*)` was auto-allowed, but `top` never exits without a
+TTY, so it hangs a session. And `~/AGENTS.md` was a stale hand-kept copy, not the symlink
+[ai-instructions](policy/ai-instructions.md#agentsmd-is-a-symlink) requires. It loaded into every
+session started under `~` and contradicted the global file: it said Docker Desktop (the machine
+uses Colima), `~/scripts` (the PATH has `~/dev/dotfiles/bin`), and zsh-only scripts (D21 says
+bash 3.2).
+
+**Decision.**
+1. `claude/settings.json` gets a `permissions.deny` list: `Read(~/.ssh/**)`, `Read(~/.aws/**)`,
+   `Read(**/.env)`, `Read(**/.env.*)`, `Bash(git push --force:*)`, `Bash(git push -f:*)`,
+   `Bash(rm -rf /:*)`. The same list goes into the live `~/.claude/settings.json`.
+2. `Bash(top:*)` is removed from both allowlists and from the safe column of
+   [AI and external services §5](policy/ai-and-external-services.md#5-permission-allowlists).
+3. `~/AGENTS.md` is retired, moved to `~/.claude/backups/config-review-2026-10-01/home-AGENTS.md`
+   and not deleted. No symlink replaces it: `~` is not a project, and a symlink to the global
+   `CLAUDE.md` would load the same text twice.
+
+**Rejected.** *Symlink `~/.claude/settings.json` and `CLAUDE.md` into dotfiles.* That would undo
+the copies-not-symlinks decision of 2026-09-14
+([ai-instructions](policy/ai-instructions.md#one-source-of-truth-for-assistant-config)): the live
+settings are a superset holding machine-local hooks, and `test-docs.py` already catches drift.
+*Strip the version tables from the global `CLAUDE.md`.* The same policy says that file is where
+toolchain versions belong. *Auto-allow `git diff`, `git show` or `rg` to save prompts.* D23 says no.
+*`cleanupPeriodDays` to cap the 407 MB of transcripts.* It deletes data automatically, and
+transcripts are kept.
+
+**Cost.** Reading a `.env` now always needs a manual step outside the assistant, even when the
+file is harmless. A deny rule matches patterns, not intent, so it is a second layer, not a
+replacement for §14 or the guard hooks.
+
+**Verified: YES.** `./scripts/test-security-tools.sh` → `✓ PASS: deny list covers credential
+reads and force pushes`. Removing an entry from the deny list makes it fail.
+`python3 scripts/test-docs.py` → `8 passed, 0 failed`. The live settings still register every
+tracked hook. The pre-change copies of both settings files are in the same backup folder.

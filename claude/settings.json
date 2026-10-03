@@ -10,13 +10,21 @@
       "Bash(hostname:*)",
       "Bash(df:*)",
       "Bash(du:*)",
-      "Bash(top:*)",
       "Bash(brew list:*)",
       "Bash(brew info:*)",
       "Bash(git status:*)",
       "Bash(git log:*)",
       "Bash(pip3 list:*)",
       "Bash(npm list:*)"
+    ],
+    "deny": [
+      "Read(~/.ssh/**)",
+      "Read(~/.aws/**)",
+      "Read(**/.env)",
+      "Read(**/.env.*)",
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(rm -rf /:*)"
     ]
   },
   "hooks": {
