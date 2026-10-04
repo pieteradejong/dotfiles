@@ -143,16 +143,19 @@ node-express `http://localhost:3000` · vercel-stack `http://localhost:3000` (do
 node-express) · rn-supabase: Expo QR code, `w` for web.
 
 - **py-fastapi/production-ready** needs a running Docker daemon — `colima start` first (PostgreSQL + Redis); `./run.sh` runs `alembic upgrade head`.
-- **rn-supabase/production-ready** needs the Supabase CLI and a running Docker daemon (`colima start`); `./run.sh` starts local Supabase at `http://localhost:54321`.
+- **rn-supabase** needs the Supabase CLI and a running Docker daemon (`colima start`); `./init.sh` starts local Supabase at `http://localhost:54321`. Every check: `./test.sh` (`--integration` for the live Supabase round-trip).
 - Every template ships `.github/workflows/ci.yml`; it runs once the new project is pushed.
 - Scaffold by copying the directory; don't change dependency versions until `./init.sh` succeeds.
+  **`rn-supabase` is its own git repo** (private `rn-supabase-template`): copy it without `.git` —
+  `rsync -a --exclude .git --exclude node_modules templates/rn-supabase/ <app>/` — or its `init.sh`
+  refuses to run.
 - **`node-express/production-ready` is red** (lint, format, type-check and tests fail; it cannot
   start). Don't scaffold from it until repaired.
 - **Not templates:** `general/`, `py-django/`, `py-flask/`, `py-fullstack/`, `ts-server/`,
   `rn-supabase-legacy/` and the `base-app` / `base-api` / `framework-base` subdirs are separate
   repos with their own remotes, several with uncommitted work. Don't scaffold from them and don't
   include them in sweeps over `templates/`. Per-directory state: `templates/INVENTORY.md`.
-  `templates/` itself is not a git repo.
+  `templates/` itself is not a git repo; of the curated templates only `rn-supabase` is one.
 
 ## Per-project CLAUDE.md
 
