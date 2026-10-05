@@ -7,3 +7,28 @@
 # Windows
 Thumbs.db
 .idea
+
+# Baseline for every repo (docs/design-decisions.md D26): secrets and rebuildable output
+# stay out of git. A repo's own .gitignore can re-include with `!pattern`; files already
+# tracked are unaffected.
+
+# Secrets
+.env
+.env.*
+!.env.example
+!.env.sample
+!.env.template
+
+# Dependencies and virtualenvs
+node_modules/
+.venv/
+venv/
+
+# Caches and build output
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.next/
+.terraform/

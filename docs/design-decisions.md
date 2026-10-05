@@ -504,3 +504,36 @@ replacement for §14 or the guard hooks.
 reads and force pushes`. Removing an entry from the deny list makes it fail.
 `python3 scripts/test-docs.py` → `8 passed, 0 failed`. The live settings still register every
 tracked hook. The pre-change copies of both settings files are in the same backup folder.
+
+## D26 — A global gitignore baseline for secrets and rebuildable output · 2026-10-05
+
+**Problem.** `git/.gitignore_global` only covered editor and OS litter. Whether a repo kept `.env`
+files, dependency trees and caches out of git depended entirely on its own `.gitignore`, which
+does not exist until someone writes one. Between `git init` and that first `.gitignore`,
+`git add -A` would take all of it. The machine's file backup now also selects files by what git
+would keep, so a missing ignore costs twice: secrets reach the backup, and gigabytes of
+`node_modules` and virtualenvs get uploaded every night.
+
+**Decision.** The global ignore gets a baseline under every repo's own rules:
+1. Secrets: `.env`, `.env.*`, re-including `.env.example`, `.env.sample` and `.env.template`.
+2. Dependencies and virtualenvs: `node_modules/`, `.venv/`, `venv/`.
+3. Caches and build output: `__pycache__/`, `*.pyc`, `.pytest_cache/`, `.mypy_cache/`,
+   `.ruff_cache/`, `.next/`, `.terraform/`.
+
+A repo can still re-include a path with `!pattern`. Files already tracked are unaffected.
+
+**Rejected.** *A sweep adding these lines to every repo's `.gitignore`.* It would touch forks and
+do-not-touch repos, which the sweep rules forbid, and it does not cover the next new repo.
+*Broad build names (`dist/`, `build/`, `target/`).* Too many projects commit a `dist/` or have a
+source folder called `build/`. Silently ignoring real source is worse than a noisy `git status`.
+*Ignoring the backup's own selection files here.* The selection lives outside every repo, so
+nothing needs ignoring.
+
+**Cost.** A repo that really wants to commit a `.env.*` file needs a `!` line. A global ignore is
+invisible from inside the repo: `git check-ignore -v <path>` names the global file when it is the
+cause.
+
+**Verified: YES.** Throwaway repo with `.env`, `.env.local`, `.env.example`, `node_modules/x/a`,
+`venv/a`, `.venv/a`, `__pycache__/a.pyc`, `keep.py`: `git check-ignore -v` attributes each ignored
+path to `~/.gitignore_global` (lines 16–28), and `git ls-files -o --exclude-standard` lists only
+`.env.example` and `keep.py`.
