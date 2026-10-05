@@ -103,15 +103,15 @@ Read these when their subject comes up; they are not loaded automatically.
 | `dotfiles/docs/maintenance.md` | The weekly security audit and what to do with its findings |
 | `dotfiles/docs/containers.md` | Colima on demand (no Docker Desktop), local vs hosted Supabase, native Postgres, what needs Docker |
 | `dotfiles/docs/dev-audit.md` | `dotaudit`: read-only audit of every local repo |
-| `dotfiles/private/registers/` | Private: open findings, per-repo privacy, licensing, GitHub baseline, backup state |
+| `dotfiles/private/registers/` | Private: repo inventory (`repos.md`: what each directory is, its shape, deploy target, Docker fit), open findings, per-repo privacy, licensing, GitHub baseline, backup state |
 | `dotfiles/private/reports/` | Private: dated audit reports (point-in-time, not maintained) |
 
 Before claiming any sweep covered "all repos", check the GitHub baseline register — not every
 GitHub repo is cloned here.
 
 Workspace notes that stay at the root: `TODO.md` (open work), `IDEAS.md` (retired project sketches —
-check before starting something that sounds familiar), `PROJECT_OVERVIEW.md` (deep-dives on specific
-projects).
+check before starting something that sounds familiar). What each project is lives in the private
+repo inventory, `dotfiles/private/registers/repos.md`.
 
 ## Templates (`templates/`)
 
