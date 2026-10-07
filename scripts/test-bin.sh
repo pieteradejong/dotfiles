@@ -47,6 +47,11 @@ OUT="$T/out"; : > "$OUT"
 
 command -v zsh >/dev/null 2>&1 || { echo "zsh is not installed"; exit 1; }
 
+# llm reads piped stdin as context whenever stdin is not a terminal. Under CI, a
+# background job or an agent harness it is not, so every `llm --dry-run` would
+# block in `cat` forever. No test here feeds stdin; close it for all of them.
+exec < /dev/null
+
 # run_llm <args...> — run llm with a deliberately empty env, capturing both
 # streams. No inheritance of a real OLLAMA_HOST or LLM_ENDPOINTS from the
 # developer's shell, so results do not depend on this machine.
@@ -195,6 +200,123 @@ env OPENAI_API_KEY="sk-canary-must-never-appear" ANTHROPIC_API_KEY="sk-ant-canar
 grep -q 'canary' "$OUT" \
   && fail "an exported API key never appears in llm's output" \
   || pass "an exported API key never appears in llm's output"
+
+# ── 4b. llm lineup + management commands — against a fake Ollama ─────────────
+# A stub HTTP server on a loopback port answers /api/version, /api/tags, /api/ps
+# and /api/show with a fixed inventory, so lineup routing and the update plan
+# are deterministic on any machine, CI included. Nothing is pulled or removed:
+# `update` runs only with --dry-run, and LLM_FREE_GB stands in for df.
+header "llm lineup + management (fake Ollama on loopback)"
+
+FAKE="$T/fake-ollama.py"
+cat > "$FAKE" <<'PYEOF'
+import json, sys
+from http.server import BaseHTTPRequestHandler, HTTPServer
+GB = 1073741824
+TAGS = {"models": [
+    {"name": "gamma-coder:1", "size": 5 * GB, "capabilities": ["completion"]},
+    {"name": "alpha:1", "size": 18 * GB, "capabilities": ["completion", "tools"]},
+    {"name": "beta:1", "size": 19 * GB, "capabilities": ["completion", "thinking"]},
+    {"name": "delta:1", "size": 24 * GB, "capabilities": ["completion"]},
+]}
+ROUTES = {"/api/version": {"version": "9.9.9"}, "/api/tags": TAGS, "/api/ps": {"models": []}}
+class H(BaseHTTPRequestHandler):
+    def _send(self, body):
+        data = json.dumps(body).encode()
+        self.send_response(200 if body is not None else 404)
+        self.send_header("Content-Type", "application/json"); self.end_headers(); self.wfile.write(data)
+    def do_GET(self): self._send(ROUTES.get(self.path))
+    def do_POST(self): self._send(ROUTES.get(self.path))
+    def log_message(self, *a): pass
+srv = HTTPServer(("127.0.0.1", 0), H)
+open(sys.argv[1], "w").write(str(srv.server_port))
+srv.serve_forever()
+PYEOF
+
+FAKE_PORT_FILE="$T/fake-ollama.port"
+if command -v python3 >/dev/null 2>&1; then
+  python3 -I "$FAKE" "$FAKE_PORT_FILE" & FAKE_PID=$!
+  for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "$FAKE_PORT_FILE" ] && break; sleep 0.3; done
+fi
+
+if [ ! -s "$FAKE_PORT_FILE" ]; then
+  skip "lineup + management tests — could not start the fake Ollama (python3 missing?)"
+else
+  FP="$(cat "$FAKE_PORT_FILE")"
+  LINEUP="$T/lineup"
+  # alpha is the lineup coder even though gamma-coder's NAME says coder: the
+  # lineup must win. omega:1 is in the lineup but not installed.
+  printf '# test lineup\nreasoner beta:1 19\ncoder alpha:1 18\nfast delta:1 24\ngeneral omega:1 10\n' > "$LINEUP"
+
+  # run_fake <args...> — llm against the fake server and the test lineup only.
+  run_fake() {
+    : > "$OUT"
+    env -u OLLAMA_HOST -u LLM_MLX_MODEL -u OPENAI_API_KEY -u ANTHROPIC_API_KEY \
+        LLM_ENDPOINTS="127.0.0.1:$FP" LLM_LINEUP="$LINEUP" LLM_NO_AUTOSTART=1 "$@" > "$OUT" 2>&1
+  }
+  # model_is <expected-model> <description> <llm args...>
+  model_is() {
+    local want="$1" desc="$2"; shift 2
+    run_fake "$LLM" --dry-run "$@"
+    if grep -qE "^model: +$want " "$OUT"; then pass "$desc"; else
+      fail "$desc — expected $want, got: $(grep '^model:' "$OUT" || head -1 "$OUT")"
+    fi
+  }
+
+  model_is 'alpha:1' 'llm code → the lineup coder, not the name-classified one' code "fix this"
+  model_is 'delta:1' 'llm fast → the lineup fast model'                          fast "fix this"
+  model_is 'beta:1'  'llm reason → the lineup reasoner'                          reason "plan"
+  model_is 'beta:1'  'non-code prompt → the reasoner'                            "plan my week"
+  model_is 'alpha:1' 'code prompt → the lineup coder'                            "fix this failing regex in my parser"
+  model_is 'beta:1'  'llm "status of the build" (one word) is a prompt, not a command' "status of the build"
+
+  run_fake "$LLM" status of the build; rc=$?
+  { [ "$rc" != 0 ] && grep -q "takes no prompt" "$OUT"; } \
+    && pass "llm status <words> is refused, not silently treated as a prompt" \
+    || fail "llm status <words> is refused, not silently treated as a prompt (rc=$rc)"
+
+  run_fake "$LLM" models
+  { grep -qE '^  alpha:1 +coder ' "$OUT" && grep -qE '^  gamma-coder:1 +coder ' "$OUT" \
+    && grep -qE '^  llm fast \.\.\. +delta:1$' "$OUT"; } \
+    && pass "llm models lists roles and the model each command gets" \
+    || fail "llm models lists roles and the model each command gets"
+
+  run_fake env LLM_FREE_GB=100 "$LLM" update --dry-run; rc=$?
+  { [ "$rc" = 0 ] && grep -qE '^  pull +omega:1 ' "$OUT" && grep -qE '^  remove +gamma-coder:1 ' "$OUT" \
+    && ! grep -qE '^  (pull|remove) +(alpha|beta|delta):1 ' "$OUT"; } \
+    && pass "update --dry-run plans: pull the missing lineup model, remove the unlisted one, keep the rest" \
+    || fail "update --dry-run plans the right pulls and removals (rc=$rc)"
+
+  # 12 free + 5 freed - 10 pulled = 7 GB, under the default 15 GB floor.
+  run_fake env LLM_FREE_GB=12 "$LLM" update --dry-run; rc=$?
+  { [ "$rc" != 0 ] && grep -q 'not enough disk' "$OUT"; } \
+    && pass "update refuses a plan that would leave less than LLM_MIN_FREE_GB free" \
+    || fail "update refuses a plan that would leave less than LLM_MIN_FREE_GB free (rc=$rc)"
+
+  printf 'coder some-model:cloud 1\n' > "$T/lineup-cloud"
+  run_fake env LLM_LINEUP="$T/lineup-cloud" "$LLM" models; rc=$?
+  { [ "$rc" != 0 ] && grep -qi 'cloud' "$OUT"; } \
+    && pass "a :cloud tag in the lineup is refused" \
+    || fail "a :cloud tag in the lineup is refused (rc=$rc)"
+
+  printf 'wizard alpha:1 1\n' > "$T/lineup-bad"
+  run_fake env LLM_LINEUP="$T/lineup-bad" "$LLM" models; rc=$?
+  { [ "$rc" != 0 ] && grep -q "unknown role 'wizard'" "$OUT"; } \
+    && pass "an unknown lineup role is a hard error" \
+    || fail "an unknown lineup role is a hard error (rc=$rc)"
+
+  run_fake env OLLAMA_HOST="127.0.0.1:$FP" "$LLM" status; rc=$?
+  { [ "$rc" = 0 ] && grep -q 'daemon running, version 9.9.9' "$OUT" \
+    && grep -qE 'coder +alpha:1$' "$OUT" && grep -qE 'general +omega:1 +\(missing' "$OUT"; } \
+    && pass "llm status reports the daemon version and which lineup models are missing" \
+    || fail "llm status reports the daemon version and which lineup models are missing (rc=$rc)"
+
+  # The shipped lineup must parse and hold no cloud tag.
+  run_fake env LLM_LINEUP="$(dirname "$BIN_DIR")/config/llm/lineup" "$LLM" models; rc=$?
+  [ "$rc" = 0 ] && pass "the shipped config/llm/lineup parses" || fail "the shipped config/llm/lineup parses (rc=$rc)"
+
+  kill "$FAKE_PID" 2>/dev/null; wait "$FAKE_PID" 2>/dev/null
+fi
 
 # ── 5. weekly-disk-cleanup.sh — static assertions only, never executed ───────
 header "weekly-disk-cleanup.sh (static — never executed)"

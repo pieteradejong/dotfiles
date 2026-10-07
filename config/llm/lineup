@@ -1,0 +1,15 @@
+# The local models this machine should have — `llm update` installs exactly these.
+#
+# role      tag                       download GB
+#
+# Roles: coder (llm code), fast (llm fast), reasoner (llm reason, and the
+# default for non-code prompts), general. The first model listed for a role is
+# the one that role gets. Size is the download size from ollama.com, used only
+# to check disk before a pull. Never list a :cloud tag; llm refuses them.
+#
+# Only one fits in 32 GB of memory at a time; switching costs a reload.
+reasoner    qwen3.8:27b               18
+coder       qwen3.6:27b-coding        18
+# Off until there is disk for it (2026-10-06: 40 GB free; all three would leave
+# ~15). Without a fast model, `llm fast` uses the coder.
+# fast      qwen3.6:35b-a3b-coding    24

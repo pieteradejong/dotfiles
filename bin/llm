@@ -8,9 +8,17 @@
 #
 # Routing, in priority order:
 #   llm code "..."     -> force the coder role      (subcommand)
+#   llm fast "..."     -> force the fast-coder role (subcommand)
 #   llm reason "..."   -> force the reasoner role   (subcommand)
 #   llm -m TAG "..."   -> force an exact model
 #   llm "..."          -> classify the prompt and pick a role automatically
+#
+# Roles come from the lineup file (config/llm/lineup) first, then from the
+# model name. The same file is what `llm update` installs, so it is the one
+# place that says which models this machine should have.
+#
+# Management: llm status | models | update | free | restart. Like code/reason,
+# these are commands only as the first word.
 #
 # The zero-cloud guarantee is structural, not a convention: every endpoint must
 # resolve to loopback, any model tag containing "cloud" is refused, and no
@@ -38,29 +46,41 @@ usage() {
 llm — run a prompt against whichever local model is available. No cloud.
 
 Usage:
-  llm [code|reason] [options] [prompt...]
-  <command> | llm [code|reason] [options] [prompt...]   # stdin becomes context
-  llm                                                   # interactive REPL
+  llm [code|fast|reason] [options] [prompt...]
+  <command> | llm [code|fast|reason] [options] [prompt...]   # stdin becomes context
+  llm                                                        # interactive REPL
 
-Commands:
+Prompt commands:
   code              route to the coder model
+  fast              route to the fast coder model (MoE: quicker, a bit weaker)
   reason            route to the reasoner model
   (omitted)         classify the prompt and pick a role automatically
 
-  A leading 'code' or 'reason' is only a command when it is the first word of
-  the prompt position; llm "code review this" is a prompt, not a command.
+Management commands:
+  status            daemon up? version skew? lockdown env, bind, disk, lineup
+  models            installed models with role, size, capabilities (= --list)
+  update            install the lineup, remove what is not in it (asks first)
+  free              unload every resident model, releasing its memory
+  restart           restart the Ollama daemon
+
+  A leading command word is only a command when it is the first word of the
+  prompt position; llm "code review this" is a prompt, not a command.
 
 Options:
   -m, --model TAG   force an exact model (overrides the command)
   -s, --system TXT  system prompt
   -t, --think       stream the model's reasoning too (default: answer only)
-  -l, --list        show backends, models, roles, and what's resident
+  -l, --list        same as 'llm models'
   -q, --quiet       suppress stderr routing notes
-      --dry-run     print the routing decision and exit without inferring
+  -y, --yes         'update' proceeds without asking
+      --dry-run     print the decision (routing, or the update plan) and exit
   -h, --help        this help
 
 Environment:
   LLM_ENDPOINTS     comma-separated host:port list to probe (loopback only)
+  LLM_LINEUP        lineup file (default: <dotfiles>/config/llm/lineup)
+  LLM_MIN_FREE_GB   disk that must stay free after a pull (default 15)
+  LLM_NO_AUTOSTART  set to never start the daemon when it is down
   LLM_MLX_MODEL     model path/id for the mlx-lm fallback backend
   OLLAMA_HOST       honoured for the Ollama probe (loopback only)
 USAGE
@@ -85,8 +105,12 @@ assert_not_cloud() {
 
 # --- argument parsing --------------------------------------------------------
 
-ROLE="" FORCE_MODEL="" SYSTEM="" KEEP_THINK="" DO_LIST="" DRY_RUN=""
+ROLE="" FORCE_MODEL="" SYSTEM="" KEEP_THINK="" DO_LIST="" DRY_RUN="" CMD="" YES=""
 typeset -a WORDS
+# A command word counts only in the first prompt-word position, so a genuine
+# prompt like `llm "code review this"` (one word) is unaffected, and so is
+# `llm explain this code` (not the first word).
+first_word() { (( ${#WORDS} == 0 )) && [[ -z $ROLE && -z $CMD ]]; }
 while (( $# )); do
   case $1 in
     -m|--model)   shift; [[ -n $1 ]] || die "--model needs a tag"; FORCE_MODEL=$1 ;;
@@ -94,19 +118,39 @@ while (( $# )); do
     -t|--think)   KEEP_THINK=1 ;;
     -l|--list)    DO_LIST=1 ;;
     -q|--quiet)   QUIET=1 ;;
+    -y|--yes)     YES=1 ;;
     --dry-run)    DRY_RUN=1 ;;
     -h|--help)    usage; exit 0 ;;
     --)           shift; WORDS+=("$@"); break ;;
     -*)           die "unknown option '$1' (try --help)" ;;
-    # 'code' / 'reason' are commands only in the first prompt-word position, so
-    # a genuine prompt like `llm "code review this"` (one word) is unaffected,
-    # and so is `llm explain this code` (not the first word).
-    code|coder)     if (( ${#WORDS} == 0 )) && [[ -z $ROLE ]]; then ROLE=coder;    else WORDS+=("$1"); fi ;;
-    reason|reasoner) if (( ${#WORDS} == 0 )) && [[ -z $ROLE ]]; then ROLE=reasoner; else WORDS+=("$1"); fi ;;
+    code|coder)      if first_word; then ROLE=coder;    else WORDS+=("$1"); fi ;;
+    fast)            if first_word; then ROLE=fast;     else WORDS+=("$1"); fi ;;
+    reason|reasoner) if first_word; then ROLE=reasoner; else WORDS+=("$1"); fi ;;
+    status|update|free|restart) if first_word; then CMD=$1; else WORDS+=("$1"); fi ;;
+    models)          if first_word; then DO_LIST=1; CMD=models; else WORDS+=("$1"); fi ;;
     *)            WORDS+=("$1") ;;
   esac
   shift
 done
+[[ -n $CMD && $CMD != models ]] && (( ${#WORDS} )) && die "'llm $CMD' takes no prompt (got: ${(j: :)WORDS})"
+
+# --- lineup ------------------------------------------------------------------
+# One "role tag size_gb" line per model; '#' starts a comment. Roles: coder,
+# fast, reasoner, general. size_gb is the download size, used only to check
+# disk before a pull.
+
+LINEUP_FILE=${LLM_LINEUP:-${0:A:h:h}/config/llm/lineup}
+typeset -a LINEUP_TAGS
+typeset -A LINEUP_ROLE LINEUP_SIZE
+if [[ -r $LINEUP_FILE ]]; then
+  while read -r l_role l_tag l_size _; do
+    [[ -z $l_role || $l_role == \#* ]] && continue
+    [[ $l_role == (coder|fast|reasoner|general) ]] || die "$LINEUP_FILE: unknown role '$l_role'"
+    [[ -n $l_tag ]] || die "$LINEUP_FILE: role '$l_role' has no tag"
+    assert_not_cloud "$l_tag"
+    LINEUP_TAGS+=("$l_tag"); LINEUP_ROLE[$l_tag]=$l_role; LINEUP_SIZE[$l_tag]=${l_size:-0}
+  done < "$LINEUP_FILE"
+fi
 
 (( $+commands[curl] )) || die "curl not found"
 (( $+commands[jq]   )) || die "jq not found — brew install jq"
@@ -143,38 +187,172 @@ probe() {
   return 1
 }
 
-discover() {
+probe_all() {
   local ep
   for ep in $ENDPOINTS; do
     ep=$(normalize_ep "$ep")
     assert_loopback "$ep"
     probe "$ep" && return 0
   done
+  return 1
+}
+
+# Wait up to $1 seconds for the Ollama port to answer.
+wait_for_ollama() {
+  local ep=$(normalize_ep "${OLLAMA_HOST:-127.0.0.1:11434}") i
+  for (( i = 0; i < $1 * 2; i++ )); do
+    curl -s --connect-timeout 1 --max-time 2 "http://$ep/api/version" >/dev/null 2>&1 && return 0
+    command sleep 0.5
+  done
+  return 1
+}
+
+# The daemon idles at a few MB and no CPU; memory is only spent while a model
+# is loaded. So starting it on demand costs nothing worth asking about. Only the
+# default endpoint list qualifies: an explicit LLM_ENDPOINTS means the caller
+# chose what to talk to.
+ollama_service_known() {
+  (( $+commands[brew] )) && brew services list 2>/dev/null | grep -q '^ollama[[:space:]]'
+}
+
+autostart() {
+  [[ -z $LLM_ENDPOINTS && -z $LLM_NO_AUTOSTART ]] || return 1
+  ollama_service_known || return 1
+  note "Ollama is not running — starting it (brew services start ollama)"
+  brew services start ollama >/dev/null 2>&1 || return 1
+  wait_for_ollama 20
+}
+
+discover() {
+  probe_all && return 0
+  autostart && probe_all && return 0
   if (( $+commands[mlx_lm.generate] )); then
     [[ -n $LLM_MLX_MODEL ]] || die "mlx-lm found but LLM_MLX_MODEL is unset — set it to a local model path"
     BACKEND=mlx; BASE="mlx_lm"; return 0
   fi
-  die "no local backend reachable on ${(j:, :)ENDPOINTS} — start Ollama with 'ollama serve' or open Ollama.app"
+  die "no local backend reachable on ${(j:, :)ENDPOINTS} — try 'llm restart' (or open Ollama.app)"
 }
+
+# --- status and restart: work even when the daemon is down ------------------
+
+client_version() {
+  (( $+commands[ollama] )) || return 0
+  ollama --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | tail -1
+}
+
+server_version() {
+  local ep=$(normalize_ep "${OLLAMA_HOST:-127.0.0.1:11434}")
+  assert_loopback "$ep"
+  curl -s --connect-timeout 1 --max-time 3 "http://$ep/api/version" 2>/dev/null | jq -r '.version // empty' 2>/dev/null
+}
+
+# The launchd label moved from homebrew.mxcl.ollama to sh.brew.ollama in a
+# Homebrew update; accept either.
+daemon_env() {
+  local label
+  for label in sh.brew.ollama homebrew.mxcl.ollama; do
+    launchctl print "gui/$(id -u)/$label" 2>/dev/null \
+      | awk '/^\tenvironment = \{/{f=1;next} f&&/^\t\}/{exit} f' | grep 'OLLAMA_' && return 0
+  done
+  return 1
+}
+
+models_dir() {
+  local d=$(daemon_env 2>/dev/null | awk -F' => ' '/OLLAMA_MODELS/{print $2}')
+  print -r -- "${d:-$HOME/.ollama/models}"
+}
+
+free_gb() {
+  [[ -n $LLM_FREE_GB ]] && { print -r -- $LLM_FREE_GB; return; }   # test hook
+  local d=$(models_dir)
+  [[ -d $d ]] || d=$HOME
+  df -k "$d" | awk 'NR==2 {printf "%d\n", $4/1048576}'
+}
+
+cmd_restart() {
+  ollama_service_known || die "no Homebrew 'ollama' service here — start Ollama.app or 'ollama serve' yourself"
+  note "restarting the Ollama daemon"
+  brew services restart ollama >/dev/null 2>&1 || die "brew services restart ollama failed"
+  wait_for_ollama 20 || die "daemon did not answer within 20s after restart"
+  print -r -- "ollama $(server_version) running"
+}
+
+cmd_status() {
+  local ok="  ok  " warn="  !!  " sv cv env bind res tag
+  sv=$(server_version); cv=$(client_version)
+  if [[ -n $sv ]]; then
+    print -r -- "${ok}daemon running, version $sv"
+    if [[ -n $cv && $cv != $sv ]]; then
+      print -r -- "${warn}client is $cv but the daemon is $sv — run 'llm restart'"
+    fi
+  else
+    print -r -- "${warn}daemon not running — 'llm' starts it on demand, or run 'llm restart'"
+  fi
+
+  bind=$(lsof -nP -iTCP:11434 -sTCP:LISTEN 2>/dev/null | awk 'NR>1 {print $9}' | sort -u | tr '\n' ' ')
+  if [[ -n $bind ]]; then
+    if [[ $bind == *'*:'* || $bind == *0.0.0.0* ]]; then
+      print -r -- "${warn}listening on $bind— reachable from the network, not loopback-only"
+    else
+      print -r -- "${ok}listening on ${bind% } (loopback only)"
+    fi
+  fi
+
+  env=$(daemon_env 2>/dev/null)
+  if [[ -z $env ]]; then
+    print -r -- "${warn}no launchd environment found for the daemon (not a brew service?)"
+  elif print -r -- "$env" | grep -q 'OLLAMA_NO_CLOUD => 1'; then
+    print -r -- "${ok}OLLAMA_NO_CLOUD=1"
+  else
+    print -r -- "${warn}OLLAMA_NO_CLOUD is not set — cloud models are not blocked by the daemon"
+  fi
+
+  print -r -- "${ok}models in $(models_dir), $(free_gb) GB free on that disk"
+
+  if [[ -n $sv ]]; then
+    res=$(curl -s --max-time 3 "http://$(normalize_ep "${OLLAMA_HOST:-127.0.0.1:11434}")/api/ps" \
+          | jq -r '.models[] | "\(.name) (\((.size/1073741824*10|floor)/10) GB)"' 2>/dev/null | tr '\n' ' ')
+    print -r -- "${ok}resident: ${res:-none — no model memory in use}"
+    local have=$(curl -s --max-time 5 "http://$(normalize_ep "${OLLAMA_HOST:-127.0.0.1:11434}")/api/tags" | jq -r '.models[].name' 2>/dev/null)
+    print -r -- "lineup ($LINEUP_FILE):"
+    for tag in $LINEUP_TAGS; do
+      if print -r -- "$have" | grep -qxF "$tag"; then
+        printf '%s%-9s %s\n' "$ok" "${LINEUP_ROLE[$tag]}" "$tag"
+      else
+        printf '%s%-9s %s  (missing — run llm update)\n' "$warn" "${LINEUP_ROLE[$tag]}" "$tag"
+      fi
+    done
+  fi
+}
+
+case $CMD in
+  status)  cmd_status;  exit 0 ;;
+  restart) cmd_restart; exit 0 ;;
+esac
 
 discover
 
 # --- model inventory and roles ----------------------------------------------
 
-# Each line: name<TAB>capabilities
+# Each line: name<TAB>capabilities<TAB>size in GB
 list_models() {
   case $BACKEND in
-    ollama) print -r -- "$TAGS_JSON" | jq -r '.models[] | "\(.name)\t\((.capabilities // [])|join(","))"' ;;
-    openai) print -r -- "$TAGS_JSON" | jq -r '.data[] | "\(.id)\t"' ;;
-    mlx)    print -r -- "$LLM_MLX_MODEL\t" ;;
+    ollama) print -r -- "$TAGS_JSON" | jq -r '.models[] | "\(.name)\t\((.capabilities // [])|join(","))\t\(((.size // 0)/1073741824*10|floor)/10)"' ;;
+    openai) print -r -- "$TAGS_JSON" | jq -r '.data[] | "\(.id)\t\t"' ;;
+    mlx)    print -r -- "$LLM_MLX_MODEL\t\t" ;;
   esac
 }
 
-# Roles come from the model NAME, not a hardcoded tag list, so a fresh
-# `ollama pull` routes correctly without editing this script.
+# The lineup names a model's role outright. Anything not in it is classified by
+# NAME, not a hardcoded tag list, so an ad-hoc `ollama pull` still routes
+# sensibly without editing this script.
+role_of() {
+  if [[ -n ${LINEUP_ROLE[$1]} ]]; then print -r -- ${LINEUP_ROLE[$1]}; else classify "$1"; fi
+}
+
 classify() {
   local n=${1:l}
-  if [[ $n =~ '(coder|code|devstral|codestral|starcoder|codegemma|codellama)' ]]; then
+  if [[ $n =~ '(coder|code|coding|devstral|codestral|starcoder|codegemma|codellama)' ]]; then
     print -r -- coder
   elif [[ $n =~ '(r1|qwq|magistral|reason|thinking|deepthink)' ]]; then
     print -r -- reasoner
@@ -183,49 +361,153 @@ classify() {
   fi
 }
 
-typeset -a CODER_M REASON_M GENERAL_M
-typeset -A CAPS
-while IFS=$'\t' read -r name caps; do
+typeset -a CODER_M FAST_M REASON_M GENERAL_M INSTALLED
+typeset -A CAPS SIZE
+while IFS=$'\t' read -r name caps size; do
   [[ -n $name ]] || continue
-  CAPS[$name]=$caps
-  case $(classify "$name") in
+  CAPS[$name]=$caps; SIZE[$name]=$size; INSTALLED+=("$name")
+done < <(list_models)
+
+# Lineup models first, in lineup order, so the lineup decides which model a
+# role gets when several share it; then everything else in backend order.
+typeset -a ORDERED
+for name in $LINEUP_TAGS; do [[ -n ${CAPS[$name]+x} ]] && ORDERED+=("$name"); done
+for name in $INSTALLED;   do [[ -n ${LINEUP_ROLE[$name]} ]] || ORDERED+=("$name"); done
+for name in $ORDERED; do
+  case $(role_of "$name") in
     coder)    CODER_M+=("$name") ;;
+    fast)     FAST_M+=("$name") ;;
     reasoner) REASON_M+=("$name") ;;
     *)        GENERAL_M+=("$name") ;;
   esac
-done < <(list_models)
+done
+MODEL_COUNT=${#ORDERED}
 
-(( ${#CODER_M} + ${#REASON_M} + ${#GENERAL_M} )) || die "backend at $BASE has no models — pull one with 'ollama pull qwen3-coder:30b'"
+if (( MODEL_COUNT == 0 )) && [[ $CMD != update ]]; then
+  die "backend at $BASE has no models — run 'llm update' to install the lineup"
+fi
 
-resident_model() {
+resident_models() {
   [[ $BACKEND == ollama ]] || return 0
-  curl -s --connect-timeout 1 --max-time 5 "$BASE/api/ps" 2>/dev/null | jq -r '.models[0].name // empty' 2>/dev/null
+  curl -s --connect-timeout 1 --max-time 5 "$BASE/api/ps" 2>/dev/null | jq -r '.models[].name' 2>/dev/null
 }
 
 pick_from() {
-  # first model of the named role, falling back to general
+  # first model of the named role, then the nearest substitute
   case $1 in
-    coder)    print -r -- "${CODER_M[1]:-${GENERAL_M[1]:-${REASON_M[1]}}}" ;;
-    reasoner) print -r -- "${REASON_M[1]:-${GENERAL_M[1]:-${CODER_M[1]}}}" ;;
-    *)        print -r -- "${GENERAL_M[1]:-${CODER_M[1]:-${REASON_M[1]}}}" ;;
+    coder)    print -r -- "${CODER_M[1]:-${FAST_M[1]:-${GENERAL_M[1]:-${REASON_M[1]}}}}" ;;
+    fast)     print -r -- "${FAST_M[1]:-${CODER_M[1]:-${GENERAL_M[1]:-${REASON_M[1]}}}}" ;;
+    reasoner) print -r -- "${REASON_M[1]:-${GENERAL_M[1]:-${CODER_M[1]:-${FAST_M[1]}}}}" ;;
+    *)        print -r -- "${GENERAL_M[1]:-${REASON_M[1]:-${CODER_M[1]:-${FAST_M[1]}}}}" ;;
   esac
 }
 
-# --- --list ------------------------------------------------------------------
+# --- models (--list) ---------------------------------------------------------
 
 if [[ -n $DO_LIST ]]; then
-  local res=$(resident_model)
+  local res=$(resident_models | tr '\n' ' ')
   print -r -- "backend:  $BACKEND @ $BASE"
   print -r -- "resident: ${res:-(none loaded)}"
   print -r -- "models:"
   local n
-  for n in $CODER_M $REASON_M $GENERAL_M; do
-    printf '  %-22s %-9s %s\n' "$n" "$(classify $n)" "${CAPS[$n]}"
+  for n in $ORDERED; do
+    printf '  %-26s %-9s %6s GB  %s\n' "$n" "$(role_of $n)" "${SIZE[$n]:-?}" "${CAPS[$n]}"
   done
   print -r -- "commands:"
   printf '  %-22s %s\n' "llm code ..."   "$(pick_from coder)"
+  printf '  %-22s %s\n' "llm fast ..."   "$(pick_from fast)"
   printf '  %-22s %s\n' "llm reason ..." "$(pick_from reasoner)"
   printf '  %-22s %s\n' "llm ..."        "(auto: classified per prompt)"
+  exit 0
+fi
+
+# --- free --------------------------------------------------------------------
+
+if [[ $CMD == free ]]; then
+  [[ $BACKEND == ollama ]] || die "'llm free' is Ollama-only"
+  local m freed=0
+  for m in ${(f)"$(resident_models)"}; do
+    [[ -n $m ]] || continue
+    if curl -sf --max-time 30 "$BASE/api/generate" -H 'Content-Type: application/json' \
+         -d "$(jq -n --arg m "$m" '{model:$m, keep_alive:0}')" >/dev/null; then
+      print -r -- "unloaded $m"; (( ++freed ))
+    else
+      note "could not unload $m"
+    fi
+  done
+  (( freed )) || print -r -- "nothing resident — no model memory in use"
+  exit 0
+fi
+
+# --- update ------------------------------------------------------------------
+# Acquire mode: this is the one command that downloads. Pulls run one at a
+# time; before each, models outside the lineup are removed until the pull fits
+# with LLM_MIN_FREE_GB to spare, so the disk never fills. Nothing is removed
+# without a yes (or --yes), and a pulled model that is not backed by a local
+# blob is deleted again.
+
+verify_local() {
+  local show
+  show=$(curl -s --max-time 30 "$BASE/api/show" -H 'Content-Type: application/json' \
+         -d "$(jq -n --arg m "$1" '{model:$m}')") || return 1
+  [[ -z $(print -r -- "$show" | jq -r '.remote_host // empty') ]] || return 1
+  print -r -- "$show" | jq -r '.modelfile // ""' | grep -qE '^FROM /'
+}
+
+if [[ $CMD == update ]]; then
+  [[ $BACKEND == ollama ]] || die "'llm update' is Ollama-only"
+  (( ${#LINEUP_TAGS} )) || die "no models in the lineup ($LINEUP_FILE)"
+  local min=${LLM_MIN_FREE_GB:-15} free=$(free_gb) t
+  typeset -a to_pull to_remove
+  for t in $LINEUP_TAGS; do [[ -n ${CAPS[$t]+x} ]] || to_pull+=("$t"); done
+  for t in $INSTALLED;   do [[ -n ${LINEUP_ROLE[$t]} ]] || to_remove+=("$t"); done
+
+  # Feasibility: everything to pull must fit once the removals are counted.
+  local need=0 gain=0
+  for t in $to_pull;   do (( need += ${LINEUP_SIZE[$t]:-0} )); done
+  for t in $to_remove; do (( gain += ${${SIZE[$t]%.*}:-0} )); done
+
+  print -r -- "lineup:  $LINEUP_FILE"
+  print -r -- "disk:    $free GB free (keeping at least $min GB free)"
+  if (( ${#to_pull} + ${#to_remove} == 0 )); then
+    print -r -- "up to date — every lineup model is installed and nothing else is"
+    exit 0
+  fi
+  for t in $to_pull;   do printf '  pull    %-26s %s, ~%s GB\n' "$t" "${LINEUP_ROLE[$t]}" "${LINEUP_SIZE[$t]:-?}"; done
+  for t in $to_remove; do printf '  remove  %-26s not in lineup, %s GB\n' "$t" "${SIZE[$t]:-?}"; done
+  print -r -- "after:   ~$(( free + gain - need )) GB free"
+  if (( free + gain - need < min )); then
+    die "not enough disk: the plan ends at ~$(( free + gain - need )) GB free, below $min GB — free space or trim the lineup"
+  fi
+  [[ -n $DRY_RUN ]] && exit 0
+  (( $+commands[ollama] )) || die "the ollama CLI is needed to pull"
+
+  if [[ -z $YES ]]; then
+    [[ -r /dev/tty ]] || die "needs a yes — rerun with --yes"
+    print -n -- "proceed? [y/N] "
+    local ans; read -r ans < /dev/tty
+    [[ $ans == [yY]* ]] || die "nothing changed"
+  fi
+
+  remove_one() {
+    note "removing ${to_remove[1]}"
+    ollama rm "${to_remove[1]}" >/dev/null || die "ollama rm ${to_remove[1]} failed"
+    shift to_remove
+  }
+
+  for t in $to_pull; do
+    while (( $(free_gb) - ${LINEUP_SIZE[$t]:-0} < min && ${#to_remove} )); do remove_one; done
+    (( $(free_gb) - ${LINEUP_SIZE[$t]:-0} >= min )) || die "not enough disk for $t ($(free_gb) GB free)"
+    note "pulling $t"
+    OLLAMA_HOST=${BASE#http://} ollama pull "$t" || die "pull of $t failed"
+    if ! verify_local "$t"; then
+      ollama rm "$t" >/dev/null 2>&1
+      die "$t is not backed by a local blob (cloud-routed?) — removed it again"
+    fi
+    print -r -- "installed $t (verified local)"
+  done
+  while (( ${#to_remove} )); do remove_one; done
+  print -r -- "done — $(free_gb) GB free. 'llm models' shows the result."
   exit 0
 fi
 
@@ -265,8 +547,8 @@ if [[ -n $FORCE_MODEL ]]; then
 elif [[ -n $ROLE ]]; then
   MODEL=$(pick_from $ROLE)
   REASON_WHY="forced $ROLE"
-elif (( ${#CODER_M} == 0 || ${#REASON_M} == 0 )) && (( ${#CODER_M} + ${#REASON_M} + ${#GENERAL_M} == 1 )); then
-  MODEL=${CODER_M[1]:-${REASON_M[1]:-${GENERAL_M[1]}}}
+elif (( MODEL_COUNT == 1 )); then
+  MODEL=${ORDERED[1]}
   REASON_WHY="only model available"
 elif looks_like_code "$CONTENT"; then
   MODEL=$(pick_from coder)
@@ -284,7 +566,7 @@ if [[ $BACKEND == ollama ]] && [[ -z ${CAPS[$MODEL]+x} ]] && [[ -n $FORCE_MODEL 
 fi
 
 note "→ $MODEL ($REASON_WHY) [$BACKEND]"
-RESIDENT=$(resident_model)
+RESIDENT=$(resident_models | head -1)
 if [[ -n $RESIDENT && $RESIDENT != $MODEL ]]; then
   note "swapping out $RESIDENT — expect a full model reload"
 fi
@@ -370,8 +652,8 @@ run_ollama() {
   [[ -n $think_json ]] && prog="$prog + {think: $think_json}"
   req=$(jq "${a[@]}" "$prog") || die "failed to build request"
 
-  # Ollama 0.33 ignores think:false for deepseek-r1 and streams .message.thinking
-  # anyway, so suppressing the reasoning has to happen client-side.
+  # Some models stream .message.thinking even with think:false (Ollama 0.33 did
+  # it for deepseek-r1), so suppressing the reasoning has to happen client-side.
   local extract='(.message.content // "")'
   [[ -n $KEEP_THINK ]] && extract='((.message.thinking // "") + (.message.content // ""))'
 
