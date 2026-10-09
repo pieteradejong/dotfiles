@@ -15,7 +15,8 @@ and the repo holds a copy (see [docs/system-overview.md](../docs/system-overview
 | Script | What it is |
 |---|---|
 | [`llm`](../docs/llm.md) | Run a prompt against a local model. Never the cloud. |
-| `weekly-disk-cleanup.sh` | Reclaims disk from caches, build dirs and Trash older than 7 days. Runs weekly via launchd, which points at this path. See [docs/maintenance.md](../docs/maintenance.md). |
+| `weekly-disk-cleanup.sh` | Reclaims disk from caches that regenerate (npm, pip, pip-tools, uv, Homebrew, pnpm, Xcode, Squirrel and Sparkle app-updater leftovers) and Trash older than 7 days. Runs weekly via launchd, which points at this path; `--dry-run` shows what it would do. See [docs/maintenance.md](../docs/maintenance.md). |
+| `rcdev` | Always-on Claude Code Remote Control server rooted at `~/dev`, run by launchd (`rcdev install`, `rcdev status`). See [docs/maintenance.md](../docs/maintenance.md#remote-control-server-rcdev). |
 
 ## `bin/` vs `scripts/`
 
