@@ -1,0 +1,152 @@
+#!/usr/bin/env bash
+#
+# rcdev — always-on Claude Code Remote Control servers, so the Claude mobile app /
+# claude.ai/code can start sessions on this Mac. Two servers, one launchd agent each:
+#   dev        rooted at ~/dev           (everything: dotfiles, templates, projects)
+#   projects   rooted at ~/dev/projects
+#
+#   rcdev install [name]     install and start the agents (start at login, restart on exit)
+#   rcdev uninstall [name]   stop the agents and remove them from ~/Library/LaunchAgents
+#   rcdev restart [name]     restart (e.g. after a Claude Code update)
+#   rcdev status [name]      loaded and running, with pid and memory
+#   rcdev log [name]         tail a server log (default: dev)
+#   rcdev run [name]         what launchd executes; runs one server in the foreground
+#
+# No name means both. Per-project servers instead: rc-projects. Documented in
+# docs/maintenance.md.
+
+set -u
+
+NAMES="dev projects"
+# The repo this script lives in (bin/ is run in place from it).
+DOTFILES="$(cd "$(dirname "$0")/.." && pwd)"
+LOG_DIR="$HOME/Library/Logs/claude-remote-control"
+LOG_MAX_BYTES=5000000
+DOMAIN="gui/$(id -u)"
+
+die() { echo "rcdev: $*" >&2; exit 1; }
+usage() { sed -n '3,17p' "$0" | sed 's/^# \{0,1\}//'; }
+
+# Per-server settings. `dev` keeps the original label so existing installs carry over.
+select_name() {
+  NAME="$1"
+  case "$NAME" in
+    dev)      LABEL="com.pieterdejong.rcdev";          ROOT_DIR="$HOME/dev" ;;
+    projects) LABEL="com.pieterdejong.rcdev-projects"; ROOT_DIR="$HOME/dev/projects" ;;
+    *) usage >&2; die "unknown server '$NAME' (one of: $NAMES)" ;;
+  esac
+  ROOT_DIR="${RCDEV_ROOT:-$ROOT_DIR}"
+  REPO_PLIST="$DOTFILES/macos/$LABEL.plist"
+  LIVE_PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
+  LOG_FILE="$LOG_DIR/$NAME.log"
+}
+
+is_loaded() { launchctl print "$DOMAIN/$LABEL" >/dev/null 2>&1; }
+
+# Run "$1" for the named server, or for every server when no name is given.
+# Exits non-zero when any of them failed.
+each() {
+  local fn="$1" n rc=0
+  shift
+  [ $# -le 1 ] || die "one server name at most"
+  for n in ${1:-$NAMES}; do
+    select_name "$n"
+    "$fn" || rc=1
+  done
+  return $rc
+}
+
+# launchd starts with a bare PATH. Give spawned sessions what an interactive shell
+# has: claude itself, dotfiles/bin, Homebrew, and nvm's default node.
+setup_env() {
+  PATH="$HOME/.local/bin:$DOTFILES/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+  export PATH
+  export NVM_DIR="$HOME/.nvm"
+  if [ -s "$NVM_DIR/nvm.sh" ]; then
+    set +u
+    # shellcheck source=/dev/null
+    . "$NVM_DIR/nvm.sh" && nvm use --silent default >/dev/null 2>&1
+    set -u
+  fi
+}
+
+cmd_run() {
+  setup_env
+  local claude_bin
+  claude_bin="$(command -v claude)" || die "claude not found on PATH ($PATH)"
+  set -- "$claude_bin" remote-control --name "$NAME" --spawn same-dir --no-create-session-in-dir
+  if [ -n "${RCDEV_DRY_RUN:-}" ]; then
+    echo "cwd: $ROOT_DIR"
+    echo "cmd: $*"
+    return 0
+  fi
+  cd "$ROOT_DIR" || die "no such directory: $ROOT_DIR"
+  exec "$@"
+}
+
+cmd_install() {
+  [ -f "$REPO_PLIST" ] || die "missing $REPO_PLIST"
+  plutil -lint "$REPO_PLIST" >/dev/null || die "invalid plist: $REPO_PLIST"
+  mkdir -p "$HOME/Library/LaunchAgents" "$LOG_DIR"
+  is_loaded && launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null
+  cp "$REPO_PLIST" "$LIVE_PLIST"
+  launchctl bootstrap "$DOMAIN" "$LIVE_PLIST" || die "launchctl bootstrap failed"
+  echo "installed $LABEL; it starts at login and restarts if it exits"
+  sleep "${RCDEV_SETTLE:-2}"
+  cmd_status
+}
+
+cmd_restart() {
+  is_loaded || { echo "  down  $NAME is not loaded (rcdev install $NAME)" >&2; return 1; }
+  launchctl kickstart -k "$DOMAIN/$LABEL" && cmd_status
+}
+
+cmd_uninstall() {
+  is_loaded && launchctl bootout "$DOMAIN/$LABEL"
+  rm -f "$LIVE_PLIST"
+  echo "uninstalled $LABEL"
+  return 0
+}
+
+cmd_status() {
+  if ! is_loaded; then
+    echo "  down  $NAME ($LABEL is not loaded: rcdev install $NAME)"
+    return 1
+  fi
+  local pid rss
+  pid="$(launchctl print "$DOMAIN/$LABEL" | awk '$1 == "pid" { print $3; exit }')"
+  if [ -n "$pid" ]; then
+    rss="$(ps -o rss= -p "$pid" | awk '{ printf "%d MB", $1 / 1024 }')"
+    echo "  up    $NAME (pid $pid, $rss) — $ROOT_DIR — log: $LOG_FILE"
+  else
+    echo "  wait  $NAME loaded, not running (launchd will retry) — see: rcdev log $NAME"
+    return 1
+  fi
+}
+
+cmd="${1:-}"
+[ $# -gt 0 ] && shift
+
+case "$cmd" in
+  run)
+    [ $# -le 1 ] || die "one server name at most"
+    select_name "${1:-dev}"
+    # Under launchd (no terminal), log to a file kept to one rotation: launchd
+    # restarts forever, so an unbounded append would grow without limit.
+    if [ ! -t 1 ] && [ -z "${RCDEV_DRY_RUN:-}" ]; then
+      mkdir -p "$LOG_DIR"
+      if [ -f "$LOG_FILE" ] && [ "$(wc -c < "$LOG_FILE")" -gt "$LOG_MAX_BYTES" ]; then
+        mv -f "$LOG_FILE" "$LOG_FILE.1"
+      fi
+      exec >> "$LOG_FILE" 2>&1
+      echo "--- rcdev run $(date '+%Y-%m-%d %H:%M:%S')"
+    fi
+    cmd_run ;;
+  install)   each cmd_install "$@" ;;
+  uninstall) each cmd_uninstall "$@" ;;
+  restart)   each cmd_restart "$@" ;;
+  status)    each cmd_status "$@" ;;
+  log)       [ $# -le 1 ] || die "one server name at most"; select_name "${1:-dev}"; tail -n 50 -f "$LOG_FILE" ;;
+  ''|-h|--help|help) usage ;;
+  *) usage >&2; exit 2 ;;
+esac

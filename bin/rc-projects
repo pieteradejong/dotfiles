@@ -1,0 +1,132 @@
+#!/usr/bin/env bash
+#
+# rc-projects — one Claude Code Remote Control server per project, so each project
+# shows up by name in the Claude mobile app / claude.ai/code and sessions start in it.
+#
+#   rc-projects start [name...]   start servers for the named projects under ~/dev/projects
+#   rc-projects start --recent N  ...or for every project modified in the last N days
+#   rc-projects stop [name...]    stop the named servers (all when no names given)
+#   rc-projects status            list running servers
+#   rc-projects log <name>        tail one server's log
+#
+# Each server costs ~100-150 MB idle, so start the projects you care about, not all 130.
+# Servers run detached (nohup); they stop on logout or reboot. Untrusted projects are
+# skipped: open them once with `claude` at the Mac to accept the trust prompt.
+
+set -u
+
+PROJECTS_DIR="${RC_PROJECTS_DIR:-$HOME/dev/projects}"
+STATE_DIR="$HOME/Library/Logs/claude-remote-control/projects"
+CLAUDE_BIN="${CLAUDE_BIN:-$HOME/.local/bin/claude}"
+CLAUDE_JSON="$HOME/.claude.json"
+
+mkdir -p "$STATE_DIR"
+
+die() { echo "rc-projects: $*" >&2; exit 1; }
+
+pid_of() {
+  local f="$STATE_DIR/$1.pid"
+  [ -f "$f" ] || return 1
+  local pid
+  pid=$(cat "$f")
+  if kill -0 "$pid" 2>/dev/null; then
+    echo "$pid"
+  else
+    rm -f "$f"
+    return 1
+  fi
+}
+
+# Trusted when the dir or any parent has accepted Claude Code's trust prompt.
+is_trusted() {
+  local dir="$1"
+  command -v jq >/dev/null || return 0
+  while [ "$dir" != "/" ] && [ -n "$dir" ]; do
+    if [ "$(jq -r --arg p "$dir" '.projects[$p].hasTrustDialogAccepted // false' "$CLAUDE_JSON")" = "true" ]; then
+      return 0
+    fi
+    dir=$(dirname "$dir")
+  done
+  return 1
+}
+
+start_one() {
+  local name="$1" dir="$PROJECTS_DIR/$1" pid
+  [ -d "$dir" ] || { echo "  skip  $name (no such project)"; return; }
+  if pid=$(pid_of "$name"); then
+    echo "  up    $name (pid $pid)"
+    return
+  fi
+  if ! is_trusted "$dir"; then
+    echo "  skip  $name (untrusted: run 'claude' in it once)"
+    return
+  fi
+  (
+    cd "$dir" || exit 1
+    nohup "$CLAUDE_BIN" remote-control --name "$name" --spawn same-dir \
+      --no-create-session-in-dir >> "$STATE_DIR/$name.log" 2>&1 &
+    echo $! > "$STATE_DIR/$name.pid"
+  )
+  echo "  start $name (pid $(cat "$STATE_DIR/$name.pid"))"
+}
+
+stop_one() {
+  local name="$1" pid
+  if pid=$(pid_of "$name"); then
+    kill "$pid" && rm -f "$STATE_DIR/$name.pid"
+    echo "  stop  $name (pid $pid)"
+  else
+    echo "  down  $name"
+  fi
+}
+
+running() {
+  local f
+  for f in "$STATE_DIR"/*.pid; do
+    [ -e "$f" ] || continue
+    basename "$f" .pid
+  done
+}
+
+cmd="${1:-}"
+[ $# -gt 0 ] && shift
+
+case "$cmd" in
+  start)
+    if [ "${1:-}" = "--recent" ]; then
+      days="${2:-}"
+      case "$days" in ''|*[!0-9]*) die "--recent needs a number of days" ;; esac
+      find "$PROJECTS_DIR" -mindepth 1 -maxdepth 1 -type d -mtime "-$days" ! -name '_*' ! -name '.*' |
+        sort | while read -r d; do start_one "$(basename "$d")"; done
+    else
+      [ $# -gt 0 ] || die "name projects to start, or use --recent N"
+      for n in "$@"; do start_one "${n%/}"; done
+    fi
+    ;;
+  stop)
+    if [ $# -eq 0 ]; then
+      for n in $(running); do stop_one "$n"; done
+    else
+      for n in "$@"; do stop_one "${n%/}"; done
+    fi
+    ;;
+  status)
+    found=0
+    for n in $(running); do
+      if pid=$(pid_of "$n"); then
+        rss=$(ps -o rss= -p "$pid" | awk '{printf "%d MB", $1/1024}')
+        echo "  up    $n (pid $pid, $rss)"
+        found=1
+      fi
+    done
+    [ "$found" = 1 ] || echo "  no servers running"
+    ;;
+  log)
+    [ $# -eq 1 ] || die "usage: rc-projects log <name>"
+    tail -f "$STATE_DIR/$1.log"
+    ;;
+  *)
+    sed -n '3,15p' "$0" | sed 's/^# \{0,1\}//'
+    [ -z "$cmd" ] || exit 1
+    ;;
+esac

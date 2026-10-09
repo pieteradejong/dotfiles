@@ -61,6 +61,7 @@ scripts/test-security-gate.sh
 scripts/test-security-tools.sh
 scripts/test-containers-doctor.sh
 scripts/test-bin.sh
+bin/rcdev
 "
 
 # zsh scripts. shellcheck has no zsh support, so these get `zsh -n` instead of a
@@ -72,6 +73,7 @@ bin/weekly-disk-cleanup.sh
 
 # Python scripts (stdlib only, per scripts/README.md), linted with ruff.
 PYTHON_FILES="
+scripts/audit-dashboard.py
 scripts/test-docs.py
 "
 

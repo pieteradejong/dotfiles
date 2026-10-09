@@ -8,10 +8,10 @@
 #                           decide and print without ever inferring. That makes
 #                           the whole routing table testable with no model, no
 #                           backend and no network.
-#   weekly-disk-cleanup.sh  NEVER executed. It empties Trash and prunes caches.
-#                           Asserted statically instead: it parses, and every
-#                           destructive form in it is either commented out or
-#                           scoped to ~/.Trash.
+#   weekly-disk-cleanup.sh  executed only with --dry-run, against a fake HOME.
+#                           A real run empties Trash and prunes caches, so the
+#                           rest is static: it parses, and every destructive
+#                           form in it is commented out or on an allowlist.
 #
 # Both are zsh, so neither can join test.sh's shellcheck suite — shellcheck does
 # not parse zsh. `zsh -n` is the substitute and runs as its own suite.
@@ -318,14 +318,16 @@ else
   kill "$FAKE_PID" 2>/dev/null; wait "$FAKE_PID" 2>/dev/null
 fi
 
-# ── 5. weekly-disk-cleanup.sh — static assertions only, never executed ───────
-header "weekly-disk-cleanup.sh (static — never executed)"
+# ── 5. weekly-disk-cleanup.sh — static assertions, plus --dry-run on a fake HOME
+header "weekly-disk-cleanup.sh (static, plus --dry-run on a fake HOME)"
 
 # The aggressive forms are documented as ideas and must stay commented. This is
 # the test that catches an accidental uncomment of `docker system prune -a
 # --volumes`, which would delete images and volumes on an unattended Sunday run.
 : > "$OUT"
-grep -nE '(prune -a|--volumes|simctl delete|-delete)' "$CLEANUP" | grep -vE ':[[:space:]]*#' > "$OUT" 2>&1
+# The one allowed live `-delete` is the 30-day maintenance-*.log sweep.
+grep -nE '(prune -a|--volumes|simctl delete|autoremove|-delete)' "$CLEANUP" | grep -vE ':[[:space:]]*#' \
+  | grep -vE -e "-name 'maintenance-\*\.log' -mtime \+[0-9]+ -delete" > "$OUT" 2>&1
 [ -s "$OUT" ] && fail "every aggressive cleanup form is commented out" \
               || pass "every aggressive cleanup form is commented out"
 
@@ -337,27 +339,260 @@ else
   fail "the live docker prune is the conservative form (no -a, no --volumes)"
 fi
 
-# Any live `rm -rf` must be scoped to ~/.Trash with an age filter. Trash is the
-# one place deletion is safe by definition — the user already discarded it.
+# Every live `rm -rf` must hit an allowlisted target (D27): Trash with its age
+# filter, or one of the caches that regenerate for free. A new step means a new
+# allowlist line here — deliberately, so the list of what gets deleted stays
+# reviewable in one place.
+ALLOWED_RM='(find "\$HOME/\.Trash" .*-ctime \+[0-9]+ -exec rm -rf \{\} \+'
+ALLOWED_RM="$ALLOWED_RM"'|rm -rf "\$HOME/Library/Caches/pip-tools"/\*\(N\)$'
+ALLOWED_RM="$ALLOWED_RM"'|rm -rf "\$HOME/Library/Developer/Xcode/DerivedData"/\*\(N\)$'
+ALLOWED_RM="$ALLOWED_RM"'|rm -rf "\$HOME/Library/Caches"/\*\.ShipIt\(N/m\+3\) "\$HOME/Library/Caches"/\*-updater\(N/m\+3\) "\$HOME/Library/Caches"/\*/org\.sparkle-project\.Sparkle/Installation/\*\(N/m\+3\)$)'
 : > "$OUT"
-grep -nE '^[^#]*rm -rf' "$CLEANUP" | grep -v '\.Trash' > "$OUT" 2>&1
-[ -s "$OUT" ] && fail "every live 'rm -rf' is scoped to ~/.Trash" \
-              || pass "every live 'rm -rf' is scoped to ~/.Trash"
-grep -qE '^[^#]*find "\$HOME/\.Trash".*-mtime \+[0-9]+' "$CLEANUP" \
-  && pass "the Trash sweep keeps its age filter (-mtime)" \
-  || fail "the Trash sweep keeps its age filter (-mtime)"
+grep -nE '^[^#]*rm -rf' "$CLEANUP" | grep -vE "$ALLOWED_RM" > "$OUT" 2>&1
+[ -s "$OUT" ] && fail "every live 'rm -rf' targets an allowlisted path" \
+              || pass "every live 'rm -rf' targets an allowlisted path"
+# The updater sweep keeps its 3-day guard, so an update staged for the next
+# relaunch is never removed.
+grep -qE '^[^#]*rm -rf .*\.ShipIt\(N/m\+3\)' "$CLEANUP" \
+  && grep -qE '^[^#]*rm -rf .*Sparkle/Installation/\*\(N/m\+3\)' "$CLEANUP" \
+  && pass "the updater sweep keeps its 3-day age guard" \
+  || fail "the updater sweep keeps its 3-day age guard"
+# -ctime, not -mtime: mv into Trash keeps mtime, so an -mtime rule purges an
+# old file the moment it is trashed. ctime is set by the move itself.
+grep -qE '^[^#]*find "\$HOME/\.Trash".*-ctime \+[0-9]+ -exec' "$CLEANUP" \
+  && ! grep -qE '^[^#]*find "\$HOME/\.Trash".*-mtime' "$CLEANUP" \
+  && pass "the Trash sweep ages items by time-in-Trash (-ctime)" \
+  || fail "the Trash sweep ages items by time-in-Trash (-ctime)"
 
 # The log must live under $HOME, not somewhere a stray relative path lands.
 grep -qE '^LOG_FILE="\$HOME/' "$CLEANUP" \
   && pass "LOG_FILE is under \$HOME" \
   || fail "LOG_FILE is under \$HOME"
 
+# --dry-run is the one mode that is safe to execute. Run it against a fake HOME
+# seeded with a file in every swept place, then assert nothing was removed and
+# no log was written. PATH is reduced to system dirs so npm/brew/uv/docker are
+# absent or only probed; every mutating call goes through `act`, which echoes.
+DRY_HOME="$T/dryhome"
+mkdir -p "$DRY_HOME/Library/Caches/pip-tools" "$DRY_HOME/Library/Developer/Xcode/DerivedData/x" \
+         "$DRY_HOME/Library/Caches/com.example.ShipIt" "$DRY_HOME/.Trash/old" \
+         "$DRY_HOME/Library/Caches/com.example/org.sparkle-project.Sparkle/Installation/stale"
+touch "$DRY_HOME/Library/Caches/pip-tools/wheel" "$DRY_HOME/.Trash/old/f"
+touch -t 202001010000 "$DRY_HOME/Library/Caches/com.example.ShipIt" "$DRY_HOME/.Trash/old" \
+      "$DRY_HOME/Library/Caches/com.example/org.sparkle-project.Sparkle/Installation/stale" \
+      "$DRY_HOME/maintenance-20200101.log"
+: > "$OUT"
+HOME="$DRY_HOME" PATH="/usr/bin:/bin" zsh "$CLEANUP" --dry-run > "$OUT" 2>&1; rc=$?
+[ "$rc" = 0 ] && pass "--dry-run exits 0" || fail "--dry-run exits 0 (rc=$rc)"
+grep -q 'would run: rm -rf .*pip-tools/wheel' "$OUT" \
+  && pass "--dry-run reports the pip-tools sweep" || fail "--dry-run reports the pip-tools sweep"
+grep -q 'would run: rm -rf .*com.example.ShipIt' "$OUT" \
+  && pass "--dry-run reports a stale updater folder" || fail "--dry-run reports a stale updater folder"
+grep -q 'would run: rm -rf .*org.sparkle-project.Sparkle/Installation/stale' "$OUT" \
+  && pass "--dry-run reports a stale Sparkle installation folder" || fail "--dry-run reports a stale Sparkle installation folder"
+n_left="$(find "$DRY_HOME" -mindepth 1 | wc -l | tr -d ' ')"
+if [ -e "$DRY_HOME/Library/Caches/pip-tools/wheel" ] && [ -e "$DRY_HOME/.Trash/old/f" ] \
+   && [ -d "$DRY_HOME/Library/Caches/com.example.ShipIt" ] && [ -e "$DRY_HOME/maintenance-20200101.log" ] \
+   && [ -d "$DRY_HOME/Library/Caches/com.example/org.sparkle-project.Sparkle/Installation/stale" ] \
+   && [ -d "$DRY_HOME/Library/Developer/Xcode/DerivedData/x" ]; then
+  pass "--dry-run removed nothing ($n_left paths intact)"
+else
+  fail "--dry-run removed nothing"
+fi
+[ ! -e "$DRY_HOME/.weekly-disk-cleanup.log" ] \
+  && pass "--dry-run writes no log" || fail "--dry-run writes no log"
+
+
+# ── 5b. rcdev — the always-on Remote Control agent ───────────────────────────
+# Never installs or starts anything: `run` is exercised only with RCDEV_DRY_RUN,
+# which prints the resolved command and exits. The plist is checked as data.
+header "rcdev + its launchd plists (dry-run only)"
+
+RCDEV="$BIN_DIR/rcdev"
+RCDEV_PLIST="$(dirname "$BIN_DIR")/macos/com.pieterdejong.rcdev.plist"
+RCDEV_PROJ_PLIST="$(dirname "$BIN_DIR")/macos/com.pieterdejong.rcdev-projects.plist"
+
+[ -x "$RCDEV" ] && pass "bin/rcdev is executable" || fail "bin/rcdev is executable"
+
+: > "$OUT"
+"$RCDEV" --help > "$OUT" 2>&1 && grep -q 'rcdev install' "$OUT" \
+  && pass "rcdev --help prints usage" || fail "rcdev --help prints usage"
+
+: > "$OUT"
+"$RCDEV" no-such-command > "$OUT" 2>&1
+[ $? = 2 ] && pass "rcdev rejects an unknown command (exit 2)" || fail "rcdev rejects an unknown command (exit 2)"
+
+: > "$OUT"
+"$RCDEV" status no-such-server > "$OUT" 2>&1; rc=$?
+[ "$rc" != 0 ] && grep -q "unknown server 'no-such-server'" "$OUT" \
+  && pass "rcdev rejects an unknown server name" || fail "rcdev rejects an unknown server name (rc=$rc)"
+
+: > "$OUT"
+"$RCDEV" status dev projects > "$OUT" 2>&1; rc=$?
+[ "$rc" != 0 ] && grep -q 'one server name at most' "$OUT" \
+  && pass "rcdev rejects more than one server name" || fail "rcdev rejects more than one server name (rc=$rc)"
+
+: > "$OUT"
+if command -v claude >/dev/null 2>&1 || [ -x "$HOME/.local/bin/claude" ]; then
+  RCDEV_DRY_RUN=1 RCDEV_ROOT=/nonexistent/root "$RCDEV" run > "$OUT" 2>&1
+  grep -q '^cwd: /nonexistent/root$' "$OUT" && grep -q 'remote-control --name dev --spawn same-dir' "$OUT" \
+    && pass "rcdev run (dry) resolves claude and roots the server at RCDEV_ROOT" \
+    || fail "rcdev run (dry) resolves claude and roots the server at RCDEV_ROOT"
+else
+  skip "rcdev run (dry): claude is not installed here (CI)"
+fi
+
+if command -v plutil >/dev/null 2>&1; then
+  : > "$OUT"
+  for pl in "$RCDEV_PLIST:com.pieterdejong.rcdev:dev" "$RCDEV_PROJ_PLIST:com.pieterdejong.rcdev-projects:projects"; do
+    f="${pl%%:*}"; rest="${pl#*:}"; label="${rest%%:*}"; name="${rest#*:}"
+    : > "$OUT"
+    plutil -lint "$f" > "$OUT" 2>&1 && pass "$name plist passes plutil -lint" || fail "$name plist passes plutil -lint"
+    for kv in "Label:$label" "RunAtLoad:true" "KeepAlive:true"; do
+      : > "$OUT"
+      v="$(plutil -extract "${kv%%:*}" raw -o - "$f" 2>"$OUT")"
+      [ "$v" = "${kv#*:}" ] && pass "$name plist ${kv%%:*} = ${kv#*:}" || fail "$name plist ${kv%%:*} = ${kv#*:} (got '$v')"
+    done
+    : > "$OUT"
+    plutil -extract ProgramArguments.2 raw -o - "$f" 2>"$OUT" | grep -q "/dev/dotfiles/bin/rcdev\" run $name\$" \
+      && pass "$name plist executes bin/rcdev run $name" || fail "$name plist executes bin/rcdev run $name"
+  done
+else
+  skip "rcdev plist checks: plutil is macOS-only"
+fi
+
+# ── 5c. rcdev lifecycle — against a stub launchctl and a fake HOME ──────────
+# install / status / restart / uninstall / run, exercised for real but with
+# `launchctl` replaced by a stub that records its calls and keeps "loaded" state
+# in a file, and HOME pointing at a temp dir. The real launchd is never touched;
+# the stub `claude` in the fake HOME stands in for the server.
+header "rcdev lifecycle (stub launchctl, fake HOME)"
+
+FH="$T/rcdev-home"; STUB="$T/rcdev-stub"
+mkdir -p "$FH/.local/bin" "$STUB"
+CALLS="$T/launchctl.calls"; LOADED="$T/launchctl.loaded"; : > "$CALLS"; mkdir -p "$LOADED"
+sleep 300 & RC_PID=$!
+# Loaded state is one file per label under $LOADED. bootstrap names the plist path,
+# the others name gui/<uid>/<label>; the label is the basename either way.
+cat > "$STUB/launchctl" <<STUBEOF
+#!/usr/bin/env bash
+echo "\$*" >> "$CALLS"
+eval "label=\\\${\$#}"; label="\$(basename "\$label" .plist)"
+case "\$1" in
+  print)     [ -f "$LOADED/\$label" ] || exit 113; echo "	pid = $RC_PID" ;;
+  bootstrap) touch "$LOADED/\$label" ;;
+  bootout)   rm -f "$LOADED/\$label" ;;
+  kickstart) [ -f "$LOADED/\$label" ] || exit 113 ;;
+esac
+STUBEOF
+cat > "$FH/.local/bin/claude" <<'STUBEOF'
+#!/usr/bin/env bash
+echo "stub-claude cwd=$(pwd) args=$*"
+STUBEOF
+chmod +x "$STUB/launchctl" "$FH/.local/bin/claude"
+
+rcd() { : > "$OUT"; HOME="$FH" PATH="$STUB:$PATH" RCDEV_SETTLE=0 "$RCDEV" "$@" > "$OUT" 2>&1; }
+LIVE="$FH/Library/LaunchAgents/com.pieterdejong.rcdev.plist"
+LIVE_PROJ="$FH/Library/LaunchAgents/com.pieterdejong.rcdev-projects.plist"
+UIDD="gui/$(id -u)"
+
+rcd status; rc=$?
+[ "$rc" = 1 ] && grep -q 'down  dev' "$OUT" && grep -q 'down  projects' "$OUT" \
+  && pass "status before install: both down, exit 1" || fail "status before install: both down, exit 1 (rc=$rc)"
+
+rcd restart; rc=$?
+[ "$rc" != 0 ] && pass "restart refuses when not loaded" || fail "restart refuses when not loaded"
+
+if command -v plutil >/dev/null 2>&1; then
+  : > "$CALLS"
+  rcd install; rc=$?
+  [ "$rc" = 0 ] && pass "install exits 0" || fail "install exits 0 (rc=$rc)"
+  cmp -s "$LIVE" "$RCDEV_PLIST" && pass "install copies the repo plist verbatim into LaunchAgents" \
+                                || fail "install copies the repo plist verbatim into LaunchAgents"
+  grep -qx "bootstrap $UIDD $LIVE" "$CALLS" && pass "install bootstraps into the gui domain" \
+                                           || fail "install bootstraps into the gui domain"
+  grep -q "up    dev (pid $RC_PID" "$OUT" && pass "install reports the running pid" || fail "install reports the running pid"
+  cmp -s "$LIVE_PROJ" "$RCDEV_PROJ_PLIST" && grep -qx "bootstrap $UIDD $LIVE_PROJ" "$CALLS" \
+    && grep -q "up    projects (pid $RC_PID" "$OUT" \
+    && pass "install with no name also installs and starts projects" \
+    || fail "install with no name also installs and starts projects"
+
+  : > "$CALLS"
+  rcd install
+  [ "$(sed -n 2p "$CALLS")" = "bootout $UIDD/com.pieterdejong.rcdev" ] && grep -q '^bootstrap' "$CALLS" \
+    && pass "re-install boots out the loaded agent first (idempotent)" \
+    || fail "re-install boots out the loaded agent first (idempotent)"
+
+  rcd status; rc=$?
+  [ "$rc" = 0 ] && grep -q "pid $RC_PID" "$OUT" && pass "status when loaded: up, exit 0" || fail "status when loaded: up, exit 0"
+
+  : > "$CALLS"
+  rcd restart
+  grep -qx "kickstart -k $UIDD/com.pieterdejong.rcdev" "$CALLS" \
+    && grep -qx "kickstart -k $UIDD/com.pieterdejong.rcdev-projects" "$CALLS" \
+    && pass "restart kickstarts both with -k" || fail "restart kickstarts both with -k"
+
+  # A name scopes the command to that one server.
+  : > "$CALLS"
+  rcd uninstall projects
+  [ ! -e "$LIVE_PROJ" ] && [ ! -e "$LOADED/com.pieterdejong.rcdev-projects" ] \
+    && [ -e "$LIVE" ] && [ -e "$LOADED/com.pieterdejong.rcdev" ] \
+    && pass "uninstall projects leaves dev installed" || fail "uninstall projects leaves dev installed"
+  rcd status; rc=$?
+  [ "$rc" = 1 ] && grep -q 'up    dev' "$OUT" && grep -q 'down  projects' "$OUT" \
+    && pass "status with one down: reports each, exit 1" || fail "status with one down: reports each, exit 1 (rc=$rc)"
+  rcd status dev; rc=$?
+  [ "$rc" = 0 ] && ! grep -q projects "$OUT" && pass "status dev reports only dev" || fail "status dev reports only dev (rc=$rc)"
+  : > "$CALLS"
+  rcd install projects
+  grep -q "bootstrap $UIDD $LIVE_PROJ" "$CALLS" && ! grep -q "rcdev.plist" "$CALLS" \
+    && pass "install projects touches only projects" || fail "install projects touches only projects"
+
+  : > "$CALLS"
+  rcd uninstall
+  grep -q '^bootout' "$CALLS" && [ ! -e "$LIVE" ] && [ ! -e "$LIVE_PROJ" ] && [ -z "$(ls "$LOADED")" ] \
+    && pass "uninstall boots out and removes both plists" || fail "uninstall boots out and removes both plists"
+else
+  skip "rcdev install/uninstall: plutil is macOS-only"
+fi
+
+# run under launchd conditions: stdout not a terminal, real exec of (stub) claude.
+mkdir -p "$FH/dev" "$FH/Library/Logs/claude-remote-control"
+LOGF="$FH/Library/Logs/claude-remote-control/dev.log"
+head -c 5000001 /dev/zero > "$LOGF"
+rcd run < /dev/null; cp "$OUT" "$T/run.stdout"
+FH_DEV="$(cd "$FH/dev" && pwd)"   # normalised: TMPDIR may end in '/', leaving '//' in $FH
+[ ! -s "$T/run.stdout" ] && pass "run writes nothing to stdout under launchd" || fail "run writes nothing to stdout under launchd"
+[ -s "$LOGF.1" ] && [ "$(wc -c < "$LOGF")" -lt 1000 ] \
+  && pass "run rotates a log over 5 MB to dev.log.1" || fail "run rotates a log over 5 MB to dev.log.1"
+grep -q "stub-claude cwd=$FH_DEV args=remote-control --name dev --spawn same-dir --no-create-session-in-dir" "$LOGF" \
+  && pass "run execs claude remote-control from ~/dev, logging to dev.log" \
+  || { cp "$LOGF" "$OUT"; fail "run execs claude remote-control from ~/dev, logging to dev.log"; }
+
+rcd run < /dev/null
+[ "$(grep -c '^--- rcdev run' "$LOGF")" = 2 ] && pass "a second run appends (no rotation under 5 MB)" \
+                                              || fail "a second run appends (no rotation under 5 MB)"
+
+: > "$OUT"
+HOME="$FH" PATH="$STUB:$PATH" RCDEV_ROOT="$FH/missing" "$RCDEV" run < /dev/null > "$OUT" 2>&1; rc=$?
+[ "$rc" != 0 ] && grep -q 'no such directory' "$LOGF" && pass "run fails loudly when the root dir is missing" \
+                                                       || fail "run fails loudly when the root dir is missing"
+
+mkdir -p "$FH/dev/projects"
+rcd run projects < /dev/null
+PLOG="$FH/Library/Logs/claude-remote-control/projects.log"
+grep -q "stub-claude cwd=$FH_DEV/projects args=remote-control --name projects --spawn same-dir --no-create-session-in-dir" "$PLOG" \
+  && pass "run projects execs from ~/dev/projects, logging to projects.log" \
+  || { cp "$PLOG" "$OUT" 2>/dev/null; fail "run projects execs from ~/dev/projects, logging to projects.log"; }
+
+kill "$RC_PID" 2>/dev/null
+
 # ── 6. Nothing here leaks personal data into a public repo ───────────────────
 # bin/ is published. These are the two findings that motivated the move; assert
 # they cannot silently return.
 header "publishability"
 
-for f in "$LLM" "$CLEANUP" "$BIN_DIR/README.md"; do
+for f in "$LLM" "$CLEANUP" "$RCDEV" "$RCDEV_PLIST" "$RCDEV_PROJ_PLIST" "$BIN_DIR/README.md"; do
   : > "$OUT"
   grep -nE '/Users/[a-z]' "$f" > "$OUT" 2>&1
   [ -s "$OUT" ] && fail "$(basename "$f") contains no absolute /Users/<name>/ path" \

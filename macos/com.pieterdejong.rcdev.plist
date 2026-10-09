@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Always-on Claude Code Remote Control server rooted at ~/dev: bin/rcdev run dev.
+  Install:   rcdev install      (copies this file to ~/Library/LaunchAgents and bootstraps it)
+  Status:    rcdev status
+  Starts at login; KeepAlive restarts it if it exits, at most once a minute.
+  The script path goes through $HOME so no absolute home path is published here.
+  Documented in docs/maintenance.md.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.pieterdejong.rcdev</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>-c</string>
+        <string>exec "$HOME/dev/dotfiles/bin/rcdev" run dev</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>60</integer>
+    <key>ProcessType</key>
+    <string>Interactive</string>
+</dict>
+</plist>
