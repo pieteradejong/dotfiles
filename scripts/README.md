@@ -60,6 +60,7 @@ scripts/
 | [`github-security-sweep.sh`](github-security-sweep.sh) | bash | GitHub-side protection on every owned repo | dry run · `--check` · `--apply` | `test-security-tools.sh` |
 | [`containers-doctor.sh`](containers-doctor.sh) | bash | check that containers run the way [`docs/containers.md`](../docs/containers.md) says | read-only | `test-containers-doctor.sh` |
 | [`security-audit.sh`](security-audit.sh) | bash | **composer**: the weekly audit — calls the gate, `dev-audit.sh`, `github-security-sweep.sh`, then adds its own checks | read-only | `test-security-tools.sh` |
+| [`audit-dashboard.py`](audit-dashboard.py) | python | render one local HTML dashboard from the audit reports, findings TSVs and the cleanup log; `security-audit.sh` calls it last | writes only `audit-reports/dashboard.html` | `test-security-tools.sh` |
 | [`sync-dotfiles.sh`](sync-dotfiles.sh) (`dotfiles`) | bash | copy configs between `~` and this repo (`backup`, `restore`, `status`, `extensions`, `push`) | mutating, `--dry-run` | partly, `test-security-tools.sh` (sanitizers) |
 | [`mac-maintenance.sh`](mac-maintenance.sh) | bash | uptime and memory report; moves `~/Library/Caches/*` to Trash | mutating, no dry run | none |
 | [`dothelp.sh`](dothelp.sh) (`dothelp`) | bash | print a hand-written cheat sheet of the `dot*` commands | read-only | none |
@@ -72,7 +73,7 @@ Scheduling and output locations: [`docs/maintenance.md`](../docs/maintenance.md)
 |---|---|---|
 | `test-dev-audit.sh` | `dev-audit.sh` + `audit/` against fixture repos | yes (`dotaudit`) |
 | `test-security-gate.sh` | [`security/gate.sh`](../security/gate.sh) | yes (`gate`) |
-| `test-security-tools.sh` | sweep, weekly audit, gate module, Claude guard hook, sync sanitizers | yes (`tools`) |
+| `test-security-tools.sh` | sweep, weekly audit, dashboard, gate module, Claude guard hook, sync sanitizers | yes (`tools`) |
 | `test-containers-doctor.sh` | `containers-doctor.sh` in a stubbed sandbox | yes (`containers`) |
 | `test-bin.sh` | [`bin/`](../bin/) | yes (`bin`) |
 | `test-docs.py` | policy doc links and anchors, index coverage, workspace `CLAUDE.md` sync | yes (`docs`) |
@@ -92,6 +93,7 @@ flowchart LR
     M --> L[audit/lib.sh]
     M --> P[security/patterns.sh]
     SA --> P
+    SA --> AD[audit-dashboard.py]
 ```
 
 `dev-audit.sh` is the model to copy: small modules with one question each, a shared lib, checks

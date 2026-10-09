@@ -537,3 +537,83 @@ cause.
 `venv/a`, `.venv/a`, `__pycache__/a.pyc`, `keep.py`: `git check-ignore -v` attributes each ignored
 path to `~/.gitignore_global` (lines 16–28), and `git ls-files -o --exclude-standard` lists only
 `.env.example` and `keep.py`.
+
+## D27 — The weekly cleanup covers every cache that regenerates for free, and nothing else · 2026-10-06
+
+**Problem.** With the disk at 96%, the weekly cleanup was reclaiming about 2G a week: npm, pip,
+Docker when running, and old Trash. Several caches that regenerate at no cost were never touched,
+and safe steps sat commented out in its `IDEAS` block. Under launchd, the pip step was a no-op: the
+bare `PATH` found Xcode's pip 21 at `/usr/bin/pip3`, which does not purge pip's current cache layout.
+Pieter wanted a script he can rerun now and then that removes only what has no bad effect.
+
+**Decision.** The rule for a live step is that the only cost of deleting it is a later download or
+rebuild that happens without anyone noticing. Added live: pip-tools cache, `uv cache prune`,
+`brew cleanup -s --prune=all`, `pnpm store prune`, Xcode DerivedData, Electron/Squirrel updater
+leftovers (`Caches/*.ShipIt`, `Caches/*-updater`) untouched for 3+ days, and
+`maintenance-*.log` older than 30 days. 2026-10-09: Sparkle apps stage updates under
+`Caches/<id>/org.sparkle-project.Sparkle/Installation/`; the same sweep and 3-day guard now cover
+that path too (a 1.8G Codex zip from 2026-09-15 prompted it). Also:
+1. A `--dry-run` flag. Every mutating command goes through one `act` helper, so the dry run is a
+   single switch, not one per section, and it writes no log.
+2. The script sets `PATH` itself (Homebrew first, then `~/.local/bin`).
+3. A terminal run prints as well as logs. The log is trimmed before the run, so the trim cannot
+   race the `tee` still writing.
+4. *Fix:* the Trash sweep ages items by `-ctime`, not `-mtime`. `mv` into Trash keeps a file's
+   mtime, so the old rule purged any old file the moment it was trashed (on 2026-10-08 it would
+   have taken 25 items instead of 15, including media trashed two days earlier). `mv` sets ctime,
+   so ctime measures time in Trash.
+
+**Rejected.** *`brew autoremove`*: it removes a dependency you have started using directly.
+*Updater folders of any age*: a fresh one can be an update staged for the next relaunch, hence the
+3-day glob qualifier `(N/m+3)`. *HuggingFace models, Playwright browsers, Claude's `vm_bundles`,
+old nvm versions, project `node_modules`/`.venv`*: all regenerable, but each costs a multi-GB
+download or a broken run until it is fetched again. *Caches of apps usually open (Spotify,
+Chrome)*: deleting under a running app is not a no-effect operation. *Media, Downloads, iPhone
+backups, the local Drive mirror*: personal data, decided by hand.
+
+**Cost.** The static test can no longer say "the only `rm -rf` is in Trash". It needs an explicit
+allowlist of target paths, which has to grow with each new step.
+
+**Verified: PARTIAL.** 2026-10-08: `./scripts/test-bin.sh` → 89 passed, 0 failed (allowlist,
+3-day updater guard, `-ctime` Trash rule, `--dry-run` on a fake HOME removes nothing and writes no
+log). Mutation check: a copy with `rm -rf "$HOME"/*`, an unguarded `*.ShipIt` sweep,
+`docker system prune -a` or `find … -name "*.mp4" -delete` appended fails the suite each time.
+`weekly-disk-cleanup.sh --dry-run` on this Mac lists every step and changes nothing (log mtime
+unchanged). 2026-10-09: Sparkle form added; `./test.sh bin` → 90 passed, 0 failed; `--dry-run`
+lists the new form and changes nothing. NOT YET: a real run, and the next Sunday launchd log.
+
+## D28 — The maintenance dashboard is a local file built from the reports · 2026-10-07
+
+**Problem.** The weekly audit, dotaudit and the disk cleanup each write their own output
+(`security-audit-*.md`, `findings-*.tsv`, `~/.weekly-disk-cleanup.log`). Seeing a trend, or which
+repo keeps failing which check, meant opening several files and reading tables by eye. The
+findings are the most sensitive output this repo produces (secrets paths, personal values, repo
+names), so anything that summarises them inherits the same handling rules.
+
+**Decision.** `scripts/audit-dashboard.py` renders one self-contained HTML page,
+`~/dev/audit-reports/dashboard.html`, from what is already on disk; it stores nothing of its own.
+`security-audit.sh` calls it last, and a failure to draw the page prints a WARN and never changes
+the audit's exit code: the dashboard is a view over the reports, not a step of the audit. Four
+views: FAIL/WARN trend with a sparkline per check, a repo × check heatmap whose cells open their
+findings, space reclaimed per cleanup run, and an action list of FAILs grouped by the fix they
+need. Ticks on the action list live in the browser's local storage, so the page itself stays a
+pure function of the reports. Rules it shares with the reports: written mode 600, refused (exit 3)
+if the output path is inside a git repo, inline SVG only, no external scripts or fonts, and a
+Content-Security-Policy that blocks network loads. Stdlib Python only, like the other scripts.
+
+**Rejected.** *A hosted page or a notebook*: the content must never leave the machine
+(`policy/ai-and-external-services.md`), and a hosted page is a second place to secure. *A
+terminal summary at the end of the audit*: it shows one run, not a trend, and the heatmap does
+not fit. *A chart library from a CDN*: a network load from a page that lists secret locations is
+the wrong default; inline SVG is enough for sparklines and a heatmap. *Storing state (ticks) in
+the page or a sidecar file*: it would make the page something other than a rendering of the
+reports; the browser's local storage is per-viewer and disposable.
+
+**Cost.** One more Python script to keep stdlib-only, and the audit test suite needs fixture
+reports to exercise it. The heatmap is only as good as the dotaudit check ids; a renamed check
+starts a new column.
+
+**Verified: PARTIAL.** 2026-10-09: `./test.sh tools` passes, including "audit run regenerates
+the dashboard", "writes dashboard.html next to the reports", "dashboard is mode 600" and "refuses
+to write the dashboard into a git repo" on fixture reports. NOT YET: the page rendered from the
+real `~/dev/audit-reports/` after the next Sunday audit, and a look at it in a browser.

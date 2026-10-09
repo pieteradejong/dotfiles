@@ -23,8 +23,9 @@
 #   --history    force dotaudit's full-history scan
 #   --no-notify  no macOS notification
 #
-# READ-ONLY toward every repo. Writes only its report (~/dev/audit-reports/,
-# never inside a git repo) and the mirror cache (~/.cache/security-audit/).
+# READ-ONLY toward every repo. Writes only its report and dashboard.html
+# (~/dev/audit-reports/, never inside a git repo) and the mirror cache
+# (~/.cache/security-audit/).
 
 set -u
 # Appended, not prepended: launchd already supplies a PATH (see the plist), and
@@ -269,6 +270,8 @@ fi
 chmod 600 "$REPORT" 2>/dev/null
 printf '%s\t%d FAIL\t%d WARN\t%s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$N_FAIL" "$N_WARN" "$REPORT" >> "$LOG_DIR/security-audit.log"
 printf 'security audit: %d FAIL, %d WARN\nReport: %s\n' "$N_FAIL" "$N_WARN" "$REPORT"
+# The dashboard is a view over the reports: a failure to draw it never changes the audit's verdict.
+python3 "$SCRIPT_DIR/audit-dashboard.py" --reports "$OUT_DIR" 2>&1 || echo "WARN: dashboard not regenerated"
 
 if [ "$NOTIFY" = 1 ] && command -v osascript >/dev/null 2>&1; then
   osascript -e "display notification \"$N_FAIL FAIL, $N_WARN WARN — report in ~/dev/audit-reports\" with title \"Weekly security audit\"" >/dev/null 2>&1

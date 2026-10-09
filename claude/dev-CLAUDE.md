@@ -31,6 +31,10 @@ What checks each rule, and where: `dotfiles/docs/policy/repo-standards.md` § En
   the manifest's `license` field must match.
 - **Never relicense or reshape a fork or upstream clone**, and skip them in bulk sweeps.
 - **No media or large binaries in git** (video, audio, weights, big datasets) — not even private.
+- **A new large data folder in a project needs an explicit backup decision.** `~/dev` is backed up
+  by what `.gitignore` keeps, so gitignored data is *not* backed up unless it is listed in
+  `~/docs/.backup/dev-includes.txt`. Rebuildable: ignore it. Irreplaceable: ignore it and list it
+  there with the reason (`~/docs/BACKUP.md` § ~/dev).
 - **Exact version pins** — no `^` or `~`. **One package manager** per project. **Actions pinned by
   commit SHA.**
 - **Never write audit output inside a git repo.** Reports go to `~/dev/audit-reports/`, mode 600.
@@ -49,40 +53,50 @@ If that file is missing, ask before modifying any repo under projects/.
 
 ## Session workflow
 
-Every session runs the same loop. Steps 2 and 3 are stated in full elsewhere — what follows is the
+Every session runs the same loop. Steps 2 to 4 are stated in full elsewhere — what follows is the
 order they happen in, not a second copy of them.
 
 1. **Open by reading state, not code.** `git status`, the branch, `git log --oneline -5`, then the
-   project's `CLAUDE.md` and decision log if they exist. Name anything unexpected — dirty tree,
-   detached HEAD, unpushed commits, a stray untracked file — before touching anything. A surprise
-   is cheapest before it has been built on. The `SessionStart` hook reports this automatically and
-   says nothing when the repo is clean; silence is the normal case, not a failure to run.
+   project's `CLAUDE.md` and `docs/DECISIONS.md` if they exist. Name anything unexpected — dirty
+   tree, detached HEAD, unpushed commits, a stray untracked file — before touching anything. A
+   surprise is cheapest before it has been built on. The `SessionStart` hook reports this
+   automatically and says nothing when the repo is clean; silence is the normal case, not a failure
+   to run.
 2. **First commit in a repo** follows `dotfiles/docs/policy/security-and-privacy.md` §4 —
    `.gitignore` baseline, data tier, noreply identity, LICENSE, security CI workflow.
-3. **A decision that closes off an alternative earns an entry**, in the format and with the
-   `Verified:` discipline of `dotfiles/docs/policy/ai-instructions.md` § Decisions need
-   verification. Not every commit — only a choice someone could reasonably reopen later.
-4. **Close with a summary:** what changed, what is unverified, what is still open. Update the
-   project's README or `CLAUDE.md` in the same session when commands or behavior changed; a doc
-   that lags by one session is where drift starts. Say any `Verified: NOT YET` out loud rather
-   than leaving it to be discovered.
+3. **A decision that closes off an alternative earns an entry** in the project's
+   `docs/DECISIONS.md` (create it on the first entry), in the format and with the `Verified:`
+   discipline of `dotfiles/docs/policy/ai-instructions.md` § Decisions need verification. Name the
+   alternative that was rejected and why. Not every commit — only a choice someone could reasonably
+   reopen later.
+4. **A behavior-relevant change earns a `CHANGELOG.md` entry** under `[Unreleased]`, in the same
+   session, per `dotfiles/docs/policy/repo-standards.md` § Changelog. Skip formatting, typo and
+   pure-refactor changes, and skip `projects/scratch/`, forks, upstream clones and do-not-touch
+   repos.
+5. **Close with a summary:** what changed, what is unverified, what is still open, and which
+   decision and changelog entries were added. Update the project's README or `CLAUDE.md` in the
+   same session when commands or behavior changed; a doc that lags by one session is where drift
+   starts. Say any `Verified: NOT YET` out loud rather than leaving it to be discovered.
 
 ```mermaid
 flowchart TD
-    S([Session start]) --> O["git status · branch · log -5<br/>read CLAUDE.md + decision log"]
+    S([Session start]) --> O["git status · branch · log -5<br/>read CLAUDE.md + docs/DECISIONS.md"]
     O --> N{Anything unexpected?}
     N -- yes --> R[Name it before starting work]
     N -- no --> W[Work]
     R --> W
     W --> D{Closed off an alternative?}
-    D -- yes --> L["Decision entry<br/>Date · Context · Decision · Verified"]
-    L --> C{First commit in this repo?}
-    D -- no --> C
+    D -- yes --> L["Decision entry → docs/DECISIONS.md<br/>Date · Context · Decision · Alternatives · Verified"]
+    D -- no --> B{Behavior changed?}
+    L --> B
+    B -- yes --> CH["CHANGELOG.md entry<br/>under [Unreleased]"]
+    B -- no --> C{First commit in this repo?}
+    CH --> C
     C -- yes --> G["First-commit checklist:<br/>gitignore · tier · identity · LICENSE · CI"]
     C -- no --> K[Commit - gate runs]
     G --> K
     K --> W
-    W --> E([Session end: what changed / unverified / open])
+    W --> E(["Session end: what changed / unverified / open<br/>+ entries added"])
 ```
 
 ## Where the rules live
@@ -96,7 +110,7 @@ Read these when their subject comes up; they are not loaded automatically.
 | `dotfiles/docs/policy/privacy-by-design.md` | Data classes, minimization, retention and deletion, other people's data, processors |
 | `dotfiles/docs/policy/supply-chain.md` | Adding dependencies, lockfiles, Actions pinned by SHA, vulnerability response, deployed surfaces |
 | `dotfiles/docs/policy/ai-and-external-services.md` | What may go to a hosted model, connector writes, prompt injection, permission allowlists |
-| `dotfiles/docs/policy/repo-standards.md` | Licensing, GitHub tiers, `.gitignore` baseline, `init.sh`/`run.sh`, dependencies, media, lint |
+| `dotfiles/docs/policy/repo-standards.md` | Licensing, GitHub tiers, `.gitignore` baseline, `init.sh`/`run.sh`, dependencies, media, lint, changelog |
 | `dotfiles/docs/policy/ai-instructions.md` | Instruction-file layering, `CLAUDE.md` vs memory, decision records |
 | `dotfiles/docs/policy/backups.md` | Backup principles |
 | `dotfiles/docs/design-decisions.md` | Why the gate, audit and public/private split are built this way |

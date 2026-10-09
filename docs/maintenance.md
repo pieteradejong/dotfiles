@@ -7,8 +7,10 @@ its output goes, and the short list of things only a person can do. Replaces the
 | Job | When | What | Output |
 |---|---|---|---|
 | [Security & privacy audit](#weekly-security--privacy-audit) | Sundays 10:00 (launchd) | full audit incl. GitHub | `~/dev/audit-reports/security-audit-YYYY-MM-DD.md` |
+| [Dashboard](#dashboard) | after each audit run | trend, findings by repo × check, disk reclaimed, action list | `~/dev/audit-reports/dashboard.html` |
 | [Disk cleanup](#weekly-disk-cleanup) | Sundays 09:00 (launchd) | caches, Docker, old Trash | `~/.weekly-disk-cleanup.log` |
 | [Docs backup](#daily-docs-backup) | daily 03:00 (launchd) | `~/docs` to cloud | `~/docs/.backup/logs/` |
+| [Remote Control server](#remote-control-server-rcdev) | always on (launchd, at login) | Claude Code Remote Control rooted at `~/dev` | `~/Library/Logs/claude-remote-control/dev.log` |
 | [Commit/push gate](policy/security-and-privacy.md#2-the-commitpush-gate) | every commit and push | secrets, personal data | terminal |
 | [Mac maintenance](#mac-maintenance-manual) | by hand | uptime, memory, app caches | `~/maintenance-YYYYMMDD.log` |
 
@@ -58,6 +60,29 @@ launchctl bootout gui/$(id -u)/com.pieterdejong.securityaudit     # disable
 Raw launchd output: `~/Library/Logs/security-audit/launchd.out`. The mirror cache can be
 deleted at any time; the next run re-creates it.
 
+### Dashboard
+
+Each audit run ends by calling [`scripts/audit-dashboard.py`](../scripts/audit-dashboard.py),
+which rebuilds `~/dev/audit-reports/dashboard.html` (mode 600) from what is already on disk: every
+`security-audit-*.md`, every dotaudit `findings-*.tsv`, and `~/.weekly-disk-cleanup.log`. Four
+views: the FAIL/WARN trend (plus one sparkline per dotaudit check), a repo × check heatmap whose
+cells open their findings, space reclaimed per cleanup run, and an action list of FAILs grouped by
+the fix they need, with ticks kept in the browser's local storage.
+
+```zsh
+open ~/dev/audit-reports/dashboard.html
+~/dev/dotfiles/scripts/audit-dashboard.py     # rebuild now, without re-running the audit
+```
+
+The page is self-contained: inline SVG, no external scripts or fonts, and a
+Content-Security-Policy that blocks network loads. It holds the same detail as the reports, so
+the same rules apply: never inside a git repo, never published. A failure to draw it prints a
+WARN and never changes the audit's exit code. Why a local file and not a hosted page:
+[D28](design-decisions.md#d28--the-maintenance-dashboard-is-a-local-file-built-from-the-reports--2026-10-07).
+
+Forks and upstream clones appear in it like any other repo; their findings are not to be fixed
+there (the do-not-touch register).
+
 ---
 
 ## Weekly disk cleanup
@@ -77,21 +102,34 @@ backups, not directly loadable files.
 The script is never executed by the test suite — it empties Trash and prunes
 caches. `./test.sh bin` asserts it statically instead: that it parses, that every
 aggressive form in its `IDEAS` block is still commented out, that the live
-`docker system prune` has no `-a`/`--volumes`, and that the only live `rm -rf` is
-the `~/.Trash` sweep with its age filter intact.
+`docker system prune` has no `-a`/`--volumes`, and that every live `rm -rf` targets one
+of the allowlisted paths below, with the Trash sweep's age filter intact. `--dry-run` is the
+one mode that is safe to execute. (Allowlist test update: pending, see D27.)
 
 | Step | What it does | Why it is safe |
 |---|---|---|
 | npm cache | `npm cache verify`, then `npm cache clean --force` | re-downloaded on the next install |
 | pip cache | `pip3 cache purge` | same |
 | Docker | `docker system prune -f` (not `-a`); skipped if no Docker daemon is running — Colima is started on demand, so usually skipped ([containers.md](containers.md)) | removes only stopped containers, unused networks, dangling images, build cache |
-| Trash | deletes items in `~/.Trash` older than 7 days | this week's deletions keep a recovery window |
+| Trash | deletes items that have been in `~/.Trash` 7+ days (`-ctime`; `-mtime` would purge an old file the moment it is trashed) | this week's deletions keep a recovery window |
+| pip-tools cache | `rm -rf ~/Library/Caches/pip-tools/*` | pip-compile's download cache; `pip3 cache purge` never touches it |
+| uv cache | `uv cache prune` (not `clean`) | drops only unreferenced entries |
+| Homebrew | `brew cleanup -s --prune=all` | old versions and downloads; `brew autoremove` stays an idea |
+| pnpm store | `pnpm store prune` | only packages no project references |
+| Xcode DerivedData | `rm -rf ~/Library/Developer/Xcode/DerivedData/*` | build cache |
+| App-updater leftovers | `rm -rf` of `~/Library/Caches/*.ShipIt`, `*-updater` and `*/org.sparkle-project.Sparkle/Installation/*` untouched 3+ days | installers kept after the app updated (Squirrel/Electron and Sparkle apps alike); the 3-day rule spares an update staged for the next relaunch |
+| Old maintenance logs | `find ~ -maxdepth 1 -name 'maintenance-*.log' -mtime +30 -delete` | logs only |
 
 Each step runs independently; one failing does not stop the rest. Logs:
-`~/.weekly-disk-cleanup.log` (trimmed to 1000 lines) and `~/.weekly-disk-cleanup.launchd.log`.
+`~/.weekly-disk-cleanup.log` (trimmed to 1000 lines, before each run) and
+`~/.weekly-disk-cleanup.launchd.log`. The script puts Homebrew and `~/.local/bin` on `PATH` itself:
+launchd's bare `PATH` found Xcode's old `/usr/bin/pip3`, which does not know pip's current cache
+layout, so the pip step was a no-op.
 
 ```zsh
-launchctl start com.pieterdejong.weeklycleanup && cat ~/.weekly-disk-cleanup.log   # run now
+weekly-disk-cleanup.sh --dry-run    # sizes + what each step would run; changes nothing, no log
+weekly-disk-cleanup.sh              # real run from a terminal: prints and logs, and has Full Disk Access for Trash
+launchctl start com.pieterdejong.weeklycleanup && cat ~/.weekly-disk-cleanup.log   # run the launchd job now
 ```
 
 **Known limitation — Full Disk Access.** Under launchd the Trash and pip-cache steps are
@@ -100,8 +138,43 @@ Access. Granting it to `/bin/zsh` fixes that but applies to *every* zsh script �
 grant than this job. Without it, run the script by hand in a terminal for the full effect.
 
 **Deliberately not automated:** `docker system prune -a`; `~/Downloads` and media folders;
-switching Google Drive from Mirror to Stream; old iPhone backups; unused `ollama` models.
-Each is a judgement call, not a mechanical one.
+switching Google Drive from Mirror to Stream; old iPhone backups; unused `ollama` models;
+`brew autoremove`; HuggingFace models; Playwright browsers; caches of apps that are usually open;
+old nvm versions; project `node_modules`/`.venv`. Each is a judgement call or costs a large
+re-download, not a mechanical cleanup. Why: [D27](design-decisions.md).
+
+---
+
+## Remote Control server (rcdev)
+
+One always-on `claude remote-control --name dev` server rooted at `~/dev`, so the Claude
+mobile app and claude.ai/code can start new sessions on this Mac that reach every repo.
+It shows up as **dev**. Spawned sessions start in `~/dev`, so name the repo in the
+prompt ("in projects/foo, …"). They run in the default permission mode, so approve
+prompts from the phone. `~/dev` is trusted; that trust covers the subdirectories.
+
+| Live location | Backed up here |
+|---|---|
+| [`bin/rcdev`](../bin/rcdev) | itself, run in place, like everything in `bin/` |
+| `~/Library/LaunchAgents/com.pieterdejong.rcdev.plist` | [`macos/com.pieterdejong.rcdev.plist`](../macos/com.pieterdejong.rcdev.plist). The plist holds no absolute path (`$HOME` is expanded by `bash -c` at run time), so `rcdev install` copies it as is |
+
+```zsh
+rcdev install     # install + start; it then starts at every login
+rcdev status      # up/down, pid, memory (~100-150 MB idle)
+rcdev restart     # after a Claude Code update
+rcdev log         # tail ~/Library/Logs/claude-remote-control/dev.log
+rcdev uninstall   # stop it and remove the agent
+```
+
+`KeepAlive` restarts it if it exits, at most once a minute (`ThrottleInterval`). The
+log rotates once past 5 MB (`dev.log.1`). launchd starts with a bare `PATH`, so
+`rcdev run` sets one: `~/.local/bin`, `bin/`, Homebrew, and nvm's default node. Secrets
+from `~/.zshrc` are **not** loaded into spawned sessions.
+
+Separate from this server: interactive `claude` sessions in a terminal are reachable from
+the phone on their own (`remoteControlAtStartup: true` in `~/.claude/settings.json`),
+and `rc-projects` runs ad-hoc per-project servers. Tests: `./test.sh bin` exercises the
+whole lifecycle against a stub `launchctl` and a fake HOME; the real agent is never touched.
 
 ---
 

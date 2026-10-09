@@ -7,6 +7,7 @@
 #                                       through the GitHub API
 #   scripts/github-security-sweep.sh    GitHub settings sweep (stub gh, no network)
 #   scripts/security-audit.sh           the weekly audit (--quick, stub gh)
+#   scripts/audit-dashboard.py          the local HTML dashboard over the audit output
 #   scripts/audit/50-gate.sh            dotaudit's gate module
 #   scripts/sync-dotfiles.sh            the sanitizers that keep personal values
 #                                       out of this PUBLIC repo on the way in
@@ -255,6 +256,7 @@ rc=$?
 report="$(first "$A"/out/security-audit-*.md)"
 [ -n "$report" ] && pass "report written" || fail "no report written"
 [ "$rc" = 1 ] && pass "exits 1 when there is a FAIL" || fail "exit $rc, expected 1"
+[ -s "$A/out/dashboard.html" ] && grep -q '^Dashboard: ' "$OUT" && pass "audit run regenerates the dashboard" || fail "no dashboard after the audit run"
 grep -q 'FAIL\*\* outside any repo.*github-recovery-codes.txt' "$report" 2>/dev/null && pass "loose credential file outside any repo is a FAIL" || fail "loose file outside repo not reported"
 grep -q 'WARN\*\* untracked and NOT ignored.*projects/app/deploy.key' "$report" 2>/dev/null && pass "untracked, unignored key inside a repo is a WARN" || fail "untracked key not reported"
 grep -q '\.env\.example' "$report" 2>/dev/null && fail ".env.example was reported" || pass ".env.example is not reported"
@@ -271,6 +273,67 @@ perm="$(stat -f %Lp "$report" 2>/dev/null || stat -c %a "$report" 2>/dev/null)"
 git init -q "$A/repo-out"
 HOME="$A/home" DEV_ROOT="$A/dev" PATH="$A/bin:$REAL_PATH" "$DOTFILES_DIR/scripts/security-audit.sh" --quick --no-notify --out "$A/repo-out" > "$OUT" 2>&1; rc=$?
 [ "$rc" = 3 ] && pass "refuses to write its report into a git repo" || fail "report into git repo exit $rc"
+
+# ================================================================================
+header "audit-dashboard.py (fixture reports)"
+DB="$T/dash"; mkdir -p "$DB/reports" "$DB/home"
+DASH="$DOTFILES_DIR/scripts/audit-dashboard.py"
+for d in 2026-01-04:2:1 2026-01-11:3:0; do
+  day="${d%%:*}"; rest="${d#*:}"; nf="${rest%%:*}"; nw="${rest#*:}"
+  {
+    printf '# Weekly security & privacy audit — %s\n\n' "$day"
+    printf '**%s FAIL · %s WARN · 4 info** · generated %s 10:00\n\n## 1. Commit/push gate\n\n- gate installed and intact\n\n' "$nf" "$nw" "$day"
+    printf '## 2. Local repos (dotaudit)\n\n- **FAIL** dotaudit: 3 FAIL, 1 WARN\n\n'
+    printf '## 4. GitHub repos with no local clone\n\n- **FAIL** owner/old-thing (PUBLIC): gitleaks reports 2 secret(s) in history\n'
+  } > "$DB/reports/security-audit-$day.md"
+done
+printf 'FAIL\tprivacy\talpha\taws-access-key\tsrc/a.py:3\nWARN\tgit\talpha\tdirty-tree\t1 path\nINFO\tgit\tbeta\tdirty-tree\tx\n' > "$DB/reports/findings-2026-01-04.tsv"
+printf 'FAIL\tprivacy\talpha\taws-access-key\tsrc/a.py:3\nFAIL\tpolicy\tbeta\tno-security-ci\tno workflow\nFAIL\tgit\tgamma\tmade-up-check\t<script>alert(1)</script>\nWARN\tpolicy\tbeta\tunpinned-deps\tpackage.json\n' > "$DB/reports/findings-2026-01-11.tsv"
+cat > "$DB/cleanup.log" <<'EOF'
+  Weekly disk cleanup - Sun Jan  4 09:00:05 EST 2026
+--- npm cache ---
+Before: 2.0G
+After:  512M
+--- Trash (items older than 7 days) ---
+Before:
+After:
+  Weekly disk cleanup - Sun Jan 11 09:00:05 EST 2026  [DRY RUN]
+--- npm cache ---
+Before: 9.0G
+  Weekly disk cleanup - Sun Jan 11 09:00:05 EST 2026
+--- npm cache ---
+Before: 1.0G
+After:  0B
+--- pip cache ---
+Before: 300M
+After:  100M
+EOF
+dash() { HOME="$DB/home" python3 "$DASH" --reports "$DB/reports" --cleanup-log "$DB/cleanup.log" "$@" > "$OUT" 2>&1; }
+dash; rc=$?; H="$DB/reports/dashboard.html"
+[ "$rc" = 0 ] && [ -s "$H" ] && pass "writes dashboard.html next to the reports" || fail "exit $rc, no dashboard"
+perm="$(stat -f %Lp "$H" 2>/dev/null || stat -c %a "$H" 2>/dev/null)"
+[ "$perm" = 600 ] && pass "dashboard is mode 600" || fail "dashboard mode $perm"
+grep -q '<div class="tl">Audit FAIL</div><div class="tv">3</div><div class="ts"><span class="dup">+1</span>' "$H" \
+  && pass "audit tile shows latest FAIL count and week-over-week delta" || fail "audit tile wrong"
+grep -q '<div class="tl">dotaudit FAIL</div><div class="tv">3</div><div class="ts"><span class="dup">+2</span>' "$H" \
+  && pass "dotaudit tile counts FAIL rows of the latest findings file" || fail "dotaudit tile wrong"
+grep -q '<div class="tl">Last cleanup</div><div class="tv">1.2G</div>' "$H" \
+  && pass "disk tile sums reclaimed space; dry runs and blank sizes are skipped" || fail "disk tile wrong"
+grep -q '<b>Rotate exposed credentials</b> <span class="cnt">1</span>' "$H" && grep -q '<b>Security CI missing</b> <span class="cnt">1</span>' "$H" \
+  && grep -q '<b>Other</b> <span class="cnt">1</span>' "$H" && pass "FAILs are grouped by fix; unknown checks land in Other" || fail "action groups wrong"
+grep -q '<b>Weekly audit FAILs</b> <span class="cnt">1</span>' "$H" \
+  && pass "top-level audit FAILs are listed, the dotaudit summary line is not" || fail "audit FAILs wrong"
+grep -q '<script>alert' "$H" && fail "finding text is not HTML-escaped" || pass "finding text is HTML-escaped"
+grep -qE '(src|href)="?(https?:)?//' "$H" && fail "page references an external resource" || pass "page loads nothing from outside"
+grep -q "Content-Security-Policy\" content=\"default-src 'none'" "$H" && pass "CSP blocks network loads" || fail "CSP missing"
+mkdir -p "$DB/empty"
+HOME="$DB/home" python3 "$DASH" --reports "$DB/empty" --cleanup-log "$DB/missing.log" > "$OUT" 2>&1; rc=$?
+[ "$rc" = 0 ] && grep -q 'No security-audit reports yet' "$DB/empty/dashboard.html" && pass "empty reports directory renders, with empty states" || fail "empty dir exit $rc"
+HOME="$DB/home" python3 "$DASH" --reports "$DB/nope" > "$OUT" 2>&1; rc=$?
+[ "$rc" = 2 ] && pass "missing reports directory exits 2" || fail "missing dir exit $rc"
+git init -q "$DB/repo"
+dash --out "$DB/repo/dashboard.html"; rc=$?
+[ "$rc" = 3 ] && [ ! -e "$DB/repo/dashboard.html" ] && pass "refuses to write the dashboard into a git repo" || fail "dashboard into git repo exit $rc"
 
 # ================================================================================
 header "dotaudit gate module (50-gate.sh)"
