@@ -12,6 +12,7 @@ History before this file: `git log`.
 - `bin/weekly-disk-cleanup.sh`: one `Reclaimed: N MB` line at the end of a real run.
 - `macos/com.pieterdejong.docsbackup.plist`: repo copy of the daily docs-backup agent (`$HOME` marker, D20). `sync-dotfiles.sh backup`/`restore` cover it; `status` now checks all five `com.pieterdejong.*` plists against the live agents.
 - `TODO.md` and this changelog.
+- `docs/mac-overheating.md`: the 2026-10-10 overheating diagnosis (finding the hot process, what `BTLEServer` is, a threshold-gated `restart_if_hot`, the sudoers rule and a watchdog agent), and `TODO.md` § Roadmap with the items it implies for `mac-maintenance.sh`. Notes only; nothing is automated yet.
 
 ### Changed
 - `scripts/mac-maintenance.sh`: `--dry-run`, `--help`, exit 0/2, every mutating step through one `act` helper, no `set -e`, awk instead of `bc`; leaves the `pip`, `pip-tools` and `Homebrew` caches to the weekly cleanup; lists entries in use instead of failing; says so when Trash is not accessible (D29).

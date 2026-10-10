@@ -333,7 +333,8 @@ deliberately decided against or accepted as-is rather than "fixed":
 - [docs/policy/](docs/policy/) - The rules: security & privacy, repo standards, AI instruction files, backups
 - [docs/design-decisions.md](docs/design-decisions.md) - Why the security gate, weekly audit and public/private split are built as they are
 - [docs/maintenance.md](docs/maintenance.md) - The README for maintenance: every scheduled job (security audit, disk cleanup, docs backup, Remote Control), the manual script, how each is run and tested, the decisions behind them, and the monthly checklist
-- [TODO.md](TODO.md) - Open work on this repo's tooling and jobs · [CHANGELOG.md](CHANGELOG.md) - behaviour-relevant changes
+- [docs/mac-overheating.md](docs/mac-overheating.md) - Diagnosing a hot Mac: finding the culprit, what `BTLEServer` is, and the planned watchdog
+- [TODO.md](TODO.md) - Open work on this repo's tooling and jobs, plus the roadmap · [CHANGELOG.md](CHANGELOG.md) - behaviour-relevant changes
 - [docs/dev-audit.md](docs/dev-audit.md) - `dotaudit`: what each check means
 
 ## 📄 License

@@ -34,6 +34,26 @@ only; this file is public. Workspace-wide items: `~/dev/TODO.md`. Decisions: `do
       (`unpinned-deps-skipped` reported on the clean fixture; `unpinned-deps` count). Not part of
       the maintenance work.
 
+## Roadmap
+
+Planned additions, each with its reference doc. Nothing here is built yet. Source:
+[`docs/mac-overheating.md`](docs/mac-overheating.md), the 2026-10-10 diagnosis of this Mac at
+~100°C with `BTLEServer` at 82% CPU.
+
+- [ ] **Thermal check in `mac-maintenance.sh`**: a `--- HOT PROCESSES ---` block in the report
+      (the `top -o cpu -l 2` snapshot). Read-only, so it needs no decision entry. Doc § 2.
+- [ ] **`restart_if_hot BTLEServer 50`** in `mac-maintenance.sh`, through `act` so `--dry-run`
+      prints instead of kills; tested in `scripts/test-mac-maintenance.sh` with a fake `top` and
+      `pgrep` on `PATH`. Needs a decision entry (D31): the script's first step that touches a
+      running process, and the first `sudo` in any maintenance script. Doc § 4.
+- [ ] **Sudoers rule** `/etc/sudoers.d/btleserver`, outside the repo, by hand with `visudo`;
+      record it in `docs/reinstall-commands.md` once added. Doc § 5.
+- [ ] **Every-30-min watchdog agent**, only if the spike recurs after a reboot. Would be the sixth
+      `com.pieterdejong.*` plist and the first on an interval: At-a-glance row in
+      `docs/maintenance.md`, `sync-dotfiles.sh status` coverage, same D31 entry. Doc § 6.
+- [ ] **Find the device**: Bluetooth off for a minute to confirm, then unpair one at a time. The
+      watchdog treats the symptom. Doc § 3.
+
 ## Tooling
 
 - [ ] `security-audit.sh`: callees should print the path they wrote instead of the composer

@@ -233,7 +233,9 @@ real script against a fake HOME (it only ever touches paths under `$HOME`) to ch
 the skip list, the log, idempotence and the edge cases. Not scheduled: a cache reset under
 running apps is a decision, not a routine
 ([D29](design-decisions.md#d29--mac-maintenancesh-stays-at-the-cleanups-standard-and-under-test--2026-10-10)).
-Why it is built this way, and what was rejected: the same entry.
+Why it is built this way, and what was rejected: the same entry. Planned next: a hot-process
+snapshot in the report and a threshold-gated `BTLEServer` restart — the notes and the roadmap
+items are in [`mac-overheating.md`](mac-overheating.md) and [`TODO.md`](../TODO.md) § Roadmap.
 
 ---
 
