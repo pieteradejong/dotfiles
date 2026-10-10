@@ -4,7 +4,7 @@
 #
 #   ./test.sh                 all suites
 #   ./test.sh gate            one suite: shellcheck | zsh-syntax | ruff | bin | gate |
-#                                        tools | dotaudit | containers | docs
+#                                        tools | dotaudit | containers | maint | docs
 #   ./test.sh --verbose       pass --verbose through to each suite
 #
 # Suites:
@@ -19,6 +19,8 @@
 #                                                weekly audit, dotaudit gate module)
 #   dotaudit    scripts/test-dev-audit.sh       (the read-only workspace audit)
 #   containers  scripts/test-containers-doctor.sh (Colima / no-Docker-Desktop doctor)
+#   maint       scripts/test-mac-maintenance.sh  (report + cache quarantine, on a
+#                                                fake HOME)
 #   docs        scripts/test-docs.py            (policy doc links, anchors, index,
 #                                                workspace CLAUDE.md in sync)
 #
@@ -32,7 +34,7 @@ ONLY=""
 for a in "$@"; do
   case "$a" in
     --verbose) VERBOSE="--verbose" ;;
-    shellcheck|zsh-syntax|ruff|bin|gate|tools|dotaudit|containers|docs) ONLY="$a" ;;
+    shellcheck|zsh-syntax|ruff|bin|gate|tools|dotaudit|containers|maint|docs) ONLY="$a" ;;
     -h|--help) sed -n '3,25p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown argument: $a" >&2; exit 2 ;;
   esac
@@ -55,11 +57,13 @@ scripts/audit/50-gate.sh
 scripts/audit/render-report.sh
 scripts/containers-doctor.sh
 scripts/github-security-sweep.sh
+scripts/mac-maintenance.sh
 scripts/security-audit.sh
 scripts/sync-dotfiles.sh
 scripts/test-security-gate.sh
 scripts/test-security-tools.sh
 scripts/test-containers-doctor.sh
+scripts/test-mac-maintenance.sh
 scripts/test-bin.sh
 bin/rcdev
 "
@@ -120,6 +124,7 @@ run_suite gate     bash scripts/test-security-gate.sh $VERBOSE
 run_suite tools    bash scripts/test-security-tools.sh $VERBOSE
 run_suite dotaudit bash scripts/test-dev-audit.sh $VERBOSE
 run_suite containers bash scripts/test-containers-doctor.sh $VERBOSE
+run_suite maint    bash scripts/test-mac-maintenance.sh $VERBOSE
 run_suite docs     python3 scripts/test-docs.py $VERBOSE
 
 printf '\n\033[1m════ test.sh summary ════\033[0m%b\n' "$RESULTS"

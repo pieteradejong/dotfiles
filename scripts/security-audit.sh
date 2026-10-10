@@ -4,8 +4,10 @@
 #
 # Runs every Sunday 10:00 from launchd (macos/com.pieterdejong.securityaudit.plist),
 # or by hand. One report per run, counts in a macOS notification, exit 1 on any
-# FAIL. Documented in docs/maintenance.md; the rules it checks are in
-# docs/policy/security-and-privacy.md.
+# FAIL. The report opens with what changed since the previous full report in
+# the same directory (new / resolved / unchanged findings), so a week with the
+# same ten FAILs reads as "0 new", not as ten alarms. Documented in
+# docs/maintenance.md; the rules it checks are in docs/policy/security-and-privacy.md.
 #
 #   1. gate       the commit/push gate is installed and intact (gate.sh status)
 #   2. dotaudit   every local repo: secrets, personal data, policy, git hygiene
@@ -258,23 +260,64 @@ else
   fail_ "gh is not authenticated — GitHub steps could not run"
 fi
 
+# --- since last run ---------------------------------------------------------------------------------
+# FAIL/WARN lines of this run against the newest *full* report in OUT_DIR (a
+# --quick report skips sections 2 and 4, so it is never the baseline; a --quick
+# run compares only the sections it ran). Lines are compared with the
+# date-stamped report paths and the dotaudit totals masked, so the same finding
+# on a new day is "unchanged". Only bullets under a numbered section count, so
+# a report's own "Since last run" list is never compared.
+norm_findings() { # <file> <section numbers to skip, e.g. "2 4">
+  awk -v skip=" $2 " '
+    /^## [0-9]+\./ { n = $2; sub(/\./, "", n); on = (index(skip, " " n " ") == 0) }
+    on && /^- \*\*(FAIL|WARN)\*\* / { print }' "$1" \
+    | sed -E -e 's#(audit|findings|github-security)-[0-9]{4}-[0-9]{2}-[0-9]{2}\.(md|tsv)#\1-DATE.\2#g' \
+             -e 's#dotaudit: [0-9]+ FAIL, [0-9]+ WARN#dotaudit: N FAIL, N WARN#' \
+    | sort -u
+}
+DELTA="$WORK/delta"; N_NEW=0; N_RESOLVED=0; N_SAME=0; PREV=""
+while IFS= read -r f; do
+  [ "$f" = "$REPORT" ] && continue
+  if ! head -5 "$f" | grep -q '(--quick)'; then PREV="$f"; break; fi
+done < <(find "$OUT_DIR" -maxdepth 1 -name 'security-audit-*.md' 2>/dev/null | sort -r)
+SKIP_SECTIONS=""; [ "$QUICK" = 1 ] && SKIP_SECTIONS="2 4"
+# shellcheck disable=SC2016 # the backticks are markdown code spans, not expansions
+if [ -z "$PREV" ]; then
+  printf '## Since last run\n\n- first full report in `%s` — nothing to compare against\n' "$OUT_DIR" > "$DELTA"
+else
+  norm_findings "$BODY" "$SKIP_SECTIONS" > "$WORK/now"; norm_findings "$PREV" "$SKIP_SECTIONS" > "$WORK/prev"
+  comm -23 "$WORK/now" "$WORK/prev" > "$WORK/new"
+  comm -13 "$WORK/now" "$WORK/prev" > "$WORK/resolved"
+  N_NEW="$(num "$(wc -l < "$WORK/new")")"; N_RESOLVED="$(num "$(wc -l < "$WORK/resolved")")"
+  N_SAME="$(num "$(comm -12 "$WORK/now" "$WORK/prev" | wc -l)")"
+  {
+    printf '## Since last run (%s)\n\n' "$(basename "$PREV" .md | sed 's/^security-audit-//')"
+    printf -- '- **%d new** · %d resolved · %d unchanged%s\n' "$N_NEW" "$N_RESOLVED" "$N_SAME" \
+      "$([ "$QUICK" = 1 ] && echo ' (sections 2 and 4 not compared: --quick)')"
+    # Listed without the **FAIL** marker so the dashboard does not count them twice.
+    if [ -s "$WORK/new" ]; then printf '\nNew:\n\n'; sed -E 's/^- \*\*(FAIL|WARN)\*\* /- \1: /' "$WORK/new"; fi
+    if [ -s "$WORK/resolved" ]; then printf '\nResolved:\n\n'; sed -E 's/^- \*\*(FAIL|WARN)\*\* /- \1: /' "$WORK/resolved"; fi
+  } > "$DELTA"
+fi
+
 # --- report -----------------------------------------------------------------------------------------
 # shellcheck disable=SC2016 # the backticks are markdown code spans, not expansions
 {
   printf '# Weekly security & privacy audit — %s\n\n' "$STAMP"
   printf '**%d FAIL · %d WARN · %d info** · generated %s by `dotfiles/scripts/security-audit.sh`%s\n\n' \
     "$N_FAIL" "$N_WARN" "$N_INFO" "$(date '+%Y-%m-%d %H:%M')" "$([ "$QUICK" = 1 ] && echo ' (--quick)')"
-  printf 'What each section checks and what to do about a finding: `dotfiles/docs/maintenance.md`.\n'
+  printf 'What each section checks and what to do about a finding: `dotfiles/docs/maintenance.md`.\n\n'
+  cat "$DELTA"
   cat "$BODY"
 } > "$REPORT"
 chmod 600 "$REPORT" 2>/dev/null
-printf '%s\t%d FAIL\t%d WARN\t%s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$N_FAIL" "$N_WARN" "$REPORT" >> "$LOG_DIR/security-audit.log"
-printf 'security audit: %d FAIL, %d WARN\nReport: %s\n' "$N_FAIL" "$N_WARN" "$REPORT"
+printf '%s\t%d FAIL\t%d WARN\t%d new\t%d resolved\t%s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$N_FAIL" "$N_WARN" "$N_NEW" "$N_RESOLVED" "$REPORT" >> "$LOG_DIR/security-audit.log"
+printf 'security audit: %d FAIL (%d new, %d resolved), %d WARN\nReport: %s\n' "$N_FAIL" "$N_NEW" "$N_RESOLVED" "$N_WARN" "$REPORT"
 # The dashboard is a view over the reports: a failure to draw it never changes the audit's verdict.
 python3 "$SCRIPT_DIR/audit-dashboard.py" --reports "$OUT_DIR" 2>&1 || echo "WARN: dashboard not regenerated"
 
 if [ "$NOTIFY" = 1 ] && command -v osascript >/dev/null 2>&1; then
-  osascript -e "display notification \"$N_FAIL FAIL, $N_WARN WARN — report in ~/dev/audit-reports\" with title \"Weekly security audit\"" >/dev/null 2>&1
+  osascript -e "display notification \"$N_FAIL FAIL ($N_NEW new, $N_RESOLVED resolved), $N_WARN WARN — report in ~/dev/audit-reports\" with title \"Weekly security audit\"" >/dev/null 2>&1
 fi
 
 [ "$N_FAIL" -eq 0 ]

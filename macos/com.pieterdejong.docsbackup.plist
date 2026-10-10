@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>            <string>com.pieterdejong.docsbackup</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/env</string>
+    <string>python3</string>
+    <string>$HOME/docs/.backup/backup_docs.py</string>
+    <string>--execute</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <!-- Homebrew rclone lives here on Apple Silicon; /usr/local/bin on Intel -->
+    <key>PATH</key> <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+  </dict>
+  <!-- daily at 03:00 local. launchd runs a missed job at next wake, unlike cron. -->
+  <key>StartCalendarInterval</key>
+  <dict><key>Hour</key><integer>3</integer><key>Minute</key><integer>0</integer></dict>
+  <key>StandardOutPath</key>  <string>$HOME/docs/.backup/logs/launchd.out</string>
+  <key>StandardErrorPath</key><string>$HOME/docs/.backup/logs/launchd.err</string>
+  <key>Nice</key>             <integer>10</integer>
+  <key>LowPriorityIO</key>    <true/>
+</dict>
+</plist>

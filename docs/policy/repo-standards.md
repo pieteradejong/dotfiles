@@ -173,6 +173,17 @@ backed up by git** — give it an explicit backup ([backups](backups.md)).
 - Pin formatter versions in the manifest; a new major can reformat files the local version accepts.
 - Strict types where the language allows, including Python annotations.
 
+## Changelog
+
+Every repo whose behaviour someone can notice keeps a `CHANGELOG.md` in
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/) shape. A behaviour-relevant change — a
+command, flag, output, schedule, check or default that a user or a scheduled job can see — gets
+one line under `[Unreleased]` in the same session, under `Added`, `Changed`, `Fixed` or
+`Removed`, naming the decision entry when there is one. Skipped: formatting, typos, pure
+refactors, and `projects/scratch/`, forks, upstream clones and do-not-touch repos. A release
+moves the block under a version and date. Not enforced by a check yet: it is a session-workflow
+rule (`claude/dev-CLAUDE.md` § Session workflow), kept by reading.
+
 ## Enforcement
 
 A rule is in force when it has a row here. Each row names where the rule is written and what checks

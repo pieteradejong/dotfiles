@@ -73,8 +73,8 @@ and is kept off `PATH`.
 | | `security-audit.sh` | `weekly-disk-cleanup.sh` | `mac-maintenance.sh` |
 |---|---|---|---|
 | **Trigger** | Automatic — launchd, Sundays 10:00 | Automatic — launchd, Sundays 09:00 | Manual — you run it |
-| **Scope** | gate, every repo, GitHub settings, uncloned repos, loose credentials | npm/pip cache, Docker prune, Trash >7 days | Uptime, memory report, `~/Library/Caches` |
-| **Risk posture** | Read-only; report outside git | Only reclaims what regenerates or was already discarded | Reporting + cache quarantine |
+| **Scope** | gate, every repo, GitHub settings, uncloned repos, loose credentials; opens with what changed since the last run | every cache that regenerates for free (npm, pip, pip-tools, uv, Homebrew, pnpm, Xcode, updater leftovers), Docker prune, Trash >7 days | uptime, memory, disk report; `~/Library/Caches` quarantined to a dated Trash folder |
+| **Risk posture** | Read-only; report outside git | Only reclaims what regenerates or was already discarded; `--dry-run` | Moves, never deletes; `--dry-run`; tested on a fake HOME |
 
 All three, plus the per-commit security gate: [`maintenance.md`](./maintenance.md).
 

@@ -401,6 +401,30 @@ else
 fi
 [ ! -e "$DRY_HOME/.weekly-disk-cleanup.log" ] \
   && pass "--dry-run writes no log" || fail "--dry-run writes no log"
+grep -q 'would run: find .*/\.Trash .*-ctime +7' "$OUT" \
+  && pass "--dry-run reports the Trash sweep when ~/.Trash is readable" \
+  || fail "--dry-run reports the Trash sweep when ~/.Trash is readable"
+grep -q '^Reclaimed: ' "$OUT" \
+  && fail "--dry-run prints no Reclaimed line" || pass "--dry-run prints no Reclaimed line"
+
+# Under launchd ~/.Trash is TCC-protected: without Full Disk Access even `ls`
+# fails. The step must say so and skip, not print empty sizes (the old
+# behaviour, which the dashboard read as zero reclaimed). Simulated with an
+# unreadable fake .Trash; the mode is restored at once so the trap can clean up.
+NOFDA_HOME="$T/nofda"; mkdir -p "$NOFDA_HOME/.Trash"; chmod 000 "$NOFDA_HOME/.Trash"
+: > "$OUT"
+HOME="$NOFDA_HOME" PATH="/usr/bin:/bin" zsh "$CLEANUP" --dry-run > "$OUT" 2>&1; rc=$?
+chmod 755 "$NOFDA_HOME/.Trash"
+grep -q 'no Full Disk Access to ~/.Trash' "$OUT" && [ "$rc" = 0 ] \
+  && pass "an unreadable ~/.Trash is reported as skipped (no Full Disk Access)" \
+  || fail "an unreadable ~/.Trash is reported as skipped (rc=$rc)"
+grep -q 'would run: find .*/\.Trash' "$OUT" \
+  && fail "the Trash sweep is skipped when ~/.Trash is unreadable" \
+  || pass "the Trash sweep is skipped when ~/.Trash is unreadable"
+# A real run ends with one greppable summary line (static: real runs are never executed here).
+grep -qE '^[^#]*echo "Reclaimed: ' "$CLEANUP" \
+  && pass "a real run prints a Reclaimed summary line" \
+  || fail "a real run prints a Reclaimed summary line"
 
 
 # ── 5b. rcdev — the always-on Remote Control agent ───────────────────────────

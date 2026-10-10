@@ -617,3 +617,70 @@ starts a new column.
 the dashboard", "writes dashboard.html next to the reports", "dashboard is mode 600" and "refuses
 to write the dashboard into a git repo" on fixture reports. NOT YET: the page rendered from the
 real `~/dev/audit-reports/` after the next Sunday audit, and a look at it in a browser.
+
+## D29 — `mac-maintenance.sh` stays, at the cleanup's standard and under test · 2026-10-10
+
+**Problem.** `scripts/mac-maintenance.sh` was the one maintenance script with no test, no dry run
+and no `--help`: bash with `set -e`, `bc` for the memory figure, and a quarantine that moved every
+entry of `~/Library/Caches` to Trash, including the pip and Homebrew caches the weekly cleanup
+already empties in place. `scripts/README.md`'s audit (item 4) had flagged it; the weekly cleanup
+(D27) had meanwhile set the bar: `--dry-run`, one `act` helper, a hermetic test. Retiring it was
+on the table.
+
+**Decision.** Keep it, as the one deliberate cache reset for a Mac that feels slow, and bring it to
+the same shape: `--dry-run`, `-h`, exit 0/2, every mutating step through `act`, no `set -e` (a
+failing section must not stop the report), awk instead of `bc`. The quarantine stays a move, never
+a delete: one dated folder in `~/.Trash`, purged by the weekly cleanup after 7 days, so a cache an
+app still wanted can be put back for a week. Entries the weekly cleanup owns (`pip`, `pip-tools`,
+`Homebrew`) are left to it; entries an app holds open are listed, not forced; an unreadable or
+read-only Trash is reported and the step skipped. New suite `scripts/test-mac-maintenance.sh`
+(`./test.sh maint`) runs the real script against a fake HOME — safe, because the script only ever
+touches paths under `$HOME` — and asserts statically that no live `rm -rf` or `find -delete` ever
+appears. Still manual: not scheduled.
+
+**Rejected.** *Retire it* (Pieter: "it needs tests, for one thing"): the report half is useful and
+the quarantine is the only cache reset that is reversible. *Schedule it*: a cache reset under
+running apps is not a no-effect operation (D27's rule), so it stays a decision a person makes.
+*`rm -rf` instead of a move*: no restore window. *Moving the log under `~/Library/Logs`*: it would
+change what the weekly cleanup prunes; left at `~/maintenance-YYYYMMDD.log`.
+
+**Cost.** One more suite in `test.sh`. The quarantine is still broad by design (every app cache but
+three), so a run while apps are open costs their caches a rebuild.
+
+**Verified: PARTIAL.** 2026-10-10: `./test.sh maint` → 37 passed, 0 failed (dry-run moves nothing
+and writes no log; a real run on a fake HOME moves two app caches into one dated Trash folder,
+leaves pip/pip-tools/Homebrew, is idempotent, says so when Trash is unreadable); `shellcheck`
+clean. NOT YET: a real run on this Mac (`scripts/mac-maintenance.sh --dry-run`, then without).
+
+## D30 — The audit reports what changed since the last run; acceptance stays in the register · 2026-10-10
+
+**Problem.** From 2026-09-14 to 2026-10-04 every weekly report carried the same nine or ten FAILs
+(two families of old secrets in GitHub history, three repos without Dependabot alerts, one loose
+credential file), each known and tracked in the private findings register. The Sunday
+notification said "10 FAIL" every week; nothing in it told a new finding from a known one, so it
+had stopped carrying information.
+
+**Decision.** `security-audit.sh` opens each report with `## Since last run (<date>)`: new,
+resolved and unchanged FAIL/WARN lines against the newest previous *full* report in the same
+directory, with the new and resolved findings listed. The notification, the terminal line and
+`security-audit.log` carry the new/resolved counts. Comparison rules: date-stamped report paths
+and the dotaudit totals are masked (the same finding on a new day is "unchanged"); only bullets
+under a numbered section count (a report's own delta list is never compared); a `--quick` report
+is never the baseline, and a `--quick` run compares only the sections it ran and says so. The
+exit code is unchanged: 1 on any FAIL.
+
+**Rejected.** *An accepted-findings list the script reads, demoting known FAILs to info*:
+`private/registers/findings.md` already owns acceptance, with the verification discipline; a
+machine-readable copy is a second source of truth that drifts, and a FAIL that is "accepted" in a
+file nobody re-reads is how a known leak stays open. *Exit 0 when nothing is new*: the policy says
+a FAIL is a FAIL; the launchd exit status stays the honest signal. *Comparing the dotaudit findings
+TSVs row by row*: the dashboard's heatmap already does that per repo and check.
+
+**Cost.** The delta is only as stable as the finding text: a reworded check reads as one resolved
+plus one new the week it changes.
+
+**Verified: PARTIAL.** 2026-10-10: `./test.sh tools` → the audit section passes on a fixture
+baseline (names the newest full report and skips a newer `--quick` one; counts 2 new · 1 resolved ·
+1 unchanged; excludes sections 2 and 4 under `--quick`; ignores the baseline's own delta list;
+first-run message when there is no previous report). NOT YET: the real report of Sun 2026-10-11
+10:00 against 2026-10-04's.

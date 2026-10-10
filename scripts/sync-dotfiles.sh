@@ -232,6 +232,7 @@ RECTVOLATILE
         warn "could not export rectangle.plist"
     fi
     sanitize_copy ~/Library/LaunchAgents/com.pieterdejong.weeklycleanup.plist "$MACOS_DIR/com.pieterdejong.weeklycleanup.plist" sanitize_home_paths || true
+    sanitize_copy ~/Library/LaunchAgents/com.pieterdejong.docsbackup.plist "$MACOS_DIR/com.pieterdejong.docsbackup.plist" sanitize_home_paths || true
     if [ "$DRY_RUN" = true ]; then
         log ""; log "[DRY-RUN] Backup preview complete. No changes were made."
     else
@@ -303,15 +304,18 @@ do_restore() {
     fi
     if [ "$DRY_RUN" = false ]; then
         mkdir -p ~/Library/LaunchAgents
-        # Expand ~/ back to real absolute paths: launchd will not do it.
-        if expand_home_paths < "$MACOS_DIR/com.pieterdejong.weeklycleanup.plist" > ~/Library/LaunchAgents/com.pieterdejong.weeklycleanup.plist; then
-            success "com.pieterdejong.weeklycleanup.plist (paths expanded)"
-        else
-            warn "could not restore com.pieterdejong.weeklycleanup.plist"
-        fi
-        log "  ${YELLOW}Note:${NC} run 'launchctl load ~/Library/LaunchAgents/com.pieterdejong.weeklycleanup.plist' to activate"
+        # Expand $HOME back to real absolute paths: launchd will not do it.
+        for plist in com.pieterdejong.weeklycleanup.plist com.pieterdejong.docsbackup.plist; do
+            [ -f "$MACOS_DIR/$plist" ] || continue
+            if expand_home_paths < "$MACOS_DIR/$plist" > ~/Library/LaunchAgents/"$plist"; then
+                success "$plist (paths expanded)"
+            else
+                warn "could not restore $plist"
+            fi
+            log "  ${YELLOW}Note:${NC} run 'launchctl load ~/Library/LaunchAgents/$plist' to activate"
+        done
     else
-        log "  [DRY-RUN] Would copy: com.pieterdejong.weeklycleanup.plist (not loaded automatically)"
+        log "  [DRY-RUN] Would copy: com.pieterdejong.weeklycleanup.plist, com.pieterdejong.docsbackup.plist (not loaded automatically)"
     fi
     if [ "$DRY_RUN" = true ]; then
         log ""; log "[DRY-RUN] Restore preview complete. No changes were made."
@@ -336,6 +340,23 @@ do_status() {
         if diff -q "$2" "$3" >/dev/null 2>&1; then success "$1: in sync"; else warn "$1: DIFFERS"; fi
     }
     check ".zshrc" ~/.zshrc "$SHELL_DIR/.zshrc"; check ".p10k.zsh" ~/.p10k.zsh "$SHELL_DIR/.p10k.zsh"; check ".gitconfig" ~/.gitconfig "$GIT_DIR/.gitconfig"
+    # launchd plists: the weeklycleanup and docsbackup copies carry a $HOME marker
+    # (D20) that restore expands; the securityaudit and rcdev ones run through
+    # `bash -c`, so their literal $HOME is expanded by the shell and the file is
+    # loadable as is. In sync means the live file equals the repo copy either way.
+    check_plist() {
+        local live=~/Library/LaunchAgents/$1 repo="$MACOS_DIR/$1"
+        [ ! -f "$live" ] && [ ! -f "$repo" ] && return
+        [ ! -f "$live" ] && warn "$1: missing locally" && return
+        [ ! -f "$repo" ] && warn "$1: not in repo" && return
+        if diff -q "$live" "$repo" >/dev/null 2>&1 || diff -q "$live" <(expand_home_paths < "$repo") >/dev/null 2>&1; then
+            success "$1: in sync"
+        else
+            warn "$1: DIFFERS"
+        fi
+    }
+    check_plist com.pieterdejong.weeklycleanup.plist; check_plist com.pieterdejong.docsbackup.plist
+    check_plist com.pieterdejong.securityaudit.plist; check_plist com.pieterdejong.rcdev.plist; check_plist com.pieterdejong.rcdev-projects.plist
 }
 
 do_push() {

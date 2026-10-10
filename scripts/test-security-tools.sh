@@ -230,6 +230,42 @@ case "$*" in
 esac
 exit 1
 EOF
+# A previous full report to diff against: one finding this run will repeat
+# (the loose recovery-codes file), one it will not (resolved), and one under
+# section 4, which --quick skips and so must not count as resolved. The dated
+# path inside it must be masked, not compared.
+cat > "$A/out/security-audit-2020-01-01.md" <<'EOF2'
+# Weekly security & privacy audit — 2020-01-01
+
+**3 FAIL · 0 WARN · 0 info** · generated 2020-01-01 10:00 by `dotfiles/scripts/security-audit.sh`
+
+## Since last run (2019-12-25)
+
+- **1 new** · 0 resolved · 2 unchanged
+
+New:
+
+- FAIL: this line is in the delta section and must never be compared
+
+## 1. Commit/push gate
+
+- gate installed and intact
+
+## 2. Local repos (dotaudit)
+
+- **FAIL** dotaudit: 99 FAIL, 9 WARN — see /x/audit-2020-01-01.md
+
+## 4. GitHub repos with no local clone
+
+- **FAIL** example/skipped-section (PUBLIC): gitleaks reports 1 secret(s) in history — rotate, then decide on the repo
+
+## 6. Credential-shaped files outside version control
+
+- **FAIL** outside any repo, no version control and no guard: github-recovery-codes.txt
+- **FAIL** outside any repo, no version control and no guard: a-file-that-was-removed.pem
+EOF2
+# A newer --quick report must not be picked as the baseline.
+printf '# Weekly security & privacy audit — 2020-02-02\n\n**0 FAIL · 0 WARN · 0 info** · generated 2020-02-02 (--quick)\n\n## 1. Commit/push gate\n\n- ok\n' > "$A/out/security-audit-2020-02-02.md"
 chmod +x "$A/bin/gh"
 printf 'recovery\n' > "$A/dev/github-recovery-codes.txt"
 git init -q "$A/dev/projects/app"
@@ -253,8 +289,23 @@ HOME="$A/home" GIT_CONFIG_GLOBAL="$A/home/.gitconfig" GIT_CONFIG_NOSYSTEM=1 DEV_
   SKIPLIST_FILE="$S/skiplist.conf" SECURITY_GATE_BYPASS_LOG="$A/bypass.log" PATH="$A/bin:$REAL_PATH" \
   "$DOTFILES_DIR/scripts/security-audit.sh" --quick --no-notify --out "$A/out" > "$OUT" 2>&1
 rc=$?
-report="$(first "$A"/out/security-audit-*.md)"
+report="$(find "$A/out" -name 'security-audit-*.md' -newer "$A/out/security-audit-2020-02-02.md" | head -1)"
 [ -n "$report" ] && pass "report written" || fail "no report written"
+grep -q '^## Since last run (2020-01-01)$' "$report" 2>/dev/null \
+  && pass "delta section names the newest full report as its baseline (skips the --quick one)" \
+  || fail "delta baseline wrong or missing"
+# This run's FAIL/WARN lines, minus the one repeated from the baseline, are the new ones.
+n_now="$(grep -cE '^- \*\*(FAIL|WARN)\*\* ' "$report" 2>/dev/null | tr -d ' ')"
+grep -qE "^- \*\*$((n_now - 1)) new\*\* · 1 resolved · 1 unchanged \(sections 2 and 4 not compared: --quick\)$" "$report" 2>/dev/null \
+  && pass "delta counts: $((n_now - 1)) new, 1 resolved, 1 unchanged, sections 2 and 4 excluded under --quick" \
+  || fail "delta counts wrong (expected $((n_now - 1)) new · 1 resolved · 1 unchanged)"
+grep -q '^- FAIL: outside any repo, no version control and no guard: a-file-that-was-removed.pem$' "$report" 2>/dev/null \
+  && pass "resolved finding is listed without the **FAIL** marker" || fail "resolved finding not listed"
+grep -q 'skipped-section' "$report" 2>/dev/null && fail "a section-4 finding counted as resolved under --quick" \
+  || pass "a section-4 finding from the baseline is not counted as resolved under --quick"
+grep -q 'must never be compared' "$report" 2>/dev/null && fail "the baseline's own delta list leaked into the comparison" \
+  || pass "the baseline's own delta list is not compared"
+grep -q 'FAIL (.* new, 1 resolved)' "$OUT" && pass "terminal summary carries the new/resolved counts" || fail "terminal summary lacks new/resolved"
 [ "$rc" = 1 ] && pass "exits 1 when there is a FAIL" || fail "exit $rc, expected 1"
 [ -s "$A/out/dashboard.html" ] && grep -q '^Dashboard: ' "$OUT" && pass "audit run regenerates the dashboard" || fail "no dashboard after the audit run"
 grep -q 'FAIL\*\* outside any repo.*github-recovery-codes.txt' "$report" 2>/dev/null && pass "loose credential file outside any repo is a FAIL" || fail "loose file outside repo not reported"
@@ -270,6 +321,10 @@ grep -q 'skipped (--quick)' "$report" 2>/dev/null && pass "--quick skips the slo
 grep -q 'SSH keys on the account: 2' "$report" 2>/dev/null && pass "account section lists SSH key count" || fail "account section missing SSH keys"
 perm="$(stat -f %Lp "$report" 2>/dev/null || stat -c %a "$report" 2>/dev/null)"
 [ "$perm" = 600 ] && pass "report is mode 600" || fail "report mode $perm"
+mkdir -p "$A/first"
+HOME="$A/home" DEV_ROOT="$A/dev" PATH="$A/bin:$REAL_PATH" "$DOTFILES_DIR/scripts/security-audit.sh" --quick --no-notify --out "$A/first" > "$OUT" 2>&1
+grep -q 'first full report in' "$(first "$A"/first/security-audit-*.md)" 2>/dev/null \
+  && pass "a run with no previous report says so instead of diffing" || fail "first-run delta message missing"
 git init -q "$A/repo-out"
 HOME="$A/home" DEV_ROOT="$A/dev" PATH="$A/bin:$REAL_PATH" "$DOTFILES_DIR/scripts/security-audit.sh" --quick --no-notify --out "$A/repo-out" > "$OUT" 2>&1; rc=$?
 [ "$rc" = 3 ] && pass "refuses to write its report into a git repo" || fail "report into git repo exit $rc"

@@ -1,39 +1,104 @@
-#!/bin/bash
+#!/usr/bin/env bash
+#
+# mac-maintenance.sh — a system report plus a cache quarantine, run by hand.
+#
+# Usage: mac-maintenance.sh [--dry-run]
+#
+#   (no args)   report uptime, memory and disk, then move every entry of
+#               ~/Library/Caches into one dated folder in ~/.Trash. Prints and
+#               logs to ~/maintenance-YYYYMMDD.log.
+#   --dry-run   print the report and what would be moved; change nothing and
+#               write no log.
+#
+# Moving instead of deleting gives a restore window: weekly-disk-cleanup.sh
+# purges Trash items older than 7 days, so a cache an app still wanted can be
+# put back for a week. Caches the weekly cleanup already empties in place (pip,
+# pip-tools, Homebrew) are left to it. Entries an app holds open fail to move
+# and are listed, not forced. Not scheduled: run it when the Mac feels slow or
+# the disk is full (docs/maintenance.md).
+#
+# Exit: 0 done, 2 bad usage.
 
-# mac-maintenance.sh
-# Weekly system maintenance script for macOS
+set -u
 
-set -e
+DRY_RUN=false
+case "${1:-}" in
+  "") ;;
+  -n|--dry-run) DRY_RUN=true ;;
+  -h|--help) sed -n '2,/^$/s/^# \{0,1\}//p' "$0"; exit 0 ;;
+  *) echo "usage: mac-maintenance.sh [--dry-run]" >&2; exit 2 ;;
+esac
 
+CACHES="$HOME/Library/Caches"
+TRASH="$HOME/.Trash"
 LOG_FILE="$HOME/maintenance-$(date +%Y%m%d).log"
+# Owned by weekly-disk-cleanup.sh, which empties them without a move.
+SKIP_NAMES=" pip pip-tools Homebrew "
 
-echo "=== macOS Maintenance Report - $(date) ===" | tee "$LOG_FILE"
-echo "" | tee -a "$LOG_FILE"
+# A real run prints and logs; --dry-run only prints.
+if ! $DRY_RUN; then exec > >(tee -a "$LOG_FILE") 2>&1; fi
 
-echo "--- UPTIME ---" | tee -a "$LOG_FILE"
-uptime | tee -a "$LOG_FILE"
-echo "" | tee -a "$LOG_FILE"
+# act <cmd...> — every step that changes something goes through here, so
+# --dry-run is one switch rather than one per section.
+act() {
+  if $DRY_RUN; then echo "  would run: $*"; else "$@"; fi
+}
 
+size() { du -sh "$1" 2>/dev/null | cut -f1; }
 
-echo "--- MEMORY STATS ---" | tee -a "$LOG_FILE"
-vm_stat | tee -a "$LOG_FILE"
+echo "=== macOS Maintenance Report - $(date)$($DRY_RUN && echo '  [DRY RUN]') ==="
+echo ""
 
-# Human-readable summary
-page_size=$(pagesize)
-free_pages=$(vm_stat | awk '/Pages free/ {print $3}' | tr -d '.')
-inactive_pages=$(vm_stat | awk '/Pages inactive/ {print $3}' | tr -d '.')
-free_gb=$(echo "scale=2; ($free_pages + $inactive_pages) * $page_size / 1073741824" | bc)
-echo "Approximate available memory: ${free_gb} GB" | tee -a "$LOG_FILE"
-echo "" | tee -a "$LOG_FILE"
+echo "--- UPTIME ---"
+uptime
+echo ""
 
-echo "--- LIBRARY CACHES CLEANUP ---" | tee -a "$LOG_FILE"
-echo "Before: $(du -sh "$HOME/Library/Caches" 2>/dev/null | cut -f1)" | tee -a "$LOG_FILE"
-# Moved (not deleted) into ~/.Trash so weekly-disk-cleanup.sh's existing
-# 7-day Trash purge is what actually reclaims the space — gives a restore
-# window instead of an immediate, permanent rm -rf.
-QUARANTINE_DIR="$HOME/.Trash/mac-maintenance-caches-$(date +%Y%m%d-%H%M%S)"
-mkdir -p "$QUARANTINE_DIR"
-mv "$HOME/Library/Caches"/* "$QUARANTINE_DIR"/ 2>/dev/null || true
-echo "Moved to: $QUARANTINE_DIR (purged after 7 days by weekly-disk-cleanup.sh)" | tee -a "$LOG_FILE"
-echo "After:  $(du -sh "$HOME/Library/Caches" 2>/dev/null | cut -f1)" | tee -a "$LOG_FILE"
+echo "--- MEMORY ---"
+if command -v vm_stat >/dev/null 2>&1 && command -v pagesize >/dev/null 2>&1; then
+  vm_stat | awk -v ps="$(pagesize)" '
+    /Pages free/     { f = $3 }
+    /Pages inactive/ { i = $3 }
+    END { gsub(/\./, "", f); gsub(/\./, "", i)
+          printf "Approximate available memory: %.2f GB (free + inactive)\n", (f + i) * ps / 1073741824 }'
+else
+  echo "vm_stat not available, skipped"
+fi
+echo ""
 
+echo "--- DISK ---"
+df -h "$HOME" | awk 'NR==1 || NR==2'
+echo ""
+
+# --- Library caches → Trash ------------------------------------------------
+# One dated folder per run, so a run is easy to find and to put back.
+echo "--- LIBRARY CACHES → TRASH ---"
+if [ ! -d "$CACHES" ]; then
+  echo "no $CACHES, skipped"
+elif ! ls "$TRASH" >/dev/null 2>&1 || [ ! -w "$TRASH" ]; then
+  echo "no access to ~/.Trash (Full Disk Access?) — skipped"
+else
+  echo "Before: $(size "$CACHES")"
+  dest="$TRASH/mac-maintenance-caches-$(date +%Y%m%d-%H%M%S)"
+  moved=0; kept=0; busy=0
+  for entry in "$CACHES"/*; do
+    [ -e "$entry" ] || continue
+    name="$(basename "$entry")"
+    case "$SKIP_NAMES" in
+      *" $name "*) kept=$((kept + 1)); continue ;;
+    esac
+    [ "$moved" = 0 ] && [ "$busy" = 0 ] && act mkdir -p "$dest"
+    if act mv "$entry" "$dest/" 2>/dev/null; then
+      moved=$((moved + 1))
+    else
+      busy=$((busy + 1)); echo "  in use, left in place: $name"
+    fi
+  done
+  echo "Moved: $moved item(s) to $dest"
+  echo "Left:  $kept for weekly-disk-cleanup.sh ($(echo "$SKIP_NAMES" | tr -s ' ' | sed 's/^ //; s/ $//')), $busy in use"
+  $DRY_RUN || echo "After:  $(size "$CACHES")"
+  echo "Purged by weekly-disk-cleanup.sh once the folder is 7 days old."
+fi
+
+echo ""
+echo "Done: $(date)"
+exit 0

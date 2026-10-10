@@ -70,6 +70,7 @@ echo "======================================================"
 echo "  Weekly disk cleanup - $(date)$($DRY_RUN && echo '  [DRY RUN]')"
 echo "======================================================"
 echo "Free before: $(df -h "$HOME" | awk 'NR==2 {print $4}')"
+free_kb_before=$(df -k "$HOME" | awk 'NR==2 {print $4}')
 
 # --- npm cache ------------------------------------------------------------
 # Verifies integrity, then wipes ~/.npm/_cacache (every package tarball
@@ -197,14 +198,19 @@ fi
 # so an accidental delete still has a recovery window. Age is -ctime, not
 # -mtime: moving a file to Trash keeps its mtime (an old movie trashed today
 # would be purged at once) but sets its ctime, so ctime is "time in Trash".
-# Under launchd this is
-# largely a no-op: ~/.Trash needs Full Disk Access (docs/maintenance.md).
+# ~/.Trash is TCC-protected: a plain launchd agent has no Full Disk Access,
+# so `ls` fails with "Operation not permitted". The step then says so and is
+# skipped, instead of printing empty sizes (docs/maintenance.md).
 echo ""
 echo "--- Trash (items older than 7 days) ---"
-echo "Before: $(size "$HOME/.Trash")"
-echo "Items:  $(find "$HOME/.Trash" -mindepth 1 -maxdepth 1 -ctime +7 2>/dev/null | wc -l | tr -d ' ')"
-act find "$HOME/.Trash" -mindepth 1 -maxdepth 1 -ctime +7 -exec rm -rf {} +
-$DRY_RUN || echo "After:  $(size "$HOME/.Trash")"
+if ! ls "$HOME/.Trash" >/dev/null 2>&1; then
+  echo "no Full Disk Access to ~/.Trash (launchd) — skipped; run from a terminal to sweep it"
+else
+  echo "Before: $(size "$HOME/.Trash")"
+  echo "Items:  $(find "$HOME/.Trash" -mindepth 1 -maxdepth 1 -ctime +7 2>/dev/null | wc -l | tr -d ' ')"
+  act find "$HOME/.Trash" -mindepth 1 -maxdepth 1 -ctime +7 -exec rm -rf {} +
+  $DRY_RUN || echo "After:  $(size "$HOME/.Trash")"
+fi
 
 # ============================================================================
 # IDEAS (commented out, not yet enabled)
@@ -272,5 +278,10 @@ $DRY_RUN || echo "After:  $(size "$HOME/.Trash")"
 
 echo ""
 echo "Free after: $(df -h "$HOME" | awk 'NR==2 {print $4}')"
+if ! $DRY_RUN; then
+  free_kb_after=$(df -k "$HOME" | awk 'NR==2 {print $4}')
+  # One line a human can grep for; the dashboard sums the per-section sizes.
+  echo "Reclaimed: $(( (free_kb_after - free_kb_before) / 1024 )) MB"
+fi
 echo "Done: $(date)"
 exit 0

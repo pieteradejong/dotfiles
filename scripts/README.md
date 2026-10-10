@@ -62,7 +62,7 @@ scripts/
 | [`security-audit.sh`](security-audit.sh) | bash | **composer**: the weekly audit — calls the gate, `dev-audit.sh`, `github-security-sweep.sh`, then adds its own checks | read-only | `test-security-tools.sh` |
 | [`audit-dashboard.py`](audit-dashboard.py) | python | render one local HTML dashboard from the audit reports, findings TSVs and the cleanup log; `security-audit.sh` calls it last | writes only `audit-reports/dashboard.html` | `test-security-tools.sh` |
 | [`sync-dotfiles.sh`](sync-dotfiles.sh) (`dotfiles`) | bash | copy configs between `~` and this repo (`backup`, `restore`, `status`, `extensions`, `push`) | mutating, `--dry-run` | partly, `test-security-tools.sh` (sanitizers) |
-| [`mac-maintenance.sh`](mac-maintenance.sh) | bash | uptime and memory report; moves `~/Library/Caches/*` to Trash | mutating, no dry run | none |
+| [`mac-maintenance.sh`](mac-maintenance.sh) | bash | uptime, memory and disk report; moves `~/Library/Caches/*` (except pip, pip-tools, Homebrew) into one dated Trash folder | mutating, `--dry-run` | `test-mac-maintenance.sh` |
 | [`dothelp.sh`](dothelp.sh) (`dothelp`) | bash | print a hand-written cheat sheet of the `dot*` commands | read-only | none |
 
 Scheduling and output locations: [`docs/maintenance.md`](../docs/maintenance.md).

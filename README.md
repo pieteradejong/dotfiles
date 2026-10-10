@@ -120,7 +120,7 @@ dotfiles/
 ├── scripts/        # Management scripts for this repo - deliberately NOT on PATH
 │   ├── sync-dotfiles.sh            # Main sync script
 │   ├── test-dotfiles-setup.sh
-│   ├── mac-maintenance.sh          # System stats report (only copy, run from here)
+│   ├── mac-maintenance.sh          # system report + cache quarantine, --dry-run (tested: ./test.sh maint)
 │   ├── test-bin.sh                 # bin/ routing, zero-cloud guards, cleanup safety
 │   ├── security-audit.sh           # weekly full security & privacy audit
 │   ├── github-security-sweep.sh    # GitHub-side settings for every owned repo
@@ -245,7 +245,7 @@ past findings is kept in the private companion repo, not here.
 ### macOS
 - iTerm2 preferences
 - Rectangle window manager settings
-- Weekly disk cleanup and weekly security audit LaunchAgents (see [docs/maintenance.md](docs/maintenance.md))
+- LaunchAgents: weekly disk cleanup, weekly security audit, daily docs backup, Remote Control (see [docs/maintenance.md](docs/maintenance.md))
 
 ## 📝 Maintenance
 
@@ -332,7 +332,8 @@ deliberately decided against or accepted as-is rather than "fixed":
 - [docs/reinstall-commands.md](docs/reinstall-commands.md) - Commands to reconstruct system
 - [docs/policy/](docs/policy/) - The rules: security & privacy, repo standards, AI instruction files, backups
 - [docs/design-decisions.md](docs/design-decisions.md) - Why the security gate, weekly audit and public/private split are built as they are
-- [docs/maintenance.md](docs/maintenance.md) - Every scheduled job (security audit, disk cleanup, docs backup), the manual script, and the monthly checklist
+- [docs/maintenance.md](docs/maintenance.md) - The README for maintenance: every scheduled job (security audit, disk cleanup, docs backup, Remote Control), the manual script, how each is run and tested, the decisions behind them, and the monthly checklist
+- [TODO.md](TODO.md) - Open work on this repo's tooling and jobs · [CHANGELOG.md](CHANGELOG.md) - behaviour-relevant changes
 - [docs/dev-audit.md](docs/dev-audit.md) - `dotaudit`: what each check means
 
 ## 📄 License
