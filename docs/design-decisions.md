@@ -684,3 +684,50 @@ baseline (names the newest full report and skips a newer `--quick` one; counts 2
 1 unchanged; excludes sections 2 and 4 under `--quick`; ignores the baseline's own delta list;
 first-run message when there is no previous report). NOT YET: the real report of Sun 2026-10-11
 10:00 against 2026-10-04's.
+
+## D31 — Job results are mailed through Gmail SMTP with Keychain credentials; a missing mailbox never fails a job · 2026-10-12
+
+**Problem.** `bin/weekly-disk-cleanup.sh` (launchd, Sunday 09:00) and `scripts/mac-maintenance.sh`
+(by hand) only wrote a local log. Nobody reads `~/.weekly-disk-cleanup.log` unless something feels
+wrong, and the maintenance log never leaves the Mac. Pieter asked for the result of every run in his
+inbox. launchd jobs have no Mail.app and no GUI session; this Mac has no SMTP relay (Postfix is
+unconfigured, no msmtp); and the repo is public, so no address may be committed — the gate blocks
+real email addresses in any file (D24).
+
+**Decision.** One sender, [`bin/mail-report`](../bin/mail-report): Python standard library only
+(`smtplib` over implicit TLS to `smtp.gmail.com:465`), stdin as a plain-text body, one `--subject`.
+Credentials are a single macOS Keychain item (`dotfiles-mail-report`: account = Gmail address,
+password = a Gmail App Password), created once by hand with `security add-generic-password … -w`
+so the password is typed at a prompt, never on a command line. Both jobs capture their run into a
+per-run file (a `tee` into the log is asynchronous, so the last lines could not be read back
+reliably), append it to their log, then mail it with the `Reclaimed:`/`Moved:` line as the subject.
+Exit codes 1 (send failed) and 3 (no Keychain item) are a `WARN: report not mailed` line in the
+output and the log; the job still exits 0. `--dry-run` never mails; `--no-mail` logs only.
+`MAIL_REPORT_BIN` lets the suites point the jobs at a stub, so no test touches the Keychain or the
+network and `./test.sh` passes on Linux CI, where `security` does not exist.
+
+**Rejected.** *msmtp from Homebrew*: a second tool and a `~/.msmtprc` to back up, for what forty
+lines of stdlib do. *A Postfix relay*: root-owned system config outside the repo, and a change to
+how every local `mail` call behaves. *Mail.app via `osascript`*: needs a GUI session and a configured
+account; fails silently under launchd. *A macOS notification* (what the audit does): gone the
+moment it is dismissed, missed entirely when away from the Mac. *The address in the repo or the
+plist*: the gate blocks it and the repo is public. *Password in an env file or the plist*: plaintext
+on disk; the Keychain already solves this. *Failing the job when the mail fails*: a cleanup that
+reclaimed 20 GB is not a failure because the inbox was unreachable.
+
+**Cost.** Google receives the run's text (cache sizes, paths under `$HOME`, counts) — a processor of
+log lines that contain no secret and no other person's data. One Keychain item is a by-hand setup
+step on a reinstall (`docs/reinstall-commands.md` § Keychain items). An App Password bypasses
+2-step verification for SMTP, so it is scoped to one purpose and revocable on its own.
+
+**Verified: PARTIAL.** 2026-10-12: `./test.sh` → every suite passes: `mail` (13: fake Keychain,
+exit 3 when unconfigured or without `security`, exit 2 usage, `--dry-run` composes From/To/Subject
+and a UTF-8 body, `--test` probe, the password never on stdout or stderr, a refused SMTP connection
+is exit 1), `maint` (52: a real run on a fake HOME mails once, subject carries the host and
+`Moved: 2 item(s)`, the body is byte-identical to the log, the second run mails only its own run,
+`--no-mail` and `--dry-run` send nothing, a sender exiting 3 leaves the run at exit 0 with the WARN
+line in output and log), `bin` (101: `--dry-run` with a marker stub sends nothing, `--no-mail`
+accepted, the log append precedes the mail call); `shellcheck`, `zsh -n` and `ruff` clean.
+NOT YET: the Keychain item on this Mac, `mail-report --test`, and the first launchd run that mails
+(Sun 2026-10-18 09:00) — which also confirms that `security` reads the item under launchd without a
+prompt.

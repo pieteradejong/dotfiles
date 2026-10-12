@@ -15,7 +15,8 @@ and the repo holds a copy (see [docs/system-overview.md](../docs/system-overview
 | Script | What it is |
 |---|---|
 | [`llm`](../docs/llm.md) | Run a prompt against a local model. Never the cloud. |
-| `weekly-disk-cleanup.sh` | Reclaims disk from caches that regenerate (npm, pip, pip-tools, uv, Homebrew, pnpm, Xcode, Squirrel and Sparkle app-updater leftovers) and Trash older than 7 days. Runs weekly via launchd, which points at this path; `--dry-run` shows what it would do. See [docs/maintenance.md](../docs/maintenance.md). |
+| `weekly-disk-cleanup.sh` | Reclaims disk from caches that regenerate (npm, pip, pip-tools, uv, Homebrew, pnpm, Xcode, Squirrel and Sparkle app-updater leftovers) and Trash older than 7 days. Runs weekly via launchd, which points at this path; `--dry-run` shows what it would do; every real run is logged and mailed (`--no-mail` to skip). See [docs/maintenance.md](../docs/maintenance.md). |
+| `mail-report` | Sends stdin as a plain-text email over Gmail SMTP, credentials from one Keychain item — the sender behind the maintenance jobs' mails. `mail-report --test` to check the setup. Python, stdlib only. See [docs/maintenance.md § Email reports](../docs/maintenance.md#email-reports). |
 | `rcdev` | Always-on Claude Code Remote Control server rooted at `~/dev`, run by launchd (`rcdev install`, `rcdev status`). See [docs/maintenance.md](../docs/maintenance.md#remote-control-server-rcdev). |
 
 ## `bin/` vs `scripts/`
@@ -33,9 +34,11 @@ putting it there would turn every one of those into a global command.
 ```zsh
 ./test.sh zsh-syntax
 ./test.sh bin
+./test.sh mail       # mail-report, against a fake Keychain; nothing is sent
 ```
 
-These scripts are zsh, so they are not covered by the `shellcheck` suite —
-shellcheck does not parse zsh. `weekly-disk-cleanup.sh` is never executed by the
-tests (it deletes things); it is asserted statically instead.
+The zsh scripts are not covered by the `shellcheck` suite — shellcheck does not
+parse zsh. `weekly-disk-cleanup.sh` is never executed by the tests (it deletes
+things); it is asserted statically instead, with a stub in place of `mail-report`.
+`mail-report` is Python and is linted by `ruff` (`./test.sh ruff`).
 

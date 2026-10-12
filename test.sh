@@ -4,7 +4,7 @@
 #
 #   ./test.sh                 all suites
 #   ./test.sh gate            one suite: shellcheck | zsh-syntax | ruff | bin | gate |
-#                                        tools | dotaudit | containers | maint | docs
+#                                        tools | dotaudit | containers | maint | mail | docs
 #   ./test.sh --verbose       pass --verbose through to each suite
 #
 # Suites:
@@ -20,7 +20,9 @@
 #   dotaudit    scripts/test-dev-audit.sh       (the read-only workspace audit)
 #   containers  scripts/test-containers-doctor.sh (Colima / no-Docker-Desktop doctor)
 #   maint       scripts/test-mac-maintenance.sh  (report + cache quarantine, on a
-#                                                fake HOME)
+#                                                fake HOME; mail stubbed)
+#   mail        scripts/test-mail-report.py      (bin/mail-report against a fake
+#                                                Keychain; nothing is sent)
 #   docs        scripts/test-docs.py            (policy doc links, anchors, index,
 #                                                workspace CLAUDE.md in sync)
 #
@@ -34,7 +36,7 @@ ONLY=""
 for a in "$@"; do
   case "$a" in
     --verbose) VERBOSE="--verbose" ;;
-    shellcheck|zsh-syntax|ruff|bin|gate|tools|dotaudit|containers|maint|docs) ONLY="$a" ;;
+    shellcheck|zsh-syntax|ruff|bin|gate|tools|dotaudit|containers|maint|mail|docs) ONLY="$a" ;;
     -h|--help) sed -n '3,25p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown argument: $a" >&2; exit 2 ;;
   esac
@@ -76,9 +78,12 @@ bin/weekly-disk-cleanup.sh
 "
 
 # Python scripts (stdlib only, per scripts/README.md), linted with ruff.
+# bin/mail-report has no extension; ruff lints a file it is given by name.
 PYTHON_FILES="
+bin/mail-report
 scripts/audit-dashboard.py
 scripts/test-docs.py
+scripts/test-mail-report.py
 "
 
 RESULTS=""
@@ -125,6 +130,7 @@ run_suite tools    bash scripts/test-security-tools.sh $VERBOSE
 run_suite dotaudit bash scripts/test-dev-audit.sh $VERBOSE
 run_suite containers bash scripts/test-containers-doctor.sh $VERBOSE
 run_suite maint    bash scripts/test-mac-maintenance.sh $VERBOSE
+run_suite mail     python3 scripts/test-mail-report.py $VERBOSE
 run_suite docs     python3 scripts/test-docs.py $VERBOSE
 
 printf '\n\033[1m════ test.sh summary ════\033[0m%b\n' "$RESULTS"

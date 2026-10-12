@@ -4,13 +4,15 @@
 # that was already discarded. Nothing it removes is needed. At worst the next
 # install or build downloads it again.
 #
-# Usage: weekly-disk-cleanup.sh [--dry-run]
+# Usage: weekly-disk-cleanup.sh [--dry-run] [--no-mail]
 #
 #   (no args)   clean. Runs weekly via launchd
 #               (~/Library/LaunchAgents/com.pieterdejong.weeklycleanup.plist);
-#               from a terminal it also prints as it goes.
-#   --dry-run   show sizes and what each step would run; change nothing and
-#               leave the log untouched.
+#               from a terminal it also prints as it goes. The run's output is
+#               appended to the log and mailed (bin/mail-report).
+#   --dry-run   show sizes and what each step would run; change nothing,
+#               leave the log untouched, send no mail.
+#   --no-mail   clean and log, but send no mail.
 #
 # Sections, each independent — one failing (e.g. Docker not running)
 # does not stop the others. See docs/maintenance.md for what each step does
@@ -19,15 +21,20 @@
 # Repo-only, like mac-maintenance.sh: launchd runs this file in place. There is
 # no second copy to keep in sync.
 #
-# Exit: 0 done, 2 bad usage.
+# Env:  MAIL_REPORT_BIN  the sender (default: mail-report next to this script)
+#
+# Exit: 0 done, 2 bad usage. A mail that cannot be sent is a WARN line, not a failure.
 
 DRY_RUN=false
-case "${1:-}" in
-  "") ;;
-  -n|--dry-run) DRY_RUN=true ;;
-  -h|--help) sed -n '2,/^$/s/^# \{0,1\}//p' "$0"; exit 0 ;;
-  *) echo "usage: weekly-disk-cleanup.sh [--dry-run]" >&2; exit 2 ;;
-esac
+MAIL=true
+for arg in "$@"; do
+  case "$arg" in
+    -n|--dry-run) DRY_RUN=true ;;
+    --no-mail) MAIL=false ;;
+    -h|--help) sed -n '2,/^$/s/^# \{0,1\}//p' "$0"; exit 0 ;;
+    *) echo "usage: weekly-disk-cleanup.sh [--dry-run] [--no-mail]" >&2; exit 2 ;;
+  esac
+done
 
 # launchd starts with a bare PATH, which finds Xcode's old /usr/bin/pip3 (it
 # misses pip's current cache layout) and no brew or uv at all. Homebrew first.
@@ -38,18 +45,7 @@ export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
 
 LOG_FILE="$HOME/.weekly-disk-cleanup.log"
-
-# Output: --dry-run prints only; a terminal run prints and logs; launchd logs.
-# The log is trimmed before this run starts, not after, so the trim never
-# races the tee still flushing this run's last lines.
-if ! $DRY_RUN; then
-  [ -f "$LOG_FILE" ] && tail -n 1000 "$LOG_FILE" > "$LOG_FILE.tmp" && mv "$LOG_FILE.tmp" "$LOG_FILE"
-  if [ -t 1 ]; then
-    exec > >(tee -a "$LOG_FILE") 2>&1
-  else
-    exec >> "$LOG_FILE" 2>&1
-  fi
-fi
+MAIL_REPORT_BIN="${MAIL_REPORT_BIN:-${0:A:h}/mail-report}"
 
 # act <cmd...> — every step that changes something goes through here, so
 # --dry-run is one switch rather than one per section.
@@ -64,6 +60,11 @@ size() {
 }
 
 has() { command -v "$1" >/dev/null 2>&1; }
+
+# run_cleanup — the whole run, sections in order. Called once below: printed
+# as is for --dry-run, otherwise captured so the same text goes to the log and
+# into the mail.
+run_cleanup() {
 
 echo ""
 echo "======================================================"
@@ -284,4 +285,35 @@ if ! $DRY_RUN; then
   echo "Reclaimed: $(( (free_kb_after - free_kb_before) / 1024 )) MB"
 fi
 echo "Done: $(date)"
+
+}  # end run_cleanup
+
+# --- Output --------------------------------------------------------------------
+# --dry-run prints only. A real run is captured into one per-run file first —
+# a tee into the log is asynchronous, so the run could not be read back for the
+# mail reliably — then appended to the log (trimmed to 1000 lines before, not
+# after, so the trim never races this run's lines) and mailed. A terminal run
+# also prints as it goes.
+if $DRY_RUN; then
+  run_cleanup
+  exit 0
+fi
+
+[ -f "$LOG_FILE" ] && tail -n 1000 "$LOG_FILE" > "$LOG_FILE.tmp" && mv "$LOG_FILE.tmp" "$LOG_FILE"
+RUN_OUT="$(mktemp "${TMPDIR:-/tmp}/weekly-disk-cleanup.XXXXXX")"
+trap 'rm -f "$RUN_OUT"' EXIT
+if [ -t 1 ]; then
+  run_cleanup 2>&1 | tee "$RUN_OUT"
+else
+  run_cleanup > "$RUN_OUT" 2>&1
+fi
+cat "$RUN_OUT" >> "$LOG_FILE"
+
+if $MAIL; then
+  subject="weekly-disk-cleanup on $(hostname -s): $(grep -m1 '^Reclaimed: ' "$RUN_OUT" || echo finished)"
+  "$MAIL_REPORT_BIN" --subject "$subject" < "$RUN_OUT"; rc=$?
+  if [ "$rc" != 0 ]; then
+    echo "WARN: report not mailed (mail-report exit $rc) — see mail-report --help" | tee -a "$LOG_FILE"
+  fi
+fi
 exit 0

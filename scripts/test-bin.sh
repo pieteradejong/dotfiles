@@ -426,6 +426,34 @@ grep -qE '^[^#]*echo "Reclaimed: ' "$CLEANUP" \
   && pass "a real run prints a Reclaimed summary line" \
   || fail "a real run prints a Reclaimed summary line"
 
+# Mail. A real run appends its output to the log and mails it through
+# bin/mail-report (overridable with MAIL_REPORT_BIN); --dry-run never mails.
+# Checked statically plus one --dry-run with a stub that would leave a marker.
+MAIL_STUB="$T/mail-stub"
+printf '#!/bin/sh\ntouch "%s/mail-called"\ncat > /dev/null\n' "$T" > "$MAIL_STUB"; chmod +x "$MAIL_STUB"
+: > "$OUT"
+HOME="$DRY_HOME" PATH="/usr/bin:/bin" MAIL_REPORT_BIN="$MAIL_STUB" zsh "$CLEANUP" --dry-run > "$OUT" 2>&1; rc=$?
+[ "$rc" = 0 ] && [ ! -e "$T/mail-called" ] \
+  && pass "--dry-run sends no mail" || fail "--dry-run sends no mail (rc=$rc)"
+: > "$OUT"
+HOME="$DRY_HOME" PATH="/usr/bin:/bin" zsh "$CLEANUP" --no-mail --dry-run > "$OUT" 2>&1; rc=$?
+[ "$rc" = 0 ] && grep -q 'would run:' "$OUT" \
+  && pass "--no-mail is accepted alongside --dry-run" || fail "--no-mail rejected (rc=$rc)"
+grep -qE '^[^#]*"\$MAIL_REPORT_BIN" --subject' "$CLEANUP" \
+  && pass "the mail goes through \$MAIL_REPORT_BIN (overridable)" \
+  || fail "the mail goes through \$MAIL_REPORT_BIN (overridable)"
+append_ln="$(grep -nE '^[^#]*cat "\$RUN_OUT" >> "\$LOG_FILE"' "$CLEANUP" | head -1 | cut -d: -f1)"
+mail_ln="$(grep -nE '^[^#]*"\$MAIL_REPORT_BIN" --subject' "$CLEANUP" | head -1 | cut -d: -f1)"
+[ -n "$append_ln" ] && [ -n "$mail_ln" ] && [ "$append_ln" -lt "$mail_ln" ] \
+  && pass "the log is appended before the mail is sent" \
+  || fail "the log is appended before the mail is sent (lines $append_ln / $mail_ln)"
+grep -qE '^[^#]*grep -m1 .\^Reclaimed: ' "$CLEANUP" \
+  && pass "the mail subject carries the Reclaimed line" \
+  || fail "the mail subject carries the Reclaimed line"
+grep -qE '^[^#]*WARN: report not mailed' "$CLEANUP" \
+  && pass "a sender failure is a WARN line, not an exit code" \
+  || fail "a sender failure is a WARN line, not an exit code"
+
 
 # ── 5b. rcdev — the always-on Remote Control agent ───────────────────────────
 # Never installs or starts anything: `run` is exercised only with RCDEV_DRY_RUN,

@@ -62,7 +62,7 @@ scripts/
 | [`security-audit.sh`](security-audit.sh) | bash | **composer**: the weekly audit — calls the gate, `dev-audit.sh`, `github-security-sweep.sh`, then adds its own checks | read-only | `test-security-tools.sh` |
 | [`audit-dashboard.py`](audit-dashboard.py) | python | render one local HTML dashboard from the audit reports, findings TSVs and the cleanup log; `security-audit.sh` calls it last | writes only `audit-reports/dashboard.html` | `test-security-tools.sh` |
 | [`sync-dotfiles.sh`](sync-dotfiles.sh) (`dotfiles`) | bash | copy configs between `~` and this repo (`backup`, `restore`, `status`, `extensions`, `push`) | mutating, `--dry-run` | partly, `test-security-tools.sh` (sanitizers) |
-| [`mac-maintenance.sh`](mac-maintenance.sh) | bash | uptime, memory and disk report; moves `~/Library/Caches/*` (except pip, pip-tools, Homebrew) into one dated Trash folder | mutating, `--dry-run` | `test-mac-maintenance.sh` |
+| [`mac-maintenance.sh`](mac-maintenance.sh) | bash | uptime, memory and disk report; moves `~/Library/Caches/*` (except pip, pip-tools, Homebrew) into one dated Trash folder; logs and mails the run (`bin/mail-report`) | mutating, `--dry-run`, `--no-mail` | `test-mac-maintenance.sh` |
 | [`dothelp.sh`](dothelp.sh) (`dothelp`) | bash | print a hand-written cheat sheet of the `dot*` commands | read-only | none |
 
 Scheduling and output locations: [`docs/maintenance.md`](../docs/maintenance.md).
@@ -76,6 +76,7 @@ Scheduling and output locations: [`docs/maintenance.md`](../docs/maintenance.md)
 | `test-security-tools.sh` | sweep, weekly audit, dashboard, gate module, Claude guard hook, sync sanitizers | yes (`tools`) |
 | `test-containers-doctor.sh` | `containers-doctor.sh` in a stubbed sandbox | yes (`containers`) |
 | `test-bin.sh` | [`bin/`](../bin/) | yes (`bin`) |
+| `test-mail-report.py` | [`bin/mail-report`](../bin/mail-report) against a fake `security`; every send is a `--dry-run` | yes (`mail`) |
 | `test-docs.py` | policy doc links and anchors, index coverage, workspace `CLAUDE.md` sync | yes (`docs`) |
 | `test-dotfiles-setup.sh` (`dottest`) | checks that this machine's live configs are in place | **no** |
 | `test/assertions.sh` | a restore into a clean Debian container ends up in the expected state | **no** (manual `docker run`) |

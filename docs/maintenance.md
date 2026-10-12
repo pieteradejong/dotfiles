@@ -11,8 +11,9 @@ Replaces the old `weekly-cleanup.md` and `mac-maintenance.md`.
 |---|---|---|---|---|---|---|---|---|
 | [Security & privacy audit](#weekly-security--privacy-audit) | `scripts/security-audit.sh` | Sundays 10:00 | `scripts/security-audit.sh --quick --no-notify` | read-only always; `--quick` skips the slow steps | `~/dev/audit-reports/security-audit-YYYY-MM-DD.md` · `~/Library/Logs/security-audit/` | `./test.sh tools` | `macos/com.pieterdejong.securityaudit.plist` | D15, D28, D30 |
 | [Dashboard](#dashboard) | `scripts/audit-dashboard.py` | after each audit | `scripts/audit-dashboard.py` | reads reports, writes one HTML file | `~/dev/audit-reports/dashboard.html` | `./test.sh tools`, `ruff` | — | D28 |
-| [Disk cleanup](#weekly-disk-cleanup) | `bin/weekly-disk-cleanup.sh` | Sundays 09:00 | `weekly-disk-cleanup.sh` | `--dry-run` | `~/.weekly-disk-cleanup.log` | `./test.sh bin` (static + `--dry-run`, never a real run) | `macos/com.pieterdejong.weeklycleanup.plist` | D18, D20, D27 |
-| [Mac maintenance](#mac-maintenance-manual) | `scripts/mac-maintenance.sh` | by hand | `scripts/mac-maintenance.sh` | `--dry-run` | `~/maintenance-YYYYMMDD.log` | `./test.sh maint` (real run on a fake HOME) | — | D29 |
+| [Disk cleanup](#weekly-disk-cleanup) | `bin/weekly-disk-cleanup.sh` | Sundays 09:00 | `weekly-disk-cleanup.sh` | `--dry-run` | `~/.weekly-disk-cleanup.log` · [mailed](#email-reports) | `./test.sh bin` (static + `--dry-run`, never a real run) | `macos/com.pieterdejong.weeklycleanup.plist` | D18, D20, D27, D31 |
+| [Mac maintenance](#mac-maintenance-manual) | `scripts/mac-maintenance.sh` | by hand | `scripts/mac-maintenance.sh` | `--dry-run` | `~/maintenance-YYYYMMDD.log` · [mailed](#email-reports) | `./test.sh maint` (real run on a fake HOME, mail stubbed) | — | D29, D31 |
+| [Email reports](#email-reports) | `bin/mail-report` | end of each run above | `mail-report --test` | `--dry-run` prints, sends nothing | your inbox | `./test.sh mail` (fake Keychain, nothing sent) | — | D31 |
 | [Docs backup](#daily-docs-backup) | `~/docs/.backup/backup_docs.py` (outside this repo; targets `~/docs`, `~/dev`, `~/media/convos`) | daily 03:00 | `python3 ~/docs/.backup/backup_docs.py --execute` | without `--execute` | `~/docs/.backup/logs/` | — | `macos/com.pieterdejong.docsbackup.plist` | [policy/backups.md](policy/backups.md) |
 | [Remote Control](#remote-control-server-rcdev) | `bin/rcdev`, `bin/rc-projects` | always on (at login) | `rcdev status` | `RCDEV_DRY_RUN` | `~/Library/Logs/claude-remote-control/` | `./test.sh bin` | `macos/com.pieterdejong.rcdev*.plist` | D18 |
 | [Commit/push gate](policy/security-and-privacy.md#2-the-commitpush-gate) | `security/gate.sh` | every commit and push | `security/gate.sh scan-tree` | `status` and `scan-tree` are read-only | terminal | `./test.sh gate` | — | D24 |
@@ -144,16 +145,19 @@ removed and no log was written. `--dry-run` is the one mode that is safe to exec
 | Old maintenance logs | `find ~ -maxdepth 1 -name 'maintenance-*.log' -mtime +30 -delete` | logs only |
 
 Each step runs independently; one failing does not stop the rest. The run ends with
-`Free after:` and one `Reclaimed: N MB` line. Logs:
-`~/.weekly-disk-cleanup.log` (trimmed to 1000 lines, before each run) and
+`Free after:` and one `Reclaimed: N MB` line. A real run is captured into one per-run file,
+appended to `~/.weekly-disk-cleanup.log` (trimmed to 1000 lines before each run) and then
+[mailed](#email-reports) with the `Reclaimed:` line as the subject; `--no-mail` skips the mail,
+`--dry-run` never logs or mails. Anything printed before the capture starts goes to
 `~/.weekly-disk-cleanup.launchd.log`. The script puts Homebrew and `~/.local/bin` on `PATH` itself:
 launchd's bare `PATH` found Xcode's old `/usr/bin/pip3`, which does not know pip's current cache
 layout, so the pip step was a no-op.
 
 ```zsh
-weekly-disk-cleanup.sh --dry-run    # sizes + what each step would run; changes nothing, no log
-weekly-disk-cleanup.sh              # real run from a terminal: prints and logs, and has Full Disk Access for Trash
-launchctl start com.pieterdejong.weeklycleanup && cat ~/.weekly-disk-cleanup.log   # run the launchd job now
+weekly-disk-cleanup.sh --dry-run    # sizes + what each step would run; changes nothing, no log, no mail
+weekly-disk-cleanup.sh              # real run from a terminal: prints, logs, mails, and has Full Disk Access for Trash
+weekly-disk-cleanup.sh --no-mail    # real run, log only
+launchctl start com.pieterdejong.weeklycleanup && cat ~/.weekly-disk-cleanup.log   # run the launchd job now (mails too)
 ```
 
 **Known limitation — Full Disk Access.** `~/.Trash` is TCC-protected and a plain launchd agent has
@@ -222,9 +226,12 @@ this repo, so this page only schedules and points.
 ## Mac maintenance (manual)
 
 ```zsh
-~/dev/dotfiles/scripts/mac-maintenance.sh --dry-run   # report + what would be moved; no log
-~/dev/dotfiles/scripts/mac-maintenance.sh             # report, then quarantine; logs to ~/maintenance-YYYYMMDD.log
+~/dev/dotfiles/scripts/mac-maintenance.sh --dry-run   # report + what would be moved; no log, no mail
+~/dev/dotfiles/scripts/mac-maintenance.sh             # report, then quarantine; logs to ~/maintenance-YYYYMMDD.log and mails the run
+~/dev/dotfiles/scripts/mac-maintenance.sh --no-mail   # same, log only
 ```
+
+A real run is [mailed](#email-reports) with the `Moved: N item(s)` line as the subject.
 
 Reports uptime, memory and disk, then moves every entry of `~/Library/Caches` into one dated
 folder in `~/.Trash` (`mac-maintenance-caches-YYYYMMDD-HHMMSS`) — a restore window, instead of
@@ -242,21 +249,66 @@ items are in [`mac-overheating.md`](mac-overheating.md) and [`TODO.md`](../TODO.
 
 ---
 
+## Email reports
+
+The disk cleanup and the Mac maintenance script mail their run when it ends: the same text that
+went into the log, as a plain-text message, subject `weekly-disk-cleanup on <host>: Reclaimed N MB`
+or `mac-maintenance on <host>: Moved N item(s)`. The sender is [`bin/mail-report`](../bin/mail-report):
+Python standard library only, Gmail SMTP over TLS, credentials from one macOS Keychain item.
+Nothing personal is in this repo — no address, no password, not in the scripts and not in the
+plists ([D31](design-decisions.md#d31--job-results-are-mailed-through-gmail-smtp-with-keychain-credentials-a-missing-mailbox-never-fails-a-job--2026-10-12)).
+
+**One-time setup** (by hand, outside the repo):
+
+1. Google Account → Security → 2-Step Verification → App passwords → create one named
+   `dotfiles mail-report`. An App Password is the only way a script may sign in to Gmail; it can be
+   revoked on that page without touching the account password.
+2. Store it. `-w` with no value prompts, so the password never appears in a shell history, in
+   `ps` or in a file:
+   ```zsh
+   security add-generic-password -U -s dotfiles-mail-report -a you@example.com -w
+   ```
+   The account is the Gmail address; it is the sender and, unless `--to` or `MAIL_REPORT_TO` says
+   otherwise, the recipient. The item is created by `security`, so later reads by `security` from
+   a launchd job need no Keychain prompt.
+3. `mail-report --test` — one probe mail arrives.
+
+```zsh
+mail-report --test                                         # probe mail to yourself
+printf 'hello\n' | mail-report --dry-run --subject probe    # print the composed message, send nothing
+weekly-disk-cleanup.sh --no-mail                           # a real run without the mail
+```
+
+**When the mail cannot be sent** (no Keychain item, exit 3; SMTP or auth failure, exit 1), the job
+still exits 0 and writes one `WARN: report not mailed (mail-report exit N)` line to its output and
+its log. A missing mailbox never fails a cleanup. To stop the mails altogether, delete the Keychain
+item (`security delete-generic-password -s dotfiles-mail-report`) or pass `--no-mail`.
+
+**What leaves the Mac.** Only the run's output: cache sizes, paths under `$HOME`, counts, the
+`Reclaimed:`/`Moved:` lines. Google is then a processor of that text
+([privacy-by-design.md](policy/privacy-by-design.md) § Processors); it holds no secret and no
+other person's data. Env overrides: `MAIL_REPORT_SMTP` (`host:port`, default
+`smtp.gmail.com:465`), `MAIL_REPORT_TO`, `MAIL_REPORT_SERVICE` (the Keychain service name),
+`MAIL_REPORT_BIN` on the two jobs (which sender to call — the tests point it at a stub).
+
+---
+
 ## Testing
 
 ```zsh
 cd ~/dev/dotfiles
 ./test.sh            # everything; CI runs exactly this
-./test.sh bin        # weekly-disk-cleanup.sh (static + --dry-run), rcdev lifecycle, llm
+./test.sh bin        # weekly-disk-cleanup.sh (static + --dry-run, mail stubbed), rcdev lifecycle, llm
 ./test.sh tools      # security-audit.sh on a fixture workspace (incl. the delta section), the dashboard, sweeps, sanitizers
-./test.sh maint      # mac-maintenance.sh, real run on a fake HOME
+./test.sh maint      # mac-maintenance.sh, real run on a fake HOME; the mail goes to a stub that records it
+./test.sh mail       # bin/mail-report against a fake `security`; every send is a --dry-run
 ./test.sh gate       # the commit/push gate
 ./test.sh docs       # these docs: links, anchors, index, CLAUDE.md in sync
 ```
 
 What is only asserted statically, never executed for real: `weekly-disk-cleanup.sh` (it deletes).
 Everything else in this table runs for real against a fixture HOME or workspace, so a test can
-never touch the real `~/.Trash`, caches, reports or launchd agents.
+never touch the real `~/.Trash`, caches, reports, launchd agents, Keychain or mailbox.
 
 ## Decisions
 
@@ -273,6 +325,7 @@ the rejected alternatives and the `Verified:` line.
 - [D28](design-decisions.md#d28--the-maintenance-dashboard-is-a-local-file-built-from-the-reports--2026-10-07) — the dashboard is a local file built from the reports.
 - [D29](design-decisions.md#d29--mac-maintenancesh-stays-at-the-cleanups-standard-and-under-test--2026-10-10) — `mac-maintenance.sh` stays, at the cleanup's standard and under test.
 - [D30](design-decisions.md#d30--the-audit-reports-what-changed-since-the-last-run-acceptance-stays-in-the-register--2026-10-10) — the audit reports what changed since the last run; acceptance stays in the register.
+- [D31](design-decisions.md#d31--job-results-are-mailed-through-gmail-smtp-with-keychain-credentials-a-missing-mailbox-never-fails-a-job--2026-10-12) — job results are mailed through Gmail SMTP with Keychain credentials; a missing mailbox never fails a job.
 
 ## Open items
 

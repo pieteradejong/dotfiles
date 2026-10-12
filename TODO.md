@@ -14,8 +14,17 @@ only; this file is public. Workspace-wide items: `~/dev/TODO.md`. Decisions: `do
       2026-10-04 report by eye; the notification shows new/resolved counts. Record in D30.
 - [ ] Open `~/dev/audit-reports/dashboard.html` after that audit (D28 `Verified: NOT YET`).
 - [ ] `scripts/mac-maintenance.sh --dry-run` on this Mac, then a real run; record in D29.
+- [ ] Sun 2026-10-18 09:00 — first launchd run of the cleanup that mails its result (D31). The
+      mail should arrive with subject `weekly-disk-cleanup on <host>: Reclaimed N MB` and the
+      same text as `~/.weekly-disk-cleanup.log`; no Keychain prompt should have appeared, and
+      the log must not end in `WARN: report not mailed`. Record in D31's `Verified:`.
 
 ## Needs Pieter
+
+- [ ] **Mail reports: the one-time setup** (`docs/maintenance.md` § Email reports): a Gmail App
+      Password, `security add-generic-password -U -s dotfiles-mail-report -a <address> -w`,
+      then `mail-report --test`. Until then every real run logs `WARN: report not mailed
+      (mail-report exit 3)` and otherwise behaves as before.
 
 - [ ] **rclone: create a personal Google Drive client_id** before the shared one is retired
       (rclone says "during 2026"), or the daily docs backup stops. Seen in
@@ -44,13 +53,14 @@ Planned additions, each with its reference doc. Nothing here is built yet. Sourc
       (the `top -o cpu -l 2` snapshot). Read-only, so it needs no decision entry. Doc § 2.
 - [ ] **`restart_if_hot BTLEServer 50`** in `mac-maintenance.sh`, through `act` so `--dry-run`
       prints instead of kills; tested in `scripts/test-mac-maintenance.sh` with a fake `top` and
-      `pgrep` on `PATH`. Needs a decision entry (D31): the script's first step that touches a
-      running process, and the first `sudo` in any maintenance script. Doc § 4.
+      `pgrep` on `PATH`. Needs a decision entry (D32; D31 went to the mailed reports): the
+      script's first step that touches a running process, and the first `sudo` in any
+      maintenance script. Doc § 4.
 - [ ] **Sudoers rule** `/etc/sudoers.d/btleserver`, outside the repo, by hand with `visudo`;
       record it in `docs/reinstall-commands.md` once added. Doc § 5.
 - [ ] **Every-30-min watchdog agent**, only if the spike recurs after a reboot. Would be the sixth
       `com.pieterdejong.*` plist and the first on an interval: At-a-glance row in
-      `docs/maintenance.md`, `sync-dotfiles.sh status` coverage, same D31 entry. Doc § 6.
+      `docs/maintenance.md`, `sync-dotfiles.sh status` coverage, same D32 entry. Doc § 6.
 - [ ] **Find the device**: Bluetooth off for a minute to confirm, then unpair one at a time. The
       watchdog treats the symptom. Doc § 3.
 

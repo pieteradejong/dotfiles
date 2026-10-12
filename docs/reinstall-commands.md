@@ -142,6 +142,17 @@ EOF
 chmod +x ~/dev/audit-reports/snapshot/generate-snapshot.sh
 ```
 
+## Keychain items
+
+Created by hand, never backed up by the repo (they hold secrets). Recreate after a reinstall:
+
+```bash
+# Mail reports from the maintenance jobs (docs/maintenance.md § Email reports):
+# account = the Gmail address, password = a Gmail App Password (prompted, not on the command line)
+security add-generic-password -U -s dotfiles-mail-report -a you@example.com -w
+mail-report --test
+```
+
 ## Notes
 
 - Most of these are already automated by `dotbackup` (Brewfile, extensions, .nvmrc)

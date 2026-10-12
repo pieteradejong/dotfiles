@@ -32,6 +32,23 @@ T="$(mktemp -d "${TMPDIR:-/tmp}/mac-maintenance-test.XXXXXX")"
 trap 'chmod -R u+rwx "$T" 2>/dev/null; rm -rf "$T"' EXIT
 OUT="$T/out"; : > "$OUT"
 
+# Every real run mails its report, so the suite always points MAIL_REPORT_BIN
+# at this stub: it records each call's arguments and body, and exits with the
+# code in $T/mail.rc (default 0). Without it, the suite would email Pieter.
+MAIL_STUB="$T/mail-stub"
+cat > "$MAIL_STUB" <<'EOF'
+#!/bin/sh
+d="$(dirname "$0")"
+echo "$*" >> "$d/mail.args"
+cat > "$d/mail.body"
+[ -f "$d/mail.rc" ] && exit "$(cat "$d/mail.rc")"
+exit 0
+EOF
+chmod +x "$MAIL_STUB"
+export MAIL_REPORT_BIN="$MAIL_STUB"
+mail_calls() { [ -f "$T/mail.args" ] && wc -l < "$T/mail.args" | tr -d ' ' || echo 0; }
+reset_mail() { rm -f "$T/mail.args" "$T/mail.body" "$T/mail.rc"; }
+
 # fresh_home <dir> — a fake HOME with three app caches, the three caches the
 # weekly cleanup owns, and an empty Trash.
 fresh_home() {
@@ -90,6 +107,7 @@ n_now="$(find "$H/Library/Caches" -mindepth 1 -maxdepth 1 | wc -l | tr -d ' ')"
   && pass "--dry-run moved nothing ($n_now cache entries intact)" || fail "--dry-run moved nothing ($n_now of $n_before left)"
 [ -z "$(find "$H/.Trash" -mindepth 1)" ] && pass "--dry-run put nothing in Trash" || fail "--dry-run put nothing in Trash"
 [ -z "$(find "$H" -maxdepth 1 -name 'maintenance-*.log')" ] && pass "--dry-run writes no log" || fail "--dry-run writes no log"
+[ "$(mail_calls)" = 0 ] && pass "--dry-run sends no mail" || fail "--dry-run sends no mail ($(mail_calls) call(s))"
 for h in UPTIME MEMORY DISK 'LIBRARY CACHES'; do
   grep -q -- "--- $h" "$OUT" && pass "report has the $h section" || fail "report has the $h section"
 done
@@ -114,13 +132,50 @@ log="$(find "$H" -maxdepth 1 -name 'maintenance-*.log' | head -1)"
 [ -n "$log" ] && grep -q 'macOS Maintenance Report' "$log" && grep -q '^Moved: 2' "$log" \
   && pass "log written to ~/maintenance-YYYYMMDD.log with the same report" || fail "log missing or incomplete"
 grep -q 'Done: ' "$OUT" && pass "report ends with Done" || fail "report ends with Done"
+# The run is mailed once, subject from the Moved line, body = the log of this run.
+[ "$(mail_calls)" = 1 ] && pass "real run mails the report once" || fail "real run mailed $(mail_calls) time(s)"
+grep -q -- '--subject mac-maintenance on .*: Moved: 2 item(s)' "$T/mail.args" 2>/dev/null \
+  && pass "mail subject carries the host and the Moved line" || fail "mail subject: $(cat "$T/mail.args" 2>/dev/null)"
+cmp -s "$T/mail.body" "$log" && pass "mail body is exactly what was logged" || fail "mail body differs from the log"
+grep -q 'WARN: report not mailed' "$OUT" && fail "no WARN when the mail was sent" || pass "no WARN when the mail was sent"
 
 # A second run on the now-empty tree is a no-op that still reports.
+reset_mail
 : > "$OUT"
 HOME="$H" "$MAINT" > "$OUT" 2>&1; rc=$?
 [ "$rc" = 0 ] && grep -q '^Moved: 0 item(s)' "$OUT" && pass "second run moves nothing and exits 0 (idempotent)" || fail "second run rc=$rc"
 n_dirs="$(find "$H/.Trash" -mindepth 1 -maxdepth 1 -name 'mac-maintenance-caches-*' | wc -l | tr -d ' ')"
 [ "$n_dirs" = 1 ] && pass "second run creates no empty quarantine folder" || fail "$n_dirs quarantine folders after two runs"
+cmp -s "$T/mail.body" <(tail -n "$(wc -l < "$T/mail.body" | tr -d ' ')" "$log") \
+  && pass "second run mails only its own run, not the whole log" || fail "second mail body is not the log's tail"
+
+# ── 4b. mail switches ────────────────────────────────────────────────────────
+header "mail: --no-mail, and a sender that fails"
+H="$T/nomail"; fresh_home "$H"; reset_mail
+: > "$OUT"
+HOME="$H" "$MAINT" --no-mail > "$OUT" 2>&1; rc=$?
+[ "$rc" = 0 ] && grep -q '^Moved: 2 item(s)' "$OUT" && pass "--no-mail still moves and exits 0" || fail "--no-mail rc=$rc"
+[ "$(mail_calls)" = 0 ] && pass "--no-mail sends no mail" || fail "--no-mail sent mail"
+[ -n "$(find "$H" -maxdepth 1 -name 'maintenance-*.log')" ] && pass "--no-mail still writes the log" || fail "--no-mail wrote no log"
+
+# mail-report exits 3 when no Keychain item exists (and 1 when SMTP fails): the
+# job must still exit 0, with one WARN line in the output and in the log.
+H="$T/mailfail"; fresh_home "$H"; reset_mail; echo 3 > "$T/mail.rc"
+: > "$OUT"
+HOME="$H" "$MAINT" > "$OUT" 2>&1; rc=$?
+[ "$rc" = 0 ] && pass "a failing sender does not fail the run (exit 0)" || fail "failing sender rc=$rc"
+grep -q 'WARN: report not mailed (mail-report exit 3)' "$OUT" && pass "failing sender: WARN line names the exit code" || fail "no WARN line"
+log="$(find "$H" -maxdepth 1 -name 'maintenance-*.log' | head -1)"
+grep -q 'WARN: report not mailed' "$log" && pass "failing sender: WARN line is in the log too" || fail "WARN missing from log"
+grep -q '^Moved: 2 item(s)' "$OUT" && pass "failing sender: the quarantine still happened" || fail "quarantine skipped"
+reset_mail
+
+# The mail call is wired the way the plan says: through MAIL_REPORT_BIN, after the log append.
+grep -qE '^[^#]*"\$MAIL_REPORT_BIN" --subject' "$MAINT" && pass "mail goes through \$MAIL_REPORT_BIN (overridable)" || fail "mail call not via MAIL_REPORT_BIN"
+append_ln="$(grep -nE '^[^#]*cat "\$RUN_OUT" >> "\$LOG_FILE"' "$MAINT" | head -1 | cut -d: -f1)"
+mail_ln="$(grep -nE '^[^#]*"\$MAIL_REPORT_BIN" --subject' "$MAINT" | head -1 | cut -d: -f1)"
+[ -n "$append_ln" ] && [ -n "$mail_ln" ] && [ "$append_ln" -lt "$mail_ln" ] \
+  && pass "the log is appended before the mail is sent" || fail "log append / mail order (lines $append_ln / $mail_ln)"
 
 # ── 5. edge cases ────────────────────────────────────────────────────────────
 header "edge cases"
