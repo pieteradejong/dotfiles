@@ -13,7 +13,7 @@ Replaces the old `weekly-cleanup.md` and `mac-maintenance.md`.
 | [Dashboard](#dashboard) | `scripts/audit-dashboard.py` | after each audit | `scripts/audit-dashboard.py` | reads reports, writes one HTML file | `~/dev/audit-reports/dashboard.html` | `./test.sh tools`, `ruff` | — | D28 |
 | [Disk cleanup](#weekly-disk-cleanup) | `bin/weekly-disk-cleanup.sh` | Sundays 09:00 | `weekly-disk-cleanup.sh` | `--dry-run` | `~/.weekly-disk-cleanup.log` | `./test.sh bin` (static + `--dry-run`, never a real run) | `macos/com.pieterdejong.weeklycleanup.plist` | D18, D20, D27 |
 | [Mac maintenance](#mac-maintenance-manual) | `scripts/mac-maintenance.sh` | by hand | `scripts/mac-maintenance.sh` | `--dry-run` | `~/maintenance-YYYYMMDD.log` | `./test.sh maint` (real run on a fake HOME) | — | D29 |
-| [Docs backup](#daily-docs-backup) | `~/docs/.backup/backup_docs.py` (outside this repo) | daily 03:00 | `python3 ~/docs/.backup/backup_docs.py --execute` | without `--execute` | `~/docs/.backup/logs/` | — | `macos/com.pieterdejong.docsbackup.plist` | [policy/backups.md](policy/backups.md) |
+| [Docs backup](#daily-docs-backup) | `~/docs/.backup/backup_docs.py` (outside this repo; targets `~/docs`, `~/dev`, `~/media/convos`) | daily 03:00 | `python3 ~/docs/.backup/backup_docs.py --execute` | without `--execute` | `~/docs/.backup/logs/` | — | `macos/com.pieterdejong.docsbackup.plist` | [policy/backups.md](policy/backups.md) |
 | [Remote Control](#remote-control-server-rcdev) | `bin/rcdev`, `bin/rc-projects` | always on (at login) | `rcdev status` | `RCDEV_DRY_RUN` | `~/Library/Logs/claude-remote-control/` | `./test.sh bin` | `macos/com.pieterdejong.rcdev*.plist` | D18 |
 | [Commit/push gate](policy/security-and-privacy.md#2-the-commitpush-gate) | `security/gate.sh` | every commit and push | `security/gate.sh scan-tree` | `status` and `scan-tree` are read-only | terminal | `./test.sh gate` | — | D24 |
 
@@ -210,7 +210,10 @@ whole lifecycle against a stub `launchctl` and a fake HOME; the real agent is ne
 `~/Library/LaunchAgents/com.pieterdejong.docsbackup.plist` at 03:00 daily, low priority; the
 repo copy is [`macos/com.pieterdejong.docsbackup.plist`](../macos/com.pieterdejong.docsbackup.plist)
 (absolute paths stored as `$HOME`, like the cleanup's). Logs in `~/docs/.backup/logs/`;
-`launchd.out` there has one `ok`/`FAILED` line per target per run. Principles and coverage:
+`launchd.out` there has one `ok`/`FAILED` line per target per run. Targets: `gdrive` (`~/docs`),
+`dev` (`~/dev`), and since 2026-10-12 `convos` (`~/media/convos` — the conversation recordings,
+hash-checked in full every run; second copy in S3 Glacier Deep Archive via
+`~/dev/projects/media/backup-convos-to-s3.sh`, run by hand). Principles and coverage:
 [`policy/backups.md`](policy/backups.md). The script and its state live under `~/docs`, outside
 this repo, so this page only schedules and points.
 
