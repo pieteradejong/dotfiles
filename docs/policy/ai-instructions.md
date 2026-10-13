@@ -89,7 +89,9 @@ An instruction shapes a decision; it cannot guarantee an action fires. A rule sa
 for months ("a public repo publishes the committer email") with no check behind it, and the
 exposure accumulated anyway. Anything mechanical — block a command, run a formatter, refuse a
 bypass — needs a hook in `settings.json` or a git-level check. The git gate and the
-[assistant guardrail](security-and-privacy.md#14-assistant-guardrails) are that layer for security.
+[assistant guardrail](security-and-privacy.md#14-assistant-guardrails) are that layer for security;
+the `SessionStart` and `Stop` hooks (`session-start.sh`, `stop-log-check.sh`) are that layer for the
+session workflow's decision and changelog steps.
 
 | Settings file | Scope |
 |---|---|
@@ -137,8 +139,16 @@ every commit. The shape, numbered and appended:
 ```
 
 Which log: security and privacy decisions go in `docs/design-decisions.md`; a project's own
-decisions go in a `DECISIONS.md` at its root; everything else about this workspace — including
-anything naming a specific repo or exposure — goes in the private companion repo's `DECISIONS.md`.
+decisions go in `docs/DECISIONS.md` (a `DECISIONS.md` at the root is accepted where it already
+exists); everything else about this workspace — including anything naming a specific repo or
+exposure — goes in the private companion repo's `DECISIONS.md`.
+
+Checked, not only read: the commit gate blocks an entry added without a `Verified` line
+(`decision-unverified`; `NOT YET` passes, absence does not), the Claude Code Stop hook
+(`claude/hooks/stop-log-check.sh`) asks at the end of every turn that changed code whether an entry
+is owed and refuses to end the turn until one exists or the answer is given, and `dotaudit` reports
+entries without one (`decisions-unverified`). Whether a choice *is* a decision stays a judgment —
+the hook asks, it does not answer. `whatsup` shows the last entry and the open items.
 
 ## One source of truth for assistant config
 

@@ -4,7 +4,7 @@
 #
 #   ./test.sh                 all suites
 #   ./test.sh gate            one suite: shellcheck | zsh-syntax | ruff | bin | gate |
-#                                        tools | dotaudit | containers | maint | mail | docs
+#                                        tools | dotaudit | containers | maint | mail | logs | docs
 #   ./test.sh --verbose       pass --verbose through to each suite
 #
 # Suites:
@@ -23,6 +23,10 @@
 #                                                fake HOME; mail stubbed)
 #   mail        scripts/test-mail-report.py      (bin/mail-report against a fake
 #                                                Keychain; nothing is sent)
+#   logs        scripts/test-logs.sh            (decision log + changelog coverage:
+#                                                security/lib/logs.sh, bin/whatsup,
+#                                                the SessionStart and Stop hooks, the
+#                                                gate's log rules, the dotaudit ids)
 #   docs        scripts/test-docs.py            (policy doc links, anchors, index,
 #                                                workspace CLAUDE.md in sync)
 #
@@ -36,7 +40,7 @@ ONLY=""
 for a in "$@"; do
   case "$a" in
     --verbose) VERBOSE="--verbose" ;;
-    shellcheck|zsh-syntax|ruff|bin|gate|tools|dotaudit|containers|maint|mail|docs) ONLY="$a" ;;
+    shellcheck|zsh-syntax|ruff|bin|gate|tools|dotaudit|containers|maint|mail|logs|docs) ONLY="$a" ;;
     -h|--help) sed -n '3,25p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown argument: $a" >&2; exit 2 ;;
   esac
@@ -47,8 +51,11 @@ test.sh
 security/gate.sh
 security/patterns.sh
 security/lib/visibility.sh
+security/lib/logs.sh
 claude/hooks/guard-git-bypass.sh
 claude/hooks/guard-github-write.sh
+claude/hooks/session-start.sh
+claude/hooks/stop-log-check.sh
 scripts/dev-audit.sh
 scripts/audit/lib.sh
 scripts/audit/10-git-hygiene.sh
@@ -67,7 +74,9 @@ scripts/test-security-tools.sh
 scripts/test-containers-doctor.sh
 scripts/test-mac-maintenance.sh
 scripts/test-bin.sh
+scripts/test-logs.sh
 bin/rcdev
+bin/whatsup
 "
 
 # zsh scripts. shellcheck has no zsh support, so these get `zsh -n` instead of a
@@ -131,6 +140,7 @@ run_suite dotaudit bash scripts/test-dev-audit.sh $VERBOSE
 run_suite containers bash scripts/test-containers-doctor.sh $VERBOSE
 run_suite maint    bash scripts/test-mac-maintenance.sh $VERBOSE
 run_suite mail     python3 scripts/test-mail-report.py $VERBOSE
+run_suite logs     bash scripts/test-logs.sh $VERBOSE
 run_suite docs     python3 scripts/test-docs.py $VERBOSE
 
 printf '\n\033[1m════ test.sh summary ════\033[0m%b\n' "$RESULTS"

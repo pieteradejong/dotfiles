@@ -56,23 +56,26 @@ If that file is missing, ask before modifying any repo under projects/.
 Every session runs the same loop. Steps 2 to 4 are stated in full elsewhere — what follows is the
 order they happen in, not a second copy of them.
 
-1. **Open by reading state, not code.** `git status`, the branch, `git log --oneline -5`, then the
-   project's `CLAUDE.md` and `docs/DECISIONS.md` if they exist. Name anything unexpected — dirty
-   tree, detached HEAD, unpushed commits, a stray untracked file — before touching anything. A
-   surprise is cheapest before it has been built on. The `SessionStart` hook reports this
-   automatically and says nothing when the repo is clean; silence is the normal case, not a failure
-   to run.
+1. **Open by reading state, not code.** `whatsup` — git state and last commits, the decision
+   log's last entry and open `Verified` items, the changelog's `[Unreleased]` block, open TODO
+   items — then the project's `CLAUDE.md`. Name anything unexpected — dirty tree, detached HEAD,
+   unpushed commits, a stray untracked file — before touching anything. A surprise is cheapest
+   before it has been built on. The `SessionStart` hook prints `whatsup --brief` automatically in
+   every repo, and at `~/dev` the workspace TODO and recently active repos.
 2. **First commit in a repo** follows `dotfiles/docs/policy/security-and-privacy.md` §4 —
    `.gitignore` baseline, data tier, noreply identity, LICENSE, security CI workflow.
 3. **A decision that closes off an alternative earns an entry** in the project's
    `docs/DECISIONS.md` (create it on the first entry), in the format and with the `Verified:`
    discipline of `dotfiles/docs/policy/ai-instructions.md` § Decisions need verification. Name the
    alternative that was rejected and why. Not every commit — only a choice someone could reasonably
-   reopen later.
+   reopen later. The `Stop` hook asks at the end of every turn that changed code; answer it with
+   the entry or with one line saying why none is owed. The gate blocks an entry with no
+   `Verified:` line.
 4. **A behavior-relevant change earns a `CHANGELOG.md` entry** under `[Unreleased]`, in the same
    session, per `dotfiles/docs/policy/repo-standards.md` § Changelog. Skip formatting, typo and
    pure-refactor changes, and skip `projects/scratch/`, forks, upstream clones and do-not-touch
-   repos.
+   repos. The `Stop` hook asks for it in the same turn; the gate blocks a commit of
+   behaviour-relevant files with no `CHANGELOG.md` change.
 5. **Close with a summary:** what changed, what is unverified, what is still open, and which
    decision and changelog entries were added. Update the project's README or `CLAUDE.md` in the
    same session when commands or behavior changed; a doc that lags by one session is where drift
@@ -86,7 +89,7 @@ flowchart TD
     N -- no --> W[Work]
     R --> W
     W --> D{Closed off an alternative?}
-    D -- yes --> L["Decision entry → docs/DECISIONS.md<br/>Date · Context · Decision · Alternatives · Verified"]
+    D -- yes --> L["Decision entry → docs/DECISIONS.md<br/>Date · Context · Decision · Rejected · Verified"]
     D -- no --> B{Behavior changed?}
     L --> B
     B -- yes --> CH["CHANGELOG.md entry<br/>under [Unreleased]"]

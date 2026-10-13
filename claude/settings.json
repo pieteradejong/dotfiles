@@ -62,6 +62,17 @@
           }
         ]
       }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/dev/dotfiles/claude/hooks/stop-log-check.sh",
+            "timeout": 10
+          }
+        ]
+      }
     ]
   }
 }

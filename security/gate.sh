@@ -45,6 +45,8 @@ DOTFILES_DIR="$(cd "$GATE_DIR/.." && pwd)"
 . "$GATE_DIR/patterns.sh"
 # shellcheck source=security/lib/visibility.sh
 . "$GATE_DIR/lib/visibility.sh"
+# shellcheck source=security/lib/logs.sh
+. "$GATE_DIR/lib/logs.sh"
 
 PERSONAL_PATTERNS_FILE="$DOTFILES_DIR/private/security/personal-patterns.conf"
 # owner/repo slugs, one per line, of PRIVATE GitHub repos that exist to hold
@@ -443,6 +445,57 @@ check_media() {
   return 0
 }
 
+# check_logs <file of staged paths> — decision log and changelog, commit time.
+#
+# repo-standards.md § Changelog: a behaviour-relevant change gets a line under
+# [Unreleased] in the same session. ai-instructions.md § Decisions: every entry
+# carries a Verified: line (NOT YET is an open item; absence is not allowed).
+# Which paths are "doc-only", which file is the decision log, and which repos
+# are exempt all come from lib/logs.sh, shared with the Stop hook, whatsup and
+# dotaudit. Own repos only (the caller checks), never the first commit, and
+# never CI: a squash or a web edit arrives there without its session, so the
+# local gate plus the Stop hook are the enforcement.
+check_logs() {
+  local list="$1" top dec f n added="" status num title
+  top="$(pwd)"
+  logs_exempt "$top" >/dev/null && return 0
+  # A repo with no CHANGELOG.md at all is existing debt — dotaudit reports it
+  # (no-changelog) and the Stop hook asks for the file — not something this
+  # commit introduces, so it is not blocked here. Once the file exists, every
+  # behaviour-relevant commit must touch it.
+  logs_nondoc "$list" > "$TMPD/logs-nondoc"
+  if [ -s "$TMPD/logs-nondoc" ] && ! grep -qx 'CHANGELOG.md' "$list" && git cat-file -e HEAD:CHANGELOG.md 2>/dev/null; then
+    n="$(grep -c '' "$TMPD/logs-nondoc" | tr -d ' ')"
+    block no-changelog-entry "$n behaviour-relevant file(s) staged without a CHANGELOG.md change — add a line under [Unreleased] (docs/policy/repo-standards.md § Changelog): $(join_lines "$TMPD/logs-nondoc" 3)"
+  fi
+  if grep -qx 'CHANGELOG.md' "$list"; then
+    show_at INDEX CHANGELOG.md > "$TMPD/logs-cl"
+    grep -qE '^## \[Unreleased\]' "$TMPD/logs-cl" || \
+      block changelog-no-unreleased "CHANGELOG.md has no '## [Unreleased]' heading (Keep a Changelog shape)"
+  fi
+  # Decision entries this commit adds must carry a Verified line; the
+  # changelog's references to decisions must resolve.
+  for f in docs/DECISIONS.md DECISIONS.md docs/design-decisions.md; do
+    grep -qx -- "$f" "$list" || continue
+    show_at INDEX "$f" > "$TMPD/logs-dec-new"
+    show_at HEAD "$f" | LC_ALL=C sed -nE 's/^## +(ADR-)?D?0*([0-9]+)([.:]|[[:space:]]|$).*/\2/p' | LC_ALL=C sort -u > "$TMPD/logs-dec-old"
+    logs_decisions "$TMPD/logs-dec-new" > "$TMPD/logs-dec-rows"
+    while IFS=$'\t' read -r num status _ title; do
+      [ -n "$num" ] || continue
+      grep -qx -- "$num" "$TMPD/logs-dec-old" && continue
+      [ "$status" = none ] && added="${added}${added:+, }$num (\"$title\")"
+    done < "$TMPD/logs-dec-rows"
+    [ -n "$added" ] && block decision-unverified "$f: entry $added has no Verified: line — add the command run and its output, or 'Verified: NOT YET' (docs/policy/ai-instructions.md § Decisions need verification)"
+    break
+  done
+  if grep -qx 'CHANGELOG.md' "$list" && dec="$(logs_decisions_file "$top")"; then
+    show_at INDEX "$dec" > "$TMPD/logs-dec-cur"
+    n="$(git diff --cached -U0 --no-color -- CHANGELOG.md 2>/dev/null | grep '^+' | logs_refs_missing "$TMPD/logs-dec-cur" | tr '\n' ' ')"
+    [ -n "${n// /}" ] && warn decision-ref-missing "CHANGELOG.md cites decision(s) ${n}with no entry in $dec"
+  fi
+  return 0
+}
+
 # check_repo_at <tip> <visibility> <url> — whole-repo rules a push must satisfy.
 check_repo_at() {
   local tip="$1" vis="$2" url="${3:-}" wf lic found=""
@@ -512,6 +565,7 @@ cmd_pre_commit() {
     check_media "$TMPD/size-path"
     old=EMPTY; git rev-parse -q --verify 'HEAD^{commit}' >/dev/null 2>&1 && old=HEAD
     check_standards "$old" INDEX "$names"
+    [ "$old" = EMPTY ] || check_logs "$names"
   fi
   return 0
 }

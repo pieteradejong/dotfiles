@@ -150,6 +150,8 @@ until the repo is next touched. The patterns are shared with the gate through
 | `multiple-lockfiles` | FAIL | [Dependencies](policy/repo-standards.md#dependencies): one package manager per project. Two lockfiles from the same ecosystem (npm/yarn/pnpm/bun, or poetry/uv/pipenv/pdm) in one directory. |
 | `tracked-media` | FAIL | Hard rule: no media or large binaries in git, not even private. Video, audio and model weights at any size; images over 5 MB. |
 | `unpinned-action` | FAIL | [Supply chain](policy/supply-chain.md): GitHub Actions `uses:` pinned to a 40-hex commit SHA. Local actions, docker digests and own reusable workflows (`pieteradejong/…`, called `@main` on purpose) are exempt. |
+| `no-changelog` | WARN | [Changelog](policy/repo-standards.md#changelog): no `CHANGELOG.md` while behaviour-relevant (non-doc) files are tracked. Existing debt, so the gate does not block it; the Stop hook asks for the file, and once it exists the gate blocks a code commit that does not touch it (`no-changelog-entry`). |
+| `decisions-unverified` | WARN | [Decisions need verification](policy/ai-instructions.md#decisions-need-verification): the decision log (`docs/DECISIONS.md`, root `DECISIONS.md` or `docs/design-decisions.md`) has entries with no `Verified` line, or open ones (`NOT YET` / `PARTIAL`). Counts only. Scratch and `_to_delete` repos are exempt, like forks. |
 
 Forks are skipped for this whole category: *"Never relicense or reshape a fork
 or an upstream clone."*

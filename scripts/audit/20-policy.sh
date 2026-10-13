@@ -21,6 +21,8 @@
 # shellcheck source-path=SCRIPTDIR/../../security
 # shellcheck source=patterns.sh
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/security/patterns.sh"
+# shellcheck source=lib/logs.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/security/lib/logs.sh"
 
 # Paths every repo's .gitignore should cover, from repo-standards.md
 # § .gitignore baseline. Tested with `git check-ignore` - what git actually
@@ -57,7 +59,31 @@ audit_policy() {
     check_lockfiles   "$repo" "$name" "$tracked"
     check_media       "$repo" "$name" "$tracked"
     check_actions     "$repo" "$name" "$tracked"
+    check_logs_audit  "$repo" "$name" "$tracked"
   done < <(list_repos)
+}
+
+# --- decision log and changelog -----------------------------------------------
+# repo-standards.md § Changelog and ai-instructions.md § Decisions need
+# verification. The gate blocks what a commit introduces (no-changelog-entry,
+# decision-unverified); this reports the debt already there. Which file counts,
+# which paths are doc-only and which repos are exempt come from
+# security/lib/logs.sh, shared with the gate, the Stop hook and whatsup.
+check_logs_audit() {
+  local repo="$1" name="$2" tracked="$3" dec rows n_none n_open
+  logs_exempt "$repo" >/dev/null && return 0
+  if [ ! -f "$repo/CHANGELOG.md" ] && printf '%s\n' "$tracked" | LC_ALL=C grep -qvE -- "$CHANGELOG_EXEMPT_ERE"; then
+    finding WARN "$CAT" "$name" no-changelog "no CHANGELOG.md, and behaviour-relevant files are tracked (repo-standards.md § Changelog)"
+  fi
+  if dec="$(logs_decisions_file "$repo")"; then
+    rows="$(logs_decisions "$repo/$dec")"
+    n_none="$(printf '%s\n' "$rows" | awk -F'\t' '$2 == "none"' | awk 'NF' | wc -l | tr -d ' ')"
+    n_open="$(printf '%s\n' "$rows" | awk -F'\t' '$2 == "NOT YET" || $2 == "PARTIAL"' | awk 'NF' | wc -l | tr -d ' ')"
+    if [ "$n_none" -gt 0 ] || [ "$n_open" -gt 0 ]; then
+      finding WARN "$CAT" "$name" decisions-unverified "$dec: $n_none without a Verified line, $n_open open (NOT YET / PARTIAL)"
+    fi
+  fi
+  return 0
 }
 
 # --- LICENSE ----------------------------------------------------------------

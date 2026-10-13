@@ -21,6 +21,7 @@ My macOS dev and home setup, kept in git for two reasons.
 | `editors/*` | VS Code and Cursor settings and extension lists | the editor |
 | `macos/*.plist` | iTerm2 and Rectangle preferences | the app |
 | `bin/llm` | prompt a local model, never the cloud ([docs/llm.md](docs/llm.md)) | Ollama, `jq` |
+| `bin/whatsup` | what is up in the project you are in: git state, decision log, changelog, TODO, this session's uncovered changes ([bin/README.md](bin/README.md)) | git |
 | `scripts/sync-dotfiles.sh` | copy-based backup/restore that sanitizes on the way in | bash, `jq` |
 
 **Scope test for anything new:** *does it help restore this machine, or would someone copy it?*

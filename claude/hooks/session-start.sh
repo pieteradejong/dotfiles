@@ -2,55 +2,60 @@
 #
 # session-start.sh — Claude Code SessionStart hook.
 #
-# Orientation, not enforcement. It reports the state of the repository the
-# session is starting in, so a dirty tree, a detached HEAD or unpushed work
-# surfaces before the first edit rather than at commit time. Read-only: it runs
-# no command that writes, touches the network, or changes git config, which is
-# what makes it safe in do-not-touch repos.
+# Orientation, not enforcement. Two jobs:
 #
-# Rule of Silence: prints nothing when everything is normal, so a quiet start
-# means a clean start. Whatever it writes to stdout is added to the session's
-# context, so it stays to one short line per anomaly.
+#   1. Print what is up in the repository the session starts in — `whatsup
+#      --brief`: git state (a dirty tree, a detached HEAD, unpushed work), the
+#      decision log's last entry and open Verified items, the changelog's
+#      [Unreleased] count, open TODO items — so the state is in context before
+#      the first edit rather than discovered at commit time. At the workspace
+#      root (~/dev, not a repo) it prints the workspace TODO and the recently
+#      active repos; anywhere else outside a repo it prints nothing.
+#   2. Record a baseline (HEAD and what was already dirty) under
+#      ~/.local/state/claude-logs/<session_id>.base, so the Stop hook
+#      (stop-log-check.sh) can tell what this session changed.
+#
+# Read-only in the repo: it runs no command that writes there, touches the
+# network, or changes git config, which is what makes it safe in do-not-touch
+# repos. The baseline lives under ~/.local/state, never inside a repo, and is
+# not written for exempt repos (scratch, forks, the skip list).
+#
+# Until 2026-10-13 this hook printed nothing when the repo was clean (Rule of
+# Silence). It now always prints the brief in a repo — the summary is wanted
+# every time, not only when something is wrong (design-decisions.md D33).
 #
 # It never exits non-zero. A hook that can wedge a session is worse than no
-# hook, so every git call is guarded and failure is treated as "nothing to say".
+# hook, so every step is guarded and failure is treated as "nothing to say".
 #
 # Implements ~/dev/CLAUDE.md § Session workflow, step 1.
 #
 # Registered in claude/settings.json:
 #   "hooks": { "SessionStart": [ { "hooks": [ { "type": "command",
-#     "command": "~/dev/dotfiles/claude/hooks/session-start.sh" } ] } ] }
+#     "command": "~/dev/dotfiles/claude/hooks/session-start.sh", "timeout": 10 } ] } ] }
+#
+# Env:  CLAUDE_LOGS_STATE_DIR  (default ~/.local/state/claude-logs)
+#       DEV_ROOT               (default ~/dev)
+#
+# Tested by scripts/test-logs.sh.
 
 set -u
 
-# Much of ~/dev is not a git repo (the workspace root itself isn't). Nothing to report.
-git rev-parse --is-inside-work-tree >/dev/null 2>&1 || exit 0
+HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WHATSUP="$HOOK_DIR/../../bin/whatsup"
+STATE_DIR="${CLAUDE_LOGS_STATE_DIR:-$HOME/.local/state/claude-logs}"
 
-toplevel="$(git rev-parse --show-toplevel 2>/dev/null || true)"
-[ -n "$toplevel" ] || exit 0
-repo="$(basename "$toplevel")"
+input="$(cat 2>/dev/null || true)"
 
-out=""
-add() { out="${out}⚠ ${1}"$'\n'; }
-
-# Uncommitted work. --porcelain so the count is stable across git versions.
-dirty="$(git status --porcelain 2>/dev/null | grep -c '' || true)"
-[ "${dirty:-0}" -gt 0 ] && add "${dirty} uncommitted file(s)"
-
-# Branch, and whether local commits exist that the remote has never seen.
-branch="$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
-if [ -z "$branch" ]; then
-  add "detached HEAD at $(git rev-parse --short HEAD 2>/dev/null || echo '?')"
-elif upstream="$(git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null)"; then
-  ahead="$(git rev-list --count "${upstream}..HEAD" 2>/dev/null || true)"
-  [ "${ahead:-0}" -gt 0 ] && add "${ahead} unpushed commit(s) on ${branch}"
-else
-  add "${branch} has no upstream"
+if top="$(git --no-optional-locks rev-parse --show-toplevel 2>/dev/null)" && [ -n "$top" ]; then
+  sid=""
+  command -v jq >/dev/null 2>&1 && sid="$(printf '%s' "$input" | jq -r '.session_id // empty' 2>/dev/null)"
+  if [ -n "$sid" ]; then
+    # shellcheck source=security/lib/logs.sh
+    if . "$HOOK_DIR/../../security/lib/logs.sh" 2>/dev/null && ! logs_exempt "$top" >/dev/null; then
+      logs_write_baseline "$top" "$STATE_DIR" "$sid" || true
+    fi
+  fi
 fi
 
-# Policy: every project has a .gitignore before its first commit.
-[ -e "${toplevel}/.gitignore" ] || add "no .gitignore"
-
-[ -n "$out" ] && printf 'Session start — %s\n%s' "$repo" "$out"
-
+[ -x "$WHATSUP" ] && NO_COLOR=1 "$WHATSUP" --brief 2>/dev/null
 exit 0

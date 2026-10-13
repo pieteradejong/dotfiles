@@ -18,6 +18,7 @@ and the repo holds a copy (see [docs/system-overview.md](../docs/system-overview
 | `weekly-disk-cleanup.sh` | Reclaims disk from caches that regenerate (npm, pip, pip-tools, uv, Homebrew, pnpm, Xcode, Squirrel and Sparkle app-updater leftovers) and Trash older than 7 days. Runs weekly via launchd, which points at this path; `--dry-run` shows what it would do; every real run is logged and mailed (`--no-mail` to skip). See [docs/maintenance.md](../docs/maintenance.md). |
 | `mail-report` | Sends stdin as a plain-text email over Gmail SMTP, credentials from one Keychain item — the sender behind the maintenance jobs' mails. `mail-report --test` to check the setup. Python, stdlib only. See [docs/maintenance.md § Email reports](../docs/maintenance.md#email-reports). |
 | `rcdev` | Always-on Claude Code Remote Control server rooted at `~/dev`, run by launchd (`rcdev install`, `rcdev status`). See [docs/maintenance.md](../docs/maintenance.md#remote-control-server-rcdev). |
+| `whatsup` | What is going on in the project you are in, on one screen: git state and last commits, the decision log's last entry and open `Verified` items, the changelog's `[Unreleased]` block, open TODO items, and what the current Claude Code session changed without a changelog line. `--brief` is what the `SessionStart` hook prints; outside a repo it shows the workspace TODO and recently active repos (`--all` scans every repo). Read-only. Rules: `docs/policy/repo-standards.md` § Changelog. |
 
 ## `bin/` vs `scripts/`
 

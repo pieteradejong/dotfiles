@@ -181,8 +181,21 @@ command, flag, output, schedule, check or default that a user or a scheduled job
 one line under `[Unreleased]` in the same session, under `Added`, `Changed`, `Fixed` or
 `Removed`, naming the decision entry when there is one. Skipped: formatting, typos, pure
 refactors, and `projects/scratch/`, forks, upstream clones and do-not-touch repos. A release
-moves the block under a version and date. Not enforced by a check yet: it is a session-workflow
-rule (`claude/dev-CLAUDE.md` § Session workflow), kept by reading.
+moves the block under a version and date.
+
+Checked at three points, all reading `security/lib/logs.sh` so they agree on what counts: in a
+repo that has a `CHANGELOG.md`, the commit gate blocks a behaviour-relevant change staged without
+a change to it (`no-changelog-entry`) or a changelog with no `[Unreleased]` heading
+(`changelog-no-unreleased`),
+and warns when a line cites a decision number with no entry (`decision-ref-missing`); the Claude
+Code Stop hook (`claude/hooks/stop-log-check.sh`) refuses to end a turn, once per set of changed
+files, until the entry exists — or the file, where there is none — or the assistant has said why
+none is owed; `dotaudit` reports repos with code and no changelog (`no-changelog`). A missing
+changelog is existing debt, so the gate does not block on it: the gate blocks what a commit
+introduces. Doc-only paths (`*.md`, `docs/`, `LICENSE`,
+tests, `.gitignore`) never owe an entry: `CHANGELOG_EXEMPT_ERE` in `security/patterns.sh`. Not
+checked in CI: a squash or a web edit arrives there without its session. `whatsup` shows the
+`[Unreleased]` block and what the current session changed without one.
 
 ## Enforcement
 
@@ -252,6 +265,8 @@ this existed.
 | Security CI in every repo | [security §9](security-and-privacy.md#9-secret-scanning-in-ci--the-standard-for-every-repo) | — / `no-security-ci` block | — | `no-security-ci` |
 | Public ⇒ LICENSE naming the canonical holder | [licensing](#licensing) | — / `no-license`, `license-holder` block | gate | `no-license`, `license-malformed`, `copyright-drift`, `license-mismatch` |
 | `.gitignore` baseline | [baseline](#gitignore-baseline) | — | — | `no-gitignore`, `gitignore-env`, `gitignore-gaps` |
+| Behaviour change ⇒ `CHANGELOG.md` line under `[Unreleased]` | [changelog](#changelog) | `no-changelog-entry`, `changelog-no-unreleased` block, `decision-ref-missing` warn / — ; the assistant: `stop-log-check.sh` | — (local only: CI cannot see the session) | `no-changelog` |
+| Decision entries carry `Verified:` | [ai-instructions § Decisions](ai-instructions.md#decisions-need-verification) | `decision-unverified` block / — ; the assistant: `stop-log-check.sh` | — | `decisions-unverified` |
 | `private/` never in public dotfiles | [security §2](security-and-privacy.md#2-the-commitpush-gate) | block / block | `private-guard` job | — |
 | Never bypass the gate | [security §3](security-and-privacy.md#3-bypass-procedure) | the assistant: `guard-git-bypass.sh`; people: the bypass log | gate (no bypass) | `gate-bypassed`, `gate-disabled`, `gate-not-registered` |
 | Content reaches GitHub only through git | [security §14](security-and-privacy.md#14-assistant-guardrails) | the assistant: `guard-github-write.sh` | — | — |

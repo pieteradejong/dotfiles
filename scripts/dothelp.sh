@@ -64,6 +64,18 @@ main() {
     desc "      See docs/dev-audit.md"
     desc "Test: ./test.sh dotaudit   (or ./test.sh for every suite)"
 
+    section "whatsup"
+    cmd "whatsup [--brief] [--all] [--no-color]"
+    desc "What is going on in the project you are in, on one screen"
+    desc "Usage: whatsup            (in any repo: git state, last commits, decision"
+    desc "                           log, changelog [Unreleased], TODO, this session's"
+    desc "                           changes with no changelog line)"
+    desc "       whatsup --brief    (six lines; what the Claude Code SessionStart hook prints)"
+    desc "       whatsup --all      (from ~/dev: one line per repo needing attention)"
+    desc "When: Opening a session, or whenever you ask 'what's up here?'"
+    desc "Does: Reads git and the markdown logs. Changes nothing."
+    desc "Test: ./test.sh logs"
+
     section "dottest"
     cmd "dottest [--help] [--verbose]"
     desc "Run comprehensive test suite"

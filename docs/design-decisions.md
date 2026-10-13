@@ -782,3 +782,71 @@ update --yes` pulled 2 models and removed 2, verified both local, and ended at 3
 stopped service, `llm --dry-run` auto-started the daemon and answered in 2.75 s, bound to
 `127.0.0.1:11434` only. `llm free` → `/api/ps` empty.
 
+
+---
+
+## D33 — Decisions and changelog are checked at session start, turn end and commit; `whatsup` answers "what's up" · 2026-10-13
+
+**Problem.** Two logs were required in writing — a decision log with a `Verified:` line per entry
+(`policy/ai-instructions.md`) and a Keep-a-Changelog `CHANGELOG.md` (`policy/repo-standards.md`)
+— and nothing checked either: no hook, no gate rule, no dotaudit id, no Enforcement row. The
+private log's #8 had kept steps 3 and 4 of the session workflow as prose on purpose, because
+"is this a decision worth recording" is a judgment. The result was drift: 13 repos with a root
+`DECISIONS.md` against 9 with `docs/`, five heading formats, and repos with code and no changelog.
+And opening a project meant reading three files and running four git commands before knowing
+what was going on.
+
+**Decision.** One library, `security/lib/logs.sh`, says which file is the decision log
+(`docs/DECISIONS.md`; root `DECISIONS.md` accepted where it exists; `docs/design-decisions.md`
+here), which repos are exempt (scratch, `_to_delete`, a remote not ours, the skip list), which
+paths are doc-only (`CHANGELOG_EXEMPT_ERE`), and how a log is read. Four consumers share it:
+
+- `bin/whatsup`: the one-screen answer — git state, last commits, last decision and open
+  `Verified` items, the `[Unreleased]` block, open TODO items, and what this session changed with
+  no changelog line. `--brief` is six lines.
+- `session-start.sh` prints `whatsup --brief` in every repo and writes a per-session baseline. The
+  Rule of Silence ends for repos: the summary is wanted every time.
+- `stop-log-check.sh`, a `Stop` hook: at the end of a turn that changed behaviour-relevant files it
+  refuses to end the turn — once per set of changed files — until the entries exist or the
+  assistant has said why none is owed. It asks the question #8 called a judgment; it does not
+  answer it. Never loops, never nags twice, fails open.
+- The gate blocks, in own repos after the first commit: `no-changelog-entry` (code staged with no
+  `CHANGELOG.md` change, in a repo that has one), `changelog-no-unreleased`, `decision-unverified`
+  (`NOT YET` passes, absence does not); warns `decision-ref-missing`. dotaudit reports
+  `no-changelog` and `decisions-unverified`. A missing changelog is existing debt and is not
+  blocked: the gate blocks what a commit introduces.
+
+Entries in this log carry a `**Verified.**` line from here on (D22 onward already do).
+
+**Rejected.** *A PreToolUse hook on every call* (the literal "every action"): never the moment an
+entry is owed, and hundreds of silent firings a session. *Enforcing in CI*: a squash or a web edit
+arrives there without its session, so the rule would fail on things nobody could have logged.
+*Generating entries automatically*: the hook cannot judge whether an alternative was closed off,
+and a generated entry is worse than none. *Blocking a commit in a repo with no changelog at all*:
+it would have failed every existing gate fixture and contradicts the "what a commit introduces"
+rule; the Stop hook and dotaudit carry that case. *Moving the 13 root `DECISIONS.md` files*: a
+sweep over 13 repos for no behavioural gain; both locations are accepted.
+
+**Cost.** Every Claude Code turn that changed code gets one extra prompt the first time; every
+commit in a repo with a changelog needs a line in it, in that commit. `~/.local/state/claude-logs/`
+holds a small file per session for seven days. The live `~/.claude/settings.json` gained a `Stop`
+hook that must stay in step with the tracked copy (`./test.sh docs` checks).
+
+**Verified.** `./test.sh` → all twelve suites pass; `logs` → `181 passed, 0 failed`; `docs` →
+`enforced: 15 policy check ids are in the enforcement table`, `synced: ~/.claude/settings.json
+registers every tracked hook`. `time bin/whatsup --brief` → `real 0.19`. By hand against the real
+repos: `whatsup --brief` in `dotfiles` → four lines (state, decisions `last 32 · ⚠ 9 open · ⚠ 17
+without Verified`, changelog `[Unreleased] 26 entries`, `TODO.md: 23 open`); in `ai-town` →
+`Decisions: none (exempt: remote owner is a16z-infra, not pieteradejong)`; at `~/dev` → the
+workspace TODO and five recently active repos; in `/tmp` → nothing. The Stop hook, fed the
+session's JSON with no baseline, returned `{"decision":"block"}` naming `bin/whatsup`, then exit 0
+silent on the second call (ack), then exit 0 for `stop_hook_active: true` and for `not json`. The
+gate in a throwaway repo: code without changelog → `BLOCK no-changelog-entry`, with it → pass, an
+entry without Verified → `BLOCK decision-unverified`, with `NOT YET` → pass, `(#9)` →
+`WARN decision-ref-missing`, no `[Unreleased]` → `BLOCK changelog-no-unreleased`, a remote owned
+by `other` → pass. **Found while verifying:** the suite's first run executed its fixture steps in
+this repo (a helper did `cd` inside a command substitution), leaving one stray commit and two
+overwritten files, all local; reverted with `git reset --soft HEAD~1` and `git checkout`, and the
+suite now wraps `git` in a function that refuses to run outside its sandbox. **NOT YET:** the Stop
+hook has not yet fired inside a live Claude Code session; this session predates its registration.
+Check the first turn of the next session that edits code in a repo.

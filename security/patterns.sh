@@ -153,3 +153,10 @@ CANONICAL_HOLDER='Pieter de Jong'
 # notices, author fields) that no one here can change. Exempt from the gate's
 # personal-data rules only — secrets in them are still scanned and blocked.
 LOCKFILE_ERE='(^|/)(package-lock\.json|npm-shrinkwrap\.json|yarn\.lock|pnpm-lock\.yaml|bun\.lockb?|poetry\.lock|Pipfile\.lock|uv\.lock|Cargo\.lock|Gemfile\.lock|composer\.lock|go\.sum|mix\.lock|pubspec\.lock|Podfile\.lock)$'
+
+# Paths that never owe a CHANGELOG entry (repo-standards.md § Changelog):
+# prose, licenses, git metadata, and tests. Everything else — code, config,
+# workflows, hooks, scripts, schedules — is behaviour someone can notice.
+# Shared by the gate (no-changelog-entry), the Stop hook, whatsup and dotaudit
+# (security/lib/logs.sh), so the four agree on what "doc-only" means.
+CHANGELOG_EXEMPT_ERE='(^|/)([^/]*\.(md|markdown|txt|rst)|LICENSE[^/]*|COPYING|NOTICE|\.gitignore|\.gitattributes|\.editorconfig)$|^docs/|(^|/)(test|tests|__tests__|spec|fixtures|testdata)/|(^|/)[^/]*(_test|\.test|\.spec)\.[^/]+$|(^|/)test_[^/]+$|^scripts/test-[^/]+$'

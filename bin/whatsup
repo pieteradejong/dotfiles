@@ -1,0 +1,226 @@
+#!/usr/bin/env bash
+#
+# whatsup — what is going on in this project, on one screen.
+#
+#   whatsup              the repo you are in: state and last commits, the decision log
+#                        (last entry, open Verified items), the changelog's [Unreleased]
+#                        block, open TODO items, and what the current Claude Code session
+#                        changed without a CHANGELOG.md entry
+#   whatsup --brief      the same in at most six lines — what the SessionStart hook prints
+#   whatsup --all        outside a repo: one line per repo under ~/dev that needs attention
+#                        (dirty, unpushed, no decision log, no changelog); slow, opt-in
+#   whatsup --no-color   plain text (also: NO_COLOR, or stdout not a terminal)
+#   whatsup -h           this header
+#
+# Outside a repo it shows the workspace TODO and the recently active repos.
+# Read-only: no command here writes, touches the network, or changes git config,
+# which is what makes it safe in do-not-touch repos. Always exits 0 — it is also
+# a hook, and a hook that can wedge a session is worse than none.
+#
+# Which files count, which repos are exempt, and what "doc-only" means come from
+# security/lib/logs.sh, shared with the gate, the Stop hook and dotaudit.
+# Rules: docs/policy/repo-standards.md § Changelog, ai-instructions.md § Decisions.
+#
+# Env:  DEV_ROOT               the workspace (default ~/dev)
+#       CLAUDE_LOGS_STATE_DIR  session baselines (default ~/.local/state/claude-logs)
+#
+# Tested by scripts/test-logs.sh (./test.sh logs). bash 3.2 compatible.
+
+set -u
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DOTFILES_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+DEV_ROOT="${DEV_ROOT:-$HOME/dev}"
+STATE_DIR="${CLAUDE_LOGS_STATE_DIR:-$HOME/.local/state/claude-logs}"
+# shellcheck source=security/lib/logs.sh
+. "$DOTFILES_DIR/security/lib/logs.sh"
+
+BRIEF=0; ALL=0; COLOR=1
+for a in "$@"; do
+  case "$a" in
+    --brief) BRIEF=1 ;;
+    --all) ALL=1 ;;
+    --no-color) COLOR=0 ;;
+    -h|--help) sed -n '3,27p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *) printf 'whatsup: unknown argument %s\n' "$a" >&2; exit 0 ;;
+  esac
+done
+{ [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; } || COLOR=0
+if [ "$COLOR" = 1 ]; then B=$'\033[1m'; D=$'\033[2m'; Y=$'\033[33m'; R=$'\033[0m'; else B=""; D=""; Y=""; R=""; fi
+W="${Y}⚠${R}"
+
+g() { git --no-optional-locks "$@" 2>/dev/null; }
+section() { [ "$BRIEF" = 1 ] || printf '\n%s%s%s  ' "$B" "$1" "$R"; }
+# first_n <n> <newline list> — "a, b, c (+N more)"
+first_n() { printf '%s\n' "$2" | awk -v n="$1" 'NF { c++; if (c <= n) s = s (c > 1 ? ", " : "") $0 } END { if (c > n) s = s " (+" (c - n) " more)"; printf "%s", s }'; }
+count() { printf '%s\n' "$1" | awk 'NF' | wc -l | tr -d ' '; }
+mtime() { stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null || echo 0; }
+ago() { # <epoch> — "3h", "2d"
+  local s=$(( $(date +%s) - $1 ))
+  if [ "$s" -lt 3600 ]; then printf '%dm' $((s / 60)); elif [ "$s" -lt 86400 ]; then printf '%dh' $((s / 3600)); else printf '%dd' $((s / 86400)); fi
+}
+
+# --- a repo -------------------------------------------------------------------------
+
+repo_state() { # prints the ⚠ items, newline-separated, in the SessionStart hook's wording
+  local dirty branch upstream ahead
+  dirty="$(g status --porcelain | grep -c '' || true)"
+  [ "${dirty:-0}" -gt 0 ] && printf '%s uncommitted file(s)\n' "$dirty"
+  branch="$(g symbolic-ref --quiet --short HEAD || true)"
+  if [ -z "$branch" ]; then
+    printf 'detached HEAD at %s\n' "$(g rev-parse --short HEAD || echo '?')"
+  elif upstream="$(g rev-parse --abbrev-ref --symbolic-full-name '@{upstream}')"; then
+    ahead="$(g rev-list --count "${upstream}..HEAD" || true)"
+    [ "${ahead:-0}" -gt 0 ] && printf '%s unpushed commit(s) on %s\n' "$ahead" "$branch"
+  else
+    printf '%s has no upstream\n' "$branch"
+  fi
+  [ -e .gitignore ] || printf 'no .gitignore\n'
+  return 0
+}
+
+show_repo() {
+  local top="$1" name branch upstream items line exempt="" dec cl rows n_none n_open open_list last base changed nondoc
+  name="$(basename "$top")"
+  cd "$top" || return 0
+  branch="$(g symbolic-ref --quiet --short HEAD || printf 'HEAD')"
+  upstream="$(g rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' || true)"
+  items="$(repo_state)"
+  if [ -z "$items" ]; then
+    line="clean${upstream:+ · in sync with $upstream}"
+  else
+    line="$(printf '%s\n' "$items" | awk -v w="$W" 'NF { s = s (s == "" ? "" : " · ") w " " $0 } END { printf "%s", s }')"
+  fi
+  printf '%s%s%s · %s · %s\n' "$B" "$name" "$R" "$branch" "$line"
+  [ "$BRIEF" = 1 ] || g log --oneline -5 | sed "s/^/  ${D}/; s/\$/${R}/"
+  exempt="$(logs_exempt "$top" || true)"
+
+  # Decisions
+  dec="$(logs_decisions_file "$top" || true)"
+  section "Decisions"
+  if [ -z "$dec" ]; then
+    [ "$BRIEF" = 1 ] && printf '%sDecisions:%s ' "$B" "$R"
+    if [ -n "$exempt" ]; then printf '%snone (exempt: %s)%s\n' "$D" "$exempt" "$R"
+    else printf '%s no decision log — create docs/DECISIONS.md on the first entry\n' "$W"; fi
+  else
+    rows="$(logs_decisions "$top/$dec")"
+    last="$(printf '%s\n' "$rows" | tail -n 1 | awk -F'\t' '{ printf "%s%s", $1, ($3 == "" ? "" : " (" $3 ")") }')"
+    n_none="$(printf '%s\n' "$rows" | awk -F'\t' '$2 == "none"' | awk 'NF' | wc -l | tr -d ' ')"
+    open_list="$(printf '%s\n' "$rows" | awk -F'\t' '$2 == "NOT YET" || $2 == "PARTIAL" { print $1 " " $2 }')"
+    n_open="$(count "$open_list")"
+    if [ "$BRIEF" = 1 ]; then
+      printf '%sDecisions:%s %s · %s entries · last %s%s%s\n' "$B" "$R" "$dec" "$(count "$rows")" "$last" \
+        "$([ "$n_open" -gt 0 ] && printf ' · %s %s open' "$W" "$n_open")" \
+        "$([ "$n_none" -gt 0 ] && printf ' · %s %s without Verified' "$W" "$n_none")"
+    else
+      printf '%s · %s entries · last: %s\n' "$dec" "$(count "$rows")" "$(logs_last_decision "$top/$dec")"
+      [ "$n_open" -gt 0 ] && printf '  %s %s open: %s\n' "$W" "$n_open" "$(first_n 6 "$open_list")"
+      [ "$n_none" -gt 0 ] && printf '  %s %s without a Verified line: %s\n' "$W" "$n_none" \
+        "$(first_n 6 "$(printf '%s\n' "$rows" | awk -F'\t' '$2 == "none" { print $1 }')")"
+    fi
+  fi
+
+  # Changelog
+  cl="$(logs_changelog_file "$top" || true)"
+  section "Changelog"
+  if [ -z "$cl" ]; then
+    [ "$BRIEF" = 1 ] && printf '%sChangelog:%s ' "$B" "$R"
+    if [ -n "$exempt" ]; then printf '%snone (exempt)%s\n' "$D" "$R"
+    else printf '%s no CHANGELOG.md — behaviour changes need one (repo-standards § Changelog)\n' "$W"; fi
+  elif ! logs_has_unreleased "$top/$cl"; then
+    printf '%s %s has no "## [Unreleased]" heading\n' "$W" "$cl"
+  else
+    rows="$(logs_unreleased "$top/$cl" | grep -E '^[[:space:]]*[-*] ' || true)"
+    if [ "$BRIEF" = 1 ]; then
+      printf '%sChangelog:%s [Unreleased] %s entries\n' "$B" "$R" "$(count "$rows")"
+    else
+      printf '%s · [Unreleased] · %s entries\n' "$cl" "$(count "$rows")"
+      logs_unreleased "$top/$cl" | awk 'NF' | awk -v d="$D" -v r="$R" 'NR <= 15 { print "  " d $0 r } END { if (NR > 15) print "  " d "… +" (NR - 15) " more lines" r }'
+    fi
+  fi
+
+  show_todo "$top/TODO.md"
+
+  # This session: what changed with no entry to cover it
+  base="$(logs_newest_baseline "$top" "$STATE_DIR" || true)"
+  changed="$(logs_changed_paths "$top" "$base")"
+  nondoc="$(printf '%s\n' "$changed" | LC_ALL=C grep -vE -- "$CHANGELOG_EXEMPT_ERE" | awk 'NF' || true)"
+  if [ -n "$nondoc" ] && [ -z "$exempt" ]; then
+    section "This session"
+    if printf '%s\n' "$changed" | grep -qx 'CHANGELOG.md'; then
+      [ "$BRIEF" = 1 ] || printf '%s%s changed, CHANGELOG.md updated%s\n' "$D" "$(count "$nondoc")" "$R"
+    else
+      printf '%s %s file(s) changed with no CHANGELOG.md change: %s\n' "$W" "$(count "$nondoc")" "$(first_n 4 "$nondoc")"
+    fi
+    if [ -n "$dec" ] && ! printf '%s\n' "$changed" | grep -qx "$dec" && [ "$BRIEF" != 1 ]; then
+      printf '  %sno decision entry this session — fine unless an alternative was closed off%s\n' "$D" "$R"
+    fi
+  fi
+  return 0
+}
+
+show_todo() { # <TODO.md>
+  local f="$1" open
+  [ -f "$f" ] || return 0
+  open="$(grep -E '^[[:space:]]*[-*] \[ \]' "$f" || true)"
+  [ -n "$open" ] || return 0
+  if [ "$BRIEF" = 1 ]; then
+    printf '%sTODO.md:%s %s open\n' "$B" "$R" "$(count "$open")"
+  else
+    section "Open work"
+    printf 'TODO.md · %s open\n' "$(count "$open")"
+    printf '%s\n' "$open" | head -n 5 | sed -E "s/^[[:space:]]*[-*] \[ \][[:space:]]*/  ${D}- /; s/\$/${R}/" | cut -c1-160
+  fi
+}
+
+# --- the workspace -------------------------------------------------------------------
+
+all_repos() { # every .git/index under DEV_ROOT, newest first: "<epoch> <repo path>"
+  find "$DEV_ROOT" -maxdepth 6 \( -name node_modules -o -name .venv -o -name venv -o -name .worktrees -o -name worktrees \) -prune \
+    -o -type f -path '*/.git/index' -print 2>/dev/null \
+    | while IFS= read -r f; do printf '%s %s\n' "$(mtime "$f")" "${f%/.git/index}"; done | sort -rn
+}
+
+show_workspace() {
+  local here="$1" recent
+  if [ "$here" != "$DEV_ROOT" ] && [ ! -f "$here/TODO.md" ]; then
+    [ "$BRIEF" = 1 ] && return 0
+    printf '%s%s%s · not a git repo · cd into a project, or run from %s\n' "$B" "$here" "$R" "$DEV_ROOT"
+    return 0
+  fi
+  printf '%s%s%s · workspace\n' "$B" "${here/#$HOME/~}" "$R"
+  show_todo "$here/TODO.md"
+  recent="$(all_repos | head -n 5 | while read -r t p; do printf '%s (%s)\n' "${p#"$DEV_ROOT"/}" "$(ago "$t")"; done)"
+  if [ "$BRIEF" = 1 ]; then
+    printf '%sRecently active:%s %s\n' "$B" "$R" "$(first_n 5 "$recent")"
+  else
+    section "Recently active"; printf '%s\n' "$(first_n 5 "$recent")"
+  fi
+  [ "$ALL" = 1 ] || return 0
+  section "Every repo"; printf '\n'
+  all_repos | while read -r _ p; do
+    ( cd "$p" 2>/dev/null || exit 0
+      items="$(repo_state | grep -v 'no .gitignore' || true)"
+      ex="$(logs_exempt "$p" || true)"
+      if [ -z "$ex" ]; then
+        logs_decisions_file "$p" >/dev/null || items="${items:+$items
+}no decision log"
+        logs_changelog_file "$p" >/dev/null || items="${items:+$items
+}no CHANGELOG.md"
+      fi
+      [ -n "$items" ] && printf '  %-34s %s\n' "${p#"$DEV_ROOT"/}" "$(printf '%s\n' "$items" | awk -v w="$W" 'NF { s = s (s == "" ? "" : " · ") w " " $0 } END { printf "%s", s }')"
+    )
+  done
+}
+
+main() {
+  local top
+  if top="$(g rev-parse --show-toplevel)" && [ -n "$top" ]; then
+    show_repo "$top"
+  else
+    show_workspace "$PWD"
+  fi
+  exit 0
+}
+
+main
