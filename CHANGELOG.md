@@ -7,6 +7,7 @@ History before this file: `git log`.
 ## [Unreleased]
 
 ### Added
+- `bin/llm`: `config/llm/lineup` declares the local models and their roles; new commands `status`, `models`, `update` (installs the lineup: plan, one yes, disk floor, each pull verified local), `free`, `restart`, and the `fast` role. Starts the Ollama daemon on demand; `LLM_NO_AUTOSTART` opts out (D32).
 - `docs/policy/ai-and-external-services.md` §5: a per-project allow for one outward command is permitted in that project's tracked `.claude/settings.json`, exact command, neighbouring actions denied, with its own decision entry; `eu27-data-sovereignty` #106 is the first example.
 - `bin/mail-report`: sends stdin as a plain-text email over Gmail SMTP, credentials from one macOS Keychain item (`dotfiles-mail-report`); `--test`, `--dry-run`, exit 3 when unconfigured. Tested by `scripts/test-mail-report.py` (`./test.sh mail`) against a fake `security`; nothing is sent (D31).
 - `bin/weekly-disk-cleanup.sh` and `scripts/mac-maintenance.sh` mail every real run — the same text as the log, subject from the `Reclaimed:`/`Moved:` line. New `--no-mail`; `--dry-run` never mails. A failed send is one `WARN: report not mailed` line, never a non-zero exit (D31).
@@ -24,5 +25,7 @@ History before this file: `git log`.
 - `docs/maintenance.md` rewritten as the README for every maintenance job: at-a-glance table (script, schedule, safe mode, output, tests, plist, decisions), testing, decisions and open-items sections.
 
 ### Fixed
+- `bin/llm`: a model name containing `coding` now classifies as coder (D32).
+- `scripts/test-bin.sh` closes stdin. Under any non-terminal harness, every `llm` call had blocked in `cat` forever.
 - `docs/maintenance.md` said the `rm -rf` allowlist test was pending; it has been in `scripts/test-bin.sh` since D27.
 - `docs/policy/repo-standards.md` gained the § Changelog that `claude/dev-CLAUDE.md` already pointed to.

@@ -736,3 +736,49 @@ accepted, the log append precedes the mail call); `shellcheck`, `zsh -n` and `ru
 NOT YET: the Keychain item on this Mac, `mail-report --test`, and the first launchd run that mails
 (Sun 2026-10-18 09:00) — which also confirms that `security` reads the item under launchd without a
 prompt.
+
+## D32 — `llm` owns the model lineup and the daemon, not just the prompt · 2026-10-06
+
+**Problem.** `llm` routed prompts, but everything around them was manual: models were pulled by
+hand with `ollama pull`, roles were guessed from names, and nothing said which models the machine
+*should* have. A real case: `qwen3.6:27b-coding` didn't match the coder pattern (`coding` is not
+`code`), so it would have been routed as general. The daemon had sat on an old version after a
+`brew upgrade` because nothing prompted a restart. And it took Ollama, `brew services` and
+`launchctl` knowledge to check that the lockdown still held.
+
+**Decision.** [`config/llm/lineup`](../config/llm/lineup) (`role tag download_GB` per line) is the
+one declaration of the installed models and their roles. Lineup roles take priority over name
+classification, which still handles models outside the lineup. `llm` gains first-word commands,
+following the same rule as `code`/`reason`:
+- `status`: daemon up, version skew, `OLLAMA_NO_CLOUD`, loopback bind, disk, missing lineup models.
+- `models`: what's installed, with role and size.
+- `update`: makes the machine match the lineup. It shows the plan and asks once. It refuses a plan
+  that would leave less than `LLM_MIN_FREE_GB` (15) free. It pulls one model at a time, removing
+  unlisted models first only when that pull needs the space. Each pull must pass `/api/show` (no
+  `remote_host`, a `FROM /…` local blob) or it is deleted again.
+- `free`: unload resident models.
+- `restart`: restart the daemon.
+- `fast`: a new role for a MoE coder, falling back to `coder`.
+
+When nothing answers on the default endpoints, `llm` runs `brew services start ollama` itself.
+
+**Rejected.** *Keeping roles purely name-derived*: names don't say intent (two coders: which is
+`code` and which is `fast`?), and `coding` proved they miss. *Hardcoding tags in the script*: the
+`ollm` function went stale exactly that way (see the `llm` history in [llm.md](llm.md)). *A
+separate `llm-admin` command*: two entry points to remember for one tool. *Asking before
+auto-start*: the idle daemon costs about 6 MB of RAM and no CPU, and memory is spent only while a
+model is loaded, so there is nothing worth a prompt. *Removing all unlisted models before pulling*:
+leaves the machine with no model if a pull fails.
+
+**Cost.** `update` is the one command that downloads, so `llm` is no longer purely offline. That is
+acceptable because it only ever runs when asked, and every pulled tag passes the same `cloud`
+refusal as inference. `update` removes ad-hoc pulls not in the lineup, after a yes.
+
+**Verified.** 2026-10-06: `./scripts/test-bin.sh` passes, including 13 new tests against a fake
+Ollama on loopback. Those cover lineup-over-name routing, `fast` fallback, `status <words>`
+refused, the update plan (pull missing, remove unlisted, keep the rest), the disk-floor refusal, a
+`:cloud` lineup tag and an unknown role refused, and the shipped lineup parsing. Live run: `llm
+update --yes` pulled 2 models and removed 2, verified both local, and ended at 37 GB free. From a
+stopped service, `llm --dry-run` auto-started the daemon and answered in 2.75 s, bound to
+`127.0.0.1:11434` only. `llm free` → `/api/ps` empty.
+
