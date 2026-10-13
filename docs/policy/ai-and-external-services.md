@@ -91,6 +91,12 @@ any command from the "not safe" column.
   `~/.aws` and `.env` files, and force pushes. A deny wins over any allow and over "always allow"
   clicks, so it holds even when the allowlist grows. The hooks remain the enforcement layer (D25).
 - **No interactive commands.** `top` and similar never exit without a TTY and hang the session (D25).
+- **A per-project allow for one outward command is allowed, in the project's tracked `.claude/settings.json`,
+  never globally.** It names the exact command, denies the neighbouring outward actions by name, and gets a
+  decision entry in that project. The hooks and the global denies still apply to it. First example:
+  `eu27-data-sovereignty` allows `git push origin main` and `git push origin <branch>:main` (its #106) so the
+  auto-mode classifier stops refusing a deploy the owner has already approved; the owner's OK in the
+  conversation is still required before each push.
 
 ## 6. Publishing from an assistant
 

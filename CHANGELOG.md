@@ -7,6 +7,7 @@ History before this file: `git log`.
 ## [Unreleased]
 
 ### Added
+- `docs/policy/ai-and-external-services.md` §5: a per-project allow for one outward command is permitted in that project's tracked `.claude/settings.json`, exact command, neighbouring actions denied, with its own decision entry; `eu27-data-sovereignty` #106 is the first example.
 - `bin/mail-report`: sends stdin as a plain-text email over Gmail SMTP, credentials from one macOS Keychain item (`dotfiles-mail-report`); `--test`, `--dry-run`, exit 3 when unconfigured. Tested by `scripts/test-mail-report.py` (`./test.sh mail`) against a fake `security`; nothing is sent (D31).
 - `bin/weekly-disk-cleanup.sh` and `scripts/mac-maintenance.sh` mail every real run — the same text as the log, subject from the `Reclaimed:`/`Moved:` line. New `--no-mail`; `--dry-run` never mails. A failed send is one `WARN: report not mailed` line, never a non-zero exit (D31).
 - `scripts/test-mac-maintenance.sh`, run by `./test.sh maint`: the real `mac-maintenance.sh` against a fake HOME, plus static checks that it never deletes (D29).
