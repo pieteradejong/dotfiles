@@ -580,7 +580,12 @@ log). Mutation check: a copy with `rm -rf "$HOME"/*`, an unguarded `*.ShipIt` sw
 `docker system prune -a` or `find … -name "*.mp4" -delete` appended fails the suite each time.
 `weekly-disk-cleanup.sh --dry-run` on this Mac lists every step and changes nothing (log mtime
 unchanged). 2026-10-09: Sparkle form added; `./test.sh bin` → 90 passed, 0 failed; `--dry-run`
-lists the new form and changes nothing. NOT YET: a real run, and the next Sunday launchd log.
+lists the new form and changes nothing. 2026-10-13: the first scheduled real run
+(launchd, Sun 2026-10-11 09:00, `~/.weekly-disk-cleanup.log`) ran every step without error and
+reported `Reclaimed: 2561 MB`: npm 3.4G → 1.0G, pip 864M → 92K (1436 files; the PATH fix works,
+where launchd's Xcode pip had removed 1 file a week), uv 28M → 288K. Brew had nothing to remove.
+Trash was skipped as designed ("no Full Disk Access to ~/.Trash (launchd)"). NOT YET: a real
+terminal run that exercises the Trash `-ctime` sweep on real items.
 
 ## D28 — The maintenance dashboard is a local file built from the reports · 2026-10-07
 
