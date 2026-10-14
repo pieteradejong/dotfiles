@@ -88,26 +88,46 @@ Every project has one **before the first commit**, covering at minimum:
 Verify it with `git check-ignore`, not by reading it ([`.gitignore` facts](security-and-privacy.md#7-gitignore-facts)).
 Never add rules to a fork's `.gitignore`; keep it identical to upstream.
 
-### Scripts: `init.sh` and `run.sh`
+### Scripts: `init.sh`, `test.sh` and `run.sh`
 
 Every project exposes the same entry points, whatever the stack. **If it isn't in a script, it
 doesn't exist** — a README step a human translates into commands is done differently each time.
 
 ```bash
 ./init.sh        # everything needed to work on it; exit 0 = ready; idempotent
-./run.sh         # the default thing (dev server)
+./test.sh        # every check the repo has, in one place; exit 0 = green = safe to commit
+./run.sh         # the default thing (dev server, main command)
 ./run.sh build   # production build
-./run.sh test    # tests; exit 0 = safe to deploy
+./run.sh test    # delegates to ./test.sh — never a second list of test commands
 ./run.sh lint    # linters
 ./run.sh format  # auto-format
 ```
 
 Production-shaped projects add `prod`, `debug`, `type-check`.
 
+- **`test.sh` is canonical.** It runs every check the repo has — toolchain version, dependencies
+  match the lockfile, no tracked `.env`, shell syntax and shellcheck of its own scripts, lint and
+  format where configured, type-check, unit tests, build — each as a named step. `run.sh test` is
+  `exec ./test.sh "$@"`, and CI runs `./test.sh` (with `--ci`, `--integration` or similar flags),
+  not its own list of commands. Checks that need Docker, a database or the network sit behind a
+  flag and are reported as skipped, never silently absent.
+- **Not every repo is runnable.** A library, data pipeline or infra repo has `init.sh` and
+  `test.sh`; `run.sh` only where there is a default action. A repo whose interface is a `Makefile`
+  wraps it (`./run.sh data` → `make data`) rather than duplicating it.
 - **Exit codes are the interface.** `set -euo pipefail`; be deliberate where it's turned off.
-- **`init.sh` is idempotent** — a second run neither fails nor rebuilds from scratch. It creates
-  `.env` from `.env.template` and recreates dependency dirs, so those are always disposable.
+- **`init.sh` is idempotent** — a second run neither fails nor rebuilds from scratch. It reuses the
+  virtualenv or `node_modules` it finds (`--clean` rebuilds), creates `.env` from `.env.example` or
+  `.env.template` with mode 600, and never prints what it put there. Dependency dirs are disposable.
+- **Virtualenv dir:** `.venv/` for new projects; an existing `venv/` stays. Scripts name it once
+  (`VENV=.venv`) and call `"$VENV/bin/python" -m …` rather than sourcing `activate`.
+- **Committed scripts are bash 3.2** (macOS `/bin/bash`): `#!/usr/bin/env bash`, no associative
+  arrays, shellcheck-clean at `-S warning`, `cd "$(dirname "$0")"` first, a comment header on lines
+  2 onward that `-h`/`--help` prints before anything installs.
 - **No absolute paths** — use `$HOME` or paths relative to the script.
+- **Self-contained.** No sourced helper library from another repo: a clone on its own, and CI,
+  must run `./test.sh` unchanged. Reference implementations: `projects/german-industry` (compact,
+  one toolchain) and `projects/forparents` (`run_step` suite with a summary table, every step runs
+  even after a failure).
 - **Back up before anything destructive**, and log what happened.
 - **Prefer conventions that fail loudly.** A broken script fails today; a wrong architecture doc
   fails silently, years later.
@@ -267,6 +287,7 @@ this existed.
 | `.gitignore` baseline | [baseline](#gitignore-baseline) | — | — | `no-gitignore`, `gitignore-env`, `gitignore-gaps` |
 | Behaviour change ⇒ `CHANGELOG.md` line under `[Unreleased]` | [changelog](#changelog) | `no-changelog-entry`, `changelog-no-unreleased` block, `decision-ref-missing` warn / — ; the assistant: `stop-log-check.sh` | — (local only: CI cannot see the session) | `no-changelog` |
 | Decision entries carry `Verified:` | [ai-instructions § Decisions](ai-instructions.md#decisions-need-verification) | `decision-unverified` block / — ; the assistant: `stop-log-check.sh` | — | `decisions-unverified` |
+| `init.sh` and `test.sh` in every repo with code, `run.sh` where runnable | [scripts](#scripts-initsh-testsh-and-runsh) | — | — | `no-project-scripts` |
 | `private/` never in public dotfiles | [security §2](security-and-privacy.md#2-the-commitpush-gate) | block / block | `private-guard` job | — |
 | Never bypass the gate | [security §3](security-and-privacy.md#3-bypass-procedure) | the assistant: `guard-git-bypass.sh`; people: the bypass log | gate (no bypass) | `gate-bypassed`, `gate-disabled`, `gate-not-registered` |
 | Content reaches GitHub only through git | [security §14](security-and-privacy.md#14-assistant-guardrails) | the assistant: `guard-github-write.sh` | — | — |

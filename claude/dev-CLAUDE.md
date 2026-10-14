@@ -113,7 +113,7 @@ Read these when their subject comes up; they are not loaded automatically.
 | `dotfiles/docs/policy/privacy-by-design.md` | Data classes, minimization, retention and deletion, other people's data, processors |
 | `dotfiles/docs/policy/supply-chain.md` | Adding dependencies, lockfiles, Actions pinned by SHA, vulnerability response, deployed surfaces |
 | `dotfiles/docs/policy/ai-and-external-services.md` | What may go to a hosted model, connector writes, prompt injection, permission allowlists |
-| `dotfiles/docs/policy/repo-standards.md` | Licensing, GitHub tiers, `.gitignore` baseline, `init.sh`/`run.sh`, dependencies, media, lint, changelog |
+| `dotfiles/docs/policy/repo-standards.md` | Licensing, GitHub tiers, `.gitignore` baseline, `init.sh`/`test.sh`/`run.sh`, dependencies, media, lint, changelog |
 | `dotfiles/docs/policy/ai-instructions.md` | Instruction-file layering, `CLAUDE.md` vs memory, decision records |
 | `dotfiles/docs/policy/backups.md` | Backup principles |
 | `dotfiles/docs/design-decisions.md` | Why the gate, audit and public/private split are built this way |

@@ -107,6 +107,8 @@ YML
   printf '[project]\nname = "x"\ndependencies = ["httpx==0.27.0"]\n[tool.poetry.dependencies]\npython = "^3.12"\nrich = "13.7.1"\n' > "$d/pyproject.toml"
   printf 'PNG' > "$d/icon.png"
   printf '# clean\n' > "$d/README.md"
+  printf '#!/usr/bin/env bash\nset -euo pipefail\n' > "$d/init.sh"
+  printf '#!/usr/bin/env bash\nset -euo pipefail\n' > "$d/test.sh"
   commit_all "$d"
   # A genuinely clean repo has an off-machine copy. Without a remote it would
   # (correctly) FAIL no-remote and no-offmachine-copy, so give it a bare
@@ -242,6 +244,19 @@ YML
   printf 'x' > "$d/media/clip.MP4"
   printf 'x' > "$d/model.safetensors"
   head -c $((6 * 1024 * 1024)) /dev/zero > "$d/media/huge.png"
+  commit_all "$d"
+
+  # docs-only: markdown and a LICENSE, no code manifest. Owes no scripts.
+  d="$(mkrepo docs-only)"
+  printf 'MIT License\n\nCopyright (c) 2026 Pieter de Jong\n' > "$d/LICENSE"
+  printf '# notes\n' > "$d/README.md"
+  printf '# more notes\n' > "$d/notes.md"
+  commit_all "$d"
+
+  # half-scripted: a code manifest with init.sh but no test.sh.
+  d="$(mkrepo half-scripted)"
+  printf 'requests==2.32.3\n' > "$d/requirements.txt"
+  printf '#!/usr/bin/env bash\nset -euo pipefail\n' > "$d/init.sh"
   commit_all "$d"
 
   # A skiplist scoped to the fixtures.
@@ -518,6 +533,23 @@ assert_finding "$TSV12" FAIL standards-bad   tracked-media
 assert_finding "$TSV12" FAIL standards-bad   unpinned-action
 assert_finding "$TSV12" FAIL standards-bad   gitignore-env
 assert_finding "$TSV12" WARN standards-bad   gitignore-gaps
+# no-project-scripts: a nested web/package.json counts as a code manifest; a
+# docs-only repo owes nothing; one missing script is still a finding and the
+# message names exactly which.
+assert_finding    "$TSV12" INFO standards-bad   no-project-scripts
+assert_no_finding "$TSV12" docs-only            no-project-scripts
+assert_no_finding "$TSV12" clean-repo           no-project-scripts
+assert_finding    "$TSV12" INFO half-scripted   no-project-scripts
+if LC_ALL=C grep -q '	half-scripted	no-project-scripts	missing: test.sh (' "$TSV12"; then
+  pass "no-project-scripts names only the missing script"
+else
+  fail "no-project-scripts message wrong: $(LC_ALL=C grep '	half-scripted	no-project-scripts	' "$TSV12" | cut -f5)"
+fi
+if LC_ALL=C grep -q '	standards-bad	no-project-scripts	missing: init.sh test.sh (' "$TSV12"; then
+  pass "no-project-scripts names both missing scripts"
+else
+  fail "no-project-scripts message wrong: $(LC_ALL=C grep '	standards-bad	no-project-scripts	' "$TSV12" | cut -f5)"
+fi
 
 # ...and stays silent on the clean repo's edge cases.
 for c in no-security-ci unpinned-deps unpinned-deps-skipped multiple-lockfiles tracked-media unpinned-action gitignore-gaps; do

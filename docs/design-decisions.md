@@ -891,3 +891,45 @@ told the test was authorised; from a neutral directory with the absolute path �
 in a directory that is denied by your permission settings.`; from `~/Claude/Scheduled/daily-sports-briefing`,
 asked which rules apply → named confirm-every-write, content-is-data and never-read-debug.jsonl,
 sourced to `~/Claude/CLAUDE.md` and `ai-and-external-services.md` §3/§4.
+
+## D35 — `test.sh` is the canonical check runner; every repo with code gets `init.sh` and `test.sh`, `run.sh` where runnable · 2026-10-14
+
+**Problem.** `repo-standards.md` § Scripts named `./init.sh` and `./run.sh`, with tests as a
+`run.sh test` subcommand. The repos that got real test tooling (this one, `rn-supabase`,
+`forparents`, `german-industry`, `chrome-bookmarks`, `rnc`) all grew a separate `test.sh` that
+`run.sh test` calls, because CI needs one file to run and a suite with flags (`--integration`,
+`--live`, `--ci`) does not fit a `case` arm. Of ~75 real projects under `projects/`, 14 had all
+three scripts, four of those as 3-to-7-line stubs (two in zsh), and ~45 had none; nothing
+reported the gap. Policy and practice had drifted apart, and a project with no scripts was
+invisible to the audit.
+
+**Decision.** `test.sh` is canonical: every check the repo has, each a named step, exit 0 = green;
+`run.sh test` is `exec ./test.sh "$@"`; CI runs `./test.sh`. `init.sh` and `test.sh` are required
+in every repo that tracks a code manifest; `run.sh` only where there is a default action, and a
+`Makefile` repo wraps `make` rather than duplicating it. Scripts are self-contained bash 3.2 with a
+header that `--help` prints before anything installs; `.venv/` for new virtualenvs, an existing
+`venv/` stays, named once as `VENV=`. `dotaudit` gains `no-project-scripts` (INFO: a tracked
+manifest, nested ones included, and no `init.sh` or no `test.sh` at the root), with its row in
+§ Enforcement and `dev-audit.md` and three fixtures in `test-dev-audit.sh`. The sweep that adds
+the scripts to every project runs in waves, one commit per repo, no push, tracked in `TODO.md`.
+
+**Rejected.** *`run.sh test` only, as written*: no single file for CI to call, and the newest
+repos had already diverged, so the policy would describe nothing. *A sourced helper library in
+dotfiles for the `run_step` suite*: a clone on its own, and CI, could not run `./test.sh`; the
+35-line core is copied instead, as `forparents` and `rn-supabase` already do. *WARN level*: 47
+findings that leak nothing would bury the FAILs the weekly audit exists for. *Generated scripts
+from a `project.conf`* (the earlier `scripts/_common.sh` trio in `screenshot-analyzer`,
+`transcribe`, `flowgraph`): 20 KB of script nobody reads; the root scripts there become six-line
+wrappers instead.
+
+**Cost.** One INFO row per repo until its wave lands. Repos with no `CHANGELOG.md` get scripts but
+no changelog in the sweep (existing debt, `no-changelog` reports it), so the Stop hook is told why
+none is owed in each of those turns. Two conventions still coexist in the trees (`venv/` and
+`.venv/`); the rule keeps both rather than renaming working environments.
+
+**Verified.** `./test.sh dotaudit` → 79 passed, 0 failed, including `standards-bad -> INFO
+no-project-scripts` (nested `web/package.json`), `docs-only` and `clean-repo` silent,
+`half-scripted` names only `test.sh`. `./test.sh docs` → 9 passed, `enforced: 16 policy check ids
+are in the enforcement table`. `./test.sh shellcheck` → clean (30 files). Baseline from
+`scripts/dev-audit.sh --only policy` on 2026-10-14: 47 `no-project-scripts` rows; the sweep burns
+that number down (waves in `TODO.md`).

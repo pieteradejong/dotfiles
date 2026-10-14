@@ -60,6 +60,7 @@ audit_policy() {
     check_media       "$repo" "$name" "$tracked"
     check_actions     "$repo" "$name" "$tracked"
     check_logs_audit  "$repo" "$name" "$tracked"
+    check_scripts     "$repo" "$name" "$tracked"
   done < <(list_repos)
 }
 
@@ -83,6 +84,26 @@ check_logs_audit() {
       finding WARN "$CAT" "$name" decisions-unverified "$dec: $n_none without a Verified line, $n_open open (NOT YET / PARTIAL)"
     fi
   fi
+  return 0
+}
+
+# --- init.sh / test.sh ----------------------------------------------------------
+# repo-standards.md § Scripts: every repo with code exposes init.sh and test.sh;
+# run.sh only where there is a default action, so it is not checked. A repo with
+# no code manifest is docs-only and owes nothing. INFO, not WARN: a missing
+# script leaks nothing; the finding is the to-do list for the sweep that adds
+# them. Audit-only pattern, so it lives here rather than in security/patterns.sh.
+# Nested manifests (web/package.json) count: the root scripts must step into them.
+PROJECT_MANIFEST_ERE='(^|/)(package\.json|pyproject\.toml|requirements[^/]*\.txt|Makefile|go\.mod|Cargo\.toml|[^/]+\.xcodeproj/[^/]+|[^/]+\.tf)$'
+check_scripts() {
+  local repo="$1" name="$2" tracked="$3" missing=""
+  logs_exempt "$repo" >/dev/null && return 0
+  printf '%s\n' "$tracked" | LC_ALL=C grep -vE '(^|/)(node_modules|vendor)/' \
+    | LC_ALL=C grep -qE -- "$PROJECT_MANIFEST_ERE" || return 0
+  [ -f "$repo/init.sh" ] || missing="$missing init.sh"
+  [ -f "$repo/test.sh" ] || missing="$missing test.sh"
+  [ -n "$missing" ] && \
+    finding INFO "$CAT" "$name" no-project-scripts "missing:$missing (repo-standards.md § Scripts)"
   return 0
 }
 
