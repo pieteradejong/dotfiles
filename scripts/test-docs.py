@@ -8,7 +8,8 @@ Checks, over every docs/**/*.md in this repo:
   indexed    every docs/policy/*.md is linked from docs/policy/security-and-privacy.md
              and listed in claude/dev-CLAUDE.md
   synced     the live workspace CLAUDE.md is byte-identical to claude/dev-CLAUDE.md,
-             ~/.claude/CLAUDE.md to claude/CLAUDE.md, and ~/.claude/settings.json
+             ~/.claude/CLAUDE.md to claude/CLAUDE.md, ~/Claude/CLAUDE.md to
+             claude/cowork-CLAUDE.md, and ~/.claude/settings.json
              registers every hook claude/settings.json does (skipped with a note
              where a live file does not exist, e.g. in CI)
   enforced   every check id scripts/audit/20-policy.sh can emit has a row in
@@ -21,6 +22,7 @@ Usage:  scripts/test-docs.py [--verbose]
 Exit:   0 all passed · 1 a check failed · 2 bad usage
 Env:    DEV_CLAUDE_MD     live workspace CLAUDE.md (default: ~/dev/CLAUDE.md)
         GLOBAL_CLAUDE_MD  live global CLAUDE.md (default: ~/.claude/CLAUDE.md)
+        COWORK_CLAUDE_MD  live Cowork-folder CLAUDE.md (default: ~/Claude/CLAUDE.md)
         CLAUDE_SETTINGS   live settings.json (default: ~/.claude/settings.json)
 """
 
@@ -40,6 +42,8 @@ DEV_CLAUDE_SRC = REPO / "claude" / "dev-CLAUDE.md"
 DEV_CLAUDE_LIVE = Path(os.environ.get("DEV_CLAUDE_MD", Path.home() / "dev" / "CLAUDE.md"))
 GLOBAL_CLAUDE_SRC = REPO / "claude" / "CLAUDE.md"
 GLOBAL_CLAUDE_LIVE = Path(os.environ.get("GLOBAL_CLAUDE_MD", Path.home() / ".claude" / "CLAUDE.md"))
+COWORK_CLAUDE_SRC = REPO / "claude" / "cowork-CLAUDE.md"
+COWORK_CLAUDE_LIVE = Path(os.environ.get("COWORK_CLAUDE_MD", Path.home() / "Claude" / "CLAUDE.md"))
 SETTINGS_SRC = REPO / "claude" / "settings.json"
 SETTINGS_LIVE = Path(os.environ.get("CLAUDE_SETTINGS", Path.home() / ".claude" / "settings.json"))
 POLICY_MODULE = REPO / "scripts" / "audit" / "20-policy.sh"
@@ -184,6 +188,13 @@ def main(argv):
                         [] if same else ["synced: edit claude/CLAUDE.md, then copy it to ~/.claude/CLAUDE.md"]))
     else:
         print("  - SKIP: synced: no ~/.claude/CLAUDE.md on this machine")
+
+    if COWORK_CLAUDE_LIVE.exists():
+        same = COWORK_CLAUDE_LIVE.read_bytes() == COWORK_CLAUDE_SRC.read_bytes()
+        results.append((same, "synced: ~/Claude/CLAUDE.md matches claude/cowork-CLAUDE.md",
+                        [] if same else ["synced: edit claude/cowork-CLAUDE.md, then copy it to ~/Claude/CLAUDE.md"]))
+    else:
+        print("  - SKIP: synced: no ~/Claude/CLAUDE.md on this machine")
 
     if SETTINGS_LIVE.exists():
         missing = sorted(hooks(SETTINGS_SRC) - hooks(SETTINGS_LIVE))

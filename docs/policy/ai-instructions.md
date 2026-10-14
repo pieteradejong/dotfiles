@@ -15,6 +15,7 @@ All loaded files apply together; a more specific one adds to the broader ones.
 | Global | `~/.claude/CLAUDE.md` | Machine facts: OS, shell, toolchain versions, package-manager preferences |
 | Workspace | `~/dev/CLAUDE.md` | Rules for every project: hard rules, do-not-touch, session workflow, templates, where policy lives |
 | Project | `<project>/CLAUDE.md` | Exact commands and non-obvious conventions for one project |
+| Cowork folder | `~/Claude/CLAUDE.md` | Connector, artifact and scheduled-task rules for the desktop app's working folder, which sits outside `~/dev` |
 | Private import | `@path/to/file.md` from any of the above | Material that must not be committed with the importing file |
 | Memory | `~/.claude/projects/<workspace-slug>/memory/` | Things that became true while working (see below) |
 
@@ -153,9 +154,10 @@ the hook asks, it does not answer. `whatsup` shows the last entry and the open i
 ## One source of truth for assistant config
 
 The dotfiles copies are the source: `claude/CLAUDE.md` (for `~/.claude/CLAUDE.md`),
-`claude/dev-CLAUDE.md` (for `~/dev/CLAUDE.md`) and `claude/settings.json` (for
-`~/.claude/settings.json`). Edit the dotfiles copy, then copy it to the live location. The two
-`CLAUDE.md` files are byte-identical copies, not symlinks (decided 2026-09-14). The live
+`claude/dev-CLAUDE.md` (for `~/dev/CLAUDE.md`), `claude/cowork-CLAUDE.md` (for
+`~/Claude/CLAUDE.md`, D34) and `claude/settings.json` (for `~/.claude/settings.json`). Edit the
+dotfiles copy, then copy it to the live location. The `CLAUDE.md` files are byte-identical copies,
+not symlinks (decided 2026-09-14). The live
 `settings.json` is a superset: it also carries machine-local hooks with absolute paths, which stay
 out of the public repo. Copies drift, so `scripts/test-docs.py` fails when a live `CLAUDE.md`
 differs from its source, or when the live `settings.json` lacks a hook the tracked one registers.

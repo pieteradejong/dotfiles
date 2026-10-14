@@ -22,6 +22,7 @@
       "Read(~/.aws/**)",
       "Read(**/.env)",
       "Read(**/.env.*)",
+      "Read(~/Claude/**/debug.jsonl)",
       "Bash(git push --force:*)",
       "Bash(git push -f:*)",
       "Bash(rm -rf /:*)"
