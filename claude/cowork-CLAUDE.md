@@ -40,8 +40,10 @@ Policy root: `~/dev/dotfiles/docs/policy/`.
   → `ai-and-external-services.md` §6.
 - **Not a repo, and stays that way unasked.** Never `git init` here or copy its contents into a
   repo without asking. Anything that does get tracked follows `~/dev/CLAUDE.md`.
-- **"Done" means verified.** Open the artifact and confirm its connector calls succeed, or run the
-  scheduled skill once and show the output. Say what was checked in the closing summary.
+- **"Done" means verified.** Run `./test.sh` from the folder root (every suite; `./test.sh live`
+  also proves the rules load in a fresh session). Then open the artifact and confirm its connector
+  calls succeed, or run the scheduled skill once and show the output. Say what was checked in the
+  closing summary.
 - **A decision that closes off an alternative earns an entry** in `docs/DECISIONS.md`, with a
   `Verified:` line (`ai-instructions.md` § Decisions need verification).
 
@@ -72,4 +74,4 @@ Policy root: `~/dev/dotfiles/docs/policy/`.
 | `privacy-by-design.md` | Data classes, minimisation, other people's data, processors |
 
 Source of truth for this file: `~/dev/dotfiles/claude/cowork-CLAUDE.md`. Edit there, then copy
-here; `scripts/test-docs.py` fails when the two differ.
+here; `scripts/test-docs.py` there and `./test.sh` here both fail when the two differ.
