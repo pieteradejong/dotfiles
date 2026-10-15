@@ -932,4 +932,6 @@ no-project-scripts` (nested `web/package.json`), `docs-only` and `clean-repo` si
 `half-scripted` names only `test.sh`. `./test.sh docs` → 9 passed, `enforced: 16 policy check ids
 are in the enforcement table`. `./test.sh shellcheck` → clean (30 files). Baseline from
 `scripts/dev-audit.sh --only policy` on 2026-10-14: 47 `no-project-scripts` rows; the sweep burns
-that number down (waves in `TODO.md`).
+that number down (waves in `TODO.md`). Same day, after all four waves: 9 rows, every one excluded by the
+scope (`c` is an exercise repo; the other eight are the non-template repos under `templates/`); 61
+commits in 61 repos, none pushed; per-repo rows in `~/dev/audit-reports/project-scripts-sweep-2026-10-14.md`.
