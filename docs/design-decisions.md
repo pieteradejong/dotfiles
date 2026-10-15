@@ -755,7 +755,8 @@ following the same rule as `code`/`reason`:
 - `update`: makes the machine match the lineup. It shows the plan and asks once. It refuses a plan
   that would leave less than `LLM_MIN_FREE_GB` (15) free. It pulls one model at a time, removing
   unlisted models first only when that pull needs the space. Each pull must pass `/api/show` (no
-  `remote_host`, a `FROM /…` local blob) or it is deleted again.
+  `remote_host`, a `FROM /…` local blob) or it is deleted again. *2026-10-15: the blob check is
+  now the on-disk manifest plus layers, D36 — the `FROM /…` line is GGUF-only.*
 - `free`: unload resident models.
 - `restart`: restart the daemon.
 - `fast`: a new role for a MoE coder, falling back to `coder`.
@@ -935,3 +936,38 @@ are in the enforcement table`. `./test.sh shellcheck` → clean (30 files). Base
 that number down (waves in `TODO.md`). Same day, after all four waves: 9 rows, every one excluded by the
 scope (`c` is an exercise repo; the other eight are the non-template repos under `templates/`); 61
 commits in 61 repos, none pushed; per-repo rows in `~/dev/audit-reports/project-scripts-sweep-2026-10-14.md`.
+
+## D36 — "Local" means the manifest and every layer blob are on disk, not a `FROM /…` line · 2026-10-15
+
+**Problem.** `llm update` verified each pull through `/api/show`: no `remote_host`, and a
+`FROM /<blob path>` line in the modelfile. Ollama 0.40 serves MLX (safetensors) builds to Apple
+Silicon for some tags; their modelfile reads `FROM <tag>` and the weights are 1,000-odd
+per-tensor blobs. The first MLX pull (`qwen3.6:35b-a3b-coding`, 23 GB, fully local) was
+therefore deleted again by the guard as "not backed by a local blob", and the guard would have
+refused every MLX model from then on. The same heuristic sat in `local-llm`'s `test.sh --live`.
+
+**Decision.** Local evidence is the filesystem: the model's manifest under the models dir
+(`manifests/registry.ollama.ai/<ns>/<model>/<tag>`) and every `layers[].digest` present as a
+blob there. `verify_local` checks that first and keeps the `FROM /…` line only as a fallback for
+when the models dir cannot be resolved. `llm status` runs the same check on every installed
+lineup model and warns when a manifest or layer is missing. `LLM_MODELS_DIR` overrides the
+models dir (test hook, like `LLM_FREE_GB`). `local-llm/test.sh --live` applies the same rule.
+
+**Rejected.** *Accepting `details.runner == mlx` or `format == safetensors` from `/api/show`*: it
+says what the model is, not where it is; a daemon answer is not evidence that bytes are on this
+disk. *Pulling the explicit GGUF tag instead (`…-mtp-q4_K_M`)*: another 23 GB to avoid fixing a
+heuristic that was already wrong, and it gives up the MLX runner, which is the native engine on
+this hardware. *Dropping the `FROM /…` fallback*: it still works for GGUF when launchd does not
+expose `OLLAMA_MODELS`, and costs nothing.
+
+**Cost.** `verify_local` and `status` read the manifest (a 247 KB JSON for the MLX model) and
+stat up to ~1,000 blobs; sub-second. The check trusts the models dir it resolved; a wrong
+`OLLAMA_MODELS` makes every model look missing, which `status` then says loudly.
+
+**Verified.** `./test.sh bin` → 102 passed, 0 failed, 0 skipped, including the new case: a fake
+models dir where alpha and beta are complete and delta's manifest names an absent blob —
+`status` prints `ok` for the first two and `!!` for delta. Live on 2026-10-15: before the fix,
+`llm update --yes` pulled the 23 GB and deleted it ("not backed by a local blob"); after it,
+`llm status` shows all three lineup models `ok`, and `/api/show` for the MLX model reports
+`runner: mlx`, `format: safetensors`, `FROM qwen3.6:35b-a3b-coding`, no `remote_host`, with 1,062
+manifest layers and 0 missing blobs on disk.

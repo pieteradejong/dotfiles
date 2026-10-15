@@ -78,9 +78,12 @@ that downloads:
 2. Asks once (`--yes` skips the prompt, `--dry-run` stops after the plan).
 3. Pulls one model at a time. Before each pull it removes models that are not in
    the lineup until the pull fits, so the disk never fills mid-download.
-4. Checks each pulled model through `/api/show`: it must have no `remote_host`
-   and a `FROM /…` local blob. If not, the model is deleted again and `update`
-   stops.
+4. Checks each pulled model: no `remote_host` in `/api/show`, and the weights on
+   disk — its manifest under the models dir with every layer blob present
+   (GGUF and MLX builds alike; an MLX modelfile has no `FROM /…` line, which is
+   why the older modelfile check is only the fallback). If not, the model is
+   deleted again and `update` stops. `llm status` applies the same on-disk check
+   to every installed lineup model.
 
 To change models, edit the lineup, then run `llm update`.
 

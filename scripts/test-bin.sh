@@ -299,13 +299,29 @@ else
     && pass "a :cloud tag in the lineup is refused" \
     || fail "a :cloud tag in the lineup is refused (rc=$rc)"
 
+  # Local evidence is the manifest plus every layer blob under the models dir,
+  # for GGUF and MLX builds alike (an MLX modelfile has no `FROM /…` line).
+  # alpha and beta are complete; delta's manifest names a blob that is absent.
+  MD="$T/models"; mkdir -p "$MD/manifests/registry.ollama.ai/library/alpha" \
+    "$MD/manifests/registry.ollama.ai/library/beta" "$MD/manifests/registry.ollama.ai/library/delta" "$MD/blobs"
+  printf '{"layers":[{"digest":"sha256:a1"},{"digest":"sha256:a2"}]}' > "$MD/manifests/registry.ollama.ai/library/alpha/1"
+  printf '{"layers":[{"digest":"sha256:b1"}]}'                        > "$MD/manifests/registry.ollama.ai/library/beta/1"
+  printf '{"layers":[{"digest":"sha256:d1"},{"digest":"sha256:d2"}]}' > "$MD/manifests/registry.ollama.ai/library/delta/1"
+  for b in a1 a2 b1 d1; do printf 'x' > "$MD/blobs/sha256-$b"; done
+  run_fake env OLLAMA_HOST="127.0.0.1:$FP" LLM_MODELS_DIR="$MD" "$LLM" status
+  { grep -qE '^  ok  +coder +alpha:1$' "$OUT" && grep -qE '^  ok  +reasoner +beta:1$' "$OUT" \
+    && grep -qE '^  !!  +fast +delta:1  \(installed, but its manifest or a layer blob is not under ' "$OUT" \
+    && grep -qE '^  !!  +general +omega:1  \(missing' "$OUT"; } \
+    && pass "status verifies each installed lineup model by manifest + blobs on disk (MLX-safe), flags a missing layer" \
+    || fail "status verifies installed lineup models by manifest + blobs on disk: $(grep -E '^  (ok|!!) ' "$OUT" | tail -4 | tr '\n' '|')"
+
   printf 'wizard alpha:1 1\n' > "$T/lineup-bad"
   run_fake env LLM_LINEUP="$T/lineup-bad" "$LLM" models; rc=$?
   { [ "$rc" != 0 ] && grep -q "unknown role 'wizard'" "$OUT"; } \
     && pass "an unknown lineup role is a hard error" \
     || fail "an unknown lineup role is a hard error (rc=$rc)"
 
-  run_fake env OLLAMA_HOST="127.0.0.1:$FP" "$LLM" status; rc=$?
+  run_fake env OLLAMA_HOST="127.0.0.1:$FP" LLM_MODELS_DIR="$MD" "$LLM" status; rc=$?
   { [ "$rc" = 0 ] && grep -q 'daemon running, version 9.9.9' "$OUT" \
     && grep -qE 'coder +alpha:1$' "$OUT" && grep -qE 'general +omega:1 +\(missing' "$OUT"; } \
     && pass "llm status reports the daemon version and which lineup models are missing" \

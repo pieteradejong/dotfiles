@@ -258,8 +258,29 @@ daemon_env() {
 }
 
 models_dir() {
+  [[ -n $LLM_MODELS_DIR ]] && { print -r -- "$LLM_MODELS_DIR"; return; }   # test hook
   local d=$(daemon_env 2>/dev/null | awk -F' => ' '/OLLAMA_MODELS/{print $2}')
   print -r -- "${d:-$HOME/.ollama/models}"
+}
+
+# local_on_disk <tag>: the model's manifest is under the models dir and every
+# layer it lists exists as a blob there. Filesystem evidence that the weights
+# are on this machine, independent of what /api/show says. Works for GGUF and
+# for the MLX (safetensors) builds Ollama serves on Apple Silicon since 0.40,
+# whose modelfile says `FROM <tag>` rather than `FROM /path/to/blob`.
+local_on_disk() {
+  local tag=$1 name ver dir m d
+  if [[ $tag == *:* ]]; then name=${tag%%:*} ver=${tag#*:}; else name=$tag ver=latest; fi
+  case ${name//[^\/]/} in
+    '')  name=registry.ollama.ai/library/$name ;;
+    /)   name=registry.ollama.ai/$name ;;
+  esac
+  dir=$(models_dir); m=$dir/manifests/$name/$ver
+  [[ -s $m ]] || return 1
+  for d in $(jq -r '.layers[].digest // empty' "$m" 2>/dev/null); do
+    [[ -s $dir/blobs/${d/:/-} ]] || return 1
+  done
+  return 0
 }
 
 free_gb() {
@@ -317,7 +338,11 @@ cmd_status() {
     print -r -- "lineup ($LINEUP_FILE):"
     for tag in $LINEUP_TAGS; do
       if print -r -- "$have" | grep -qxF "$tag"; then
-        printf '%s%-9s %s\n' "$ok" "${LINEUP_ROLE[$tag]}" "$tag"
+        if local_on_disk "$tag"; then
+          printf '%s%-9s %s\n' "$ok" "${LINEUP_ROLE[$tag]}" "$tag"
+        else
+          printf '%s%-9s %s  (installed, but its manifest or a layer blob is not under %s)\n' "$warn" "${LINEUP_ROLE[$tag]}" "$tag" "$(models_dir)"
+        fi
       else
         printf '%s%-9s %s  (missing — run llm update)\n' "$warn" "${LINEUP_ROLE[$tag]}" "$tag"
       fi
@@ -446,11 +471,16 @@ fi
 # without a yes (or --yes), and a pulled model that is not backed by a local
 # blob is deleted again.
 
+# verify_local <tag>: no remote_host in /api/show (a cloud-routed model has
+# one), and the weights are on disk — the manifest plus every layer blob, or,
+# when the models dir cannot be resolved, a `FROM /…` local blob in the
+# modelfile (GGUF only; MLX builds never have one).
 verify_local() {
   local show
   show=$(curl -s --max-time 30 "$BASE/api/show" -H 'Content-Type: application/json' \
          -d "$(jq -n --arg m "$1" '{model:$m}')") || return 1
   [[ -z $(print -r -- "$show" | jq -r '.remote_host // empty') ]] || return 1
+  local_on_disk "$1" && return 0
   print -r -- "$show" | jq -r '.modelfile // ""' | grep -qE '^FROM /'
 }
 
