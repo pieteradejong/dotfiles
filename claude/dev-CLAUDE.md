@@ -149,6 +149,26 @@ Workspace notes that stay at the root: `TODO.md` (open work), `IDEAS.md` (retire
 check before starting something that sounds familiar). What each project is lives in the private
 repo inventory, `dotfiles/private/registers/repos.md`.
 
+## Model selection for coding (as of Oct 2026, re-check quarterly)
+
+Judge models by cost per *successful* task (retries + review time), not token price.
+Benchmarks are harness-sensitive; mostly vendor-reported via aggregators.
+
+### Routing
+- **Default coding agent:** Claude Sonnet 5.5 (`claude-sonnet-5-5`, $2/$10 per MTok)
+  or GPT-6 Sol ($2/$10). Same list price; pick whichever does better in the current harness.
+- **High-volume, well-scoped work** (tests, boilerplate, refactors, migrations):
+  Gemini 3.8 Flash (~$0.75/MTok input) or DeepSeek V4-Pro (~$0.44/$0.87, open weights).
+- **Escalation only** (multi-file design, problems cheaper models keep failing):
+  Claude Opus 5.5 / Fable.
+- **Open-weight quality pick:** GLM-5.3 or Kimi K3. Only DeepSeek is clearly cheaper
+  per solved task than closed models.
+
+### Rules of thumb
+- Use medium/high effort by default. Max effort can make Sonnet 5.5 cost more per task than Opus 5.5.
+- Use prompt caching. Cache reads are ~10x cheaper ($0.20/MTok on Sonnet 5.5).
+- Before switching defaults, run 10–20 real tasks from my own repos through the top 2 candidates.
+
 ## Templates (`templates/`)
 
 Five curated stacks. Three have `minimal-mvp` and `production-ready` variants; `rn-supabase` and

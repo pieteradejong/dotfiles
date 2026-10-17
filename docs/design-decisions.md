@@ -1083,3 +1083,37 @@ nothing, no `pbcopy` on PATH exits 1, `--bogus` and `-l 3` exit 2, stdlib-only i
 bits (20 chars, 85-symbol alphabet, every class present)`; `pwd-gen -n 3 --no-ambiguous -q` → 0
 ambiguous characters; `pwd-gen -w 6` → 6 words, 77.5 bits; `pwd-gen --copy -q` → empty stdout,
 `pbpaste | wc -c` → 20; `pwd-gen --bogus` → exit 2.
+
+## D39 — Model-routing guidance lives once, in the workspace `CLAUDE.md` · 2026-10-17
+
+**Problem.** Which model to hand a coding task to (and at what effort) was a per-session judgment
+call, re-derived from memory each time and never written down. Pieter wrote a short routing table
+(default Sonnet 5.5 or GPT-6 Sol, cheap models for well-scoped volume, Opus 5.5 / Fable for
+escalation, effort and caching rules of thumb) and asked that every assistant working anywhere in
+`~/dev` read it — copying it into every project's `CLAUDE.md` if that was what it took.
+
+**Decision.** The section goes once into `claude/dev-CLAUDE.md`, the source of `~/dev/CLAUDE.md`,
+under its own heading after *Where the rules live*. Claude Code loads the `CLAUDE.md` of the
+working directory and of every ancestor up to `/`, so a session started in any project under
+`~/dev` reads the workspace file as well as its own; Codex gets the same file through the
+`AGENTS.md → CLAUDE.md` symlink. That is the same mechanism that already delivers the hard rules,
+the do-not-touch register and the session workflow to every project (`ai-instructions.md` §
+instruction-file layering). The table is dated and says *re-check quarterly*; the re-check is a
+workspace `TODO.md` item, not a copy to maintain.
+
+**Rejected.** *Copying the section into all 31 project `CLAUDE.md` files*: 31 copies of a table
+that changes quarterly, with no sync check (only the three dotfiles ↔ live pairs are checked by
+`scripts/test-docs.py`), and `ai-instructions.md` keeps project files to what is specific to that
+project. *A policy doc under `docs/policy/`*: those are read on demand, and the point is that the
+assistant has the routing in front of it without being told to look. *Rewriting the numbers*: the
+Anthropic prices were checked against the current model table (Sonnet 5.5 $2/$10, cache reads
+$0.20, Opus 5.5 $4/$20) and match; the other vendors' figures are Pieter's and go in as written.
+
+**Cost.** Twenty lines in the file every session under `~/dev` loads. A table that will be stale
+within a quarter unless the `TODO.md` item is acted on.
+
+**Verified.** 2026-10-17: `diff ~/dev/CLAUDE.md dotfiles/claude/dev-CLAUDE.md` → no output;
+`grep -c 'Model selection for coding' ~/dev/CLAUDE.md` → 1; `python3 scripts/test-docs.py` →
+`9 passed, 0 failed` (the synced pairs included). Ancestor loading itself is Claude Code's
+documented behaviour and is what makes the workspace hard rules reach projects today; not
+re-tested in a fresh session.

@@ -7,6 +7,7 @@ History before this file: `git log`.
 ## [Unreleased]
 
 ### Added
+- `claude/dev-CLAUDE.md` § Model selection for coding: which model to route coding work to (Sonnet 5.5 or GPT-6 Sol by default, cheap models for well-scoped volume, Opus 5.5 / Fable for escalation), effort and caching rules of thumb, re-check quarterly. Written once in the workspace `CLAUDE.md` (copied to `~/dev/CLAUDE.md`), read by every session under `~/dev` through ancestor loading (D39).
 - `claude/hooks/prompt-followup.sh`, a Claude Code `UserPromptSubmit` hook: on every prompt typed under `~/dev` it adds three lines to the context — where this repo's decisions go (and the last entry), where its open items go (and how many are open), and that the files written are checked with `doc-dupes`. Silent outside `~/dev`, in exempt repos and on any failure. Registered in `claude/settings.json` (D37).
 - `bin/doc-dupes`: duplicate and near-duplicate entries in `TODO.md`, the decision log and `CHANGELOG.md` — `todo-dup`, `todo-near-dup` (token-Jaccard ≥ 0.8), `todo-cross-file` (`--workspace`, against `~/dev/TODO.md`, says open-here/ticked-there), `decision-dup-number`, `decision-dup-title`, `changelog-dup`. One finding per line as `path:line kind text`; `--quiet` for hooks, `--all` for every repo under `~/dev`. Read-only, exit 0 always (D37).
 - dotaudit `docs-redundant` (INFO): a repo whose logs hold duplicates per `doc-dupes`; count and `file:line kind`, never the text. Rows in `repo-standards.md` § Enforcement and `docs/dev-audit.md`; fixture `dup-logs` in `scripts/test-dev-audit.sh` (D37).
