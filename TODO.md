@@ -88,3 +88,15 @@ Planned additions, each with its reference doc. Nothing here is built yet. Sourc
       two with absolute paths. The other three are loadable as is — copy them by hand for now.
 - [ ] Monthly checklist (`docs/maintenance.md` § Monthly): last completed — not recorded.
 - [ ] Ideas deliberately not automated: the `IDEAS` block at the end of `bin/weekly-disk-cleanup.sh`.
+- [x] Commit `bin/pwd-gen` + `config/pwd-gen/` + `scripts/test-pwd-gen.py` (D38), 2026-10-17 — the tree
+      also holds the uncommitted `doc-dupes` work (D37) in the same files (`CHANGELOG.md`, both
+      READMEs, `test.sh`, the decision log); decide whether to commit both together or split the
+      hunks, then push after confirming.
+      → Split, 2026-10-17: D37 went alone as `007a3a0` on `prompt-followup`; the pwd-gen hunks are
+      what remains unstaged in this tree.
+      → Committed 2026-10-17 on `prompt-followup` as its own commit (D38); push still needs Pieter's
+      confirmation, together with the D37 push/merge item above.
+- [x] `./test.sh logs` failed once as of 2026-10-17 07:50: `todo-cross-file: reported against the file checked,
+      with both states` (`scripts/test-logs.sh:516`, the uncommitted `doc-dupes` work of D37). Seen while
+      verifying D38; not caused by `pwd-gen`. Fix or confirm fixed before the D37 commit.
+      → Resolved 2026-10-17 07:55 by the D37 commit `007a3a0`: `./test.sh logs` → 264 passed, 0 failed.

@@ -1,0 +1,242 @@
+#!/usr/bin/env python3
+"""pwd-gen — generate strong passwords and passphrases. Generates only; never
+stores, logs or remembers one. The password manager is the store.
+
+Usage:  pwd-gen                        one 20-character password
+        pwd-gen -l 32 --no-symbols     32 letters and digits, for sites that reject symbols
+        pwd-gen -w 6                   six-word passphrase, for something you must type
+        pwd-gen -n 5                   five candidates, one per line
+        pwd-gen --copy                 clipboard only (pbcopy); nothing on stdout
+        pwd-gen -h | --help
+
+Random password (default): every character drawn with the OS CSPRNG
+(`secrets`) from lower, upper, digits and symbols; each class present at least
+once, enforced by rejecting and redrawing — never by fixed positions.
+
+  -l, --length N      characters (default 20; at least one per class in use)
+      --no-symbols    letters and digits only
+      --symbols SET   symbol set instead of the default  !@#$%^&*()-_=+[]{}:;,.?
+      --no-ambiguous  drop  0 O 1 l I |  from every class (for reading aloud, paper)
+
+Passphrase: N words drawn from the wordlist, joined by the separator.
+
+  -w, --words N       passphrase of N words instead of a password
+      --sep CHAR      separator between words (default -)
+
+Both modes:
+
+  -n, --count N       how many to generate (default 1), one per line
+      --copy          send the result to the clipboard with pbcopy; print nothing
+  -q, --quiet         no entropy line on stderr
+
+Output: the password(s) on stdout, one per line, nothing else. One line on
+stderr says how strong it is, e.g.  entropy: 130.9 bits (20 chars, 94-symbol
+alphabet, every class present)  — exact, so the class rule is already priced in.
+
+Env:  PWD_GEN_WORDLIST  wordlist, one word per line (`#` comments and the EFF
+                        two-column dice format are accepted). Default:
+                        config/pwd-gen/wordlist.txt in this repo — the EFF large
+                        wordlist, 7776 words, 12.9 bits per word. If that file is
+                        missing and the variable is unset, /usr/share/dict/words
+                        filtered to 4–8 lowercase letters is used, with a warning.
+
+Exit: 0 generated · 1 cannot generate (wordlist unreadable or too small, pbcopy
+missing or failing) · 2 bad usage.
+"""
+
+import argparse
+import math
+import os
+import re
+import secrets
+import string
+import subprocess
+import sys
+from itertools import combinations
+from pathlib import Path
+
+DEFAULT_LENGTH = 20
+DEFAULT_WORDS_SEP = "-"
+DEFAULT_SYMBOLS = "!@#$%^&*()-_=+[]{}:;,.?"
+AMBIGUOUS = "0O1lI|"
+REPO = Path(__file__).resolve().parent.parent
+DEFAULT_WORDLIST = REPO / "config" / "pwd-gen" / "wordlist.txt"
+SYSTEM_DICT = Path("/usr/share/dict/words")
+SYSTEM_DICT_WORD = re.compile(r"^[a-z]{4,8}$")
+MIN_WORDLIST = 1024  # below this a passphrase is not worth the name
+
+
+def die(code, msg):
+    print(f"pwd-gen: {msg}", file=sys.stderr)
+    sys.exit(code)
+
+
+def note(args, msg):
+    if not args.quiet:
+        print(msg, file=sys.stderr)
+
+
+# ── argument parsing ────────────────────────────────────────────────────────
+
+
+class Parser(argparse.ArgumentParser):
+    def error(self, message):
+        # argparse's default is also exit 2; this keeps the message one line.
+        die(2, f"{message} (try --help)")
+
+
+def parse_args(argv):
+    p = Parser(prog="pwd-gen", add_help=False)
+    p.add_argument("-h", "--help", action="store_true")
+    p.add_argument("-l", "--length", type=int, default=DEFAULT_LENGTH)
+    p.add_argument("--no-symbols", action="store_true")
+    p.add_argument("--symbols", default=None)
+    p.add_argument("--no-ambiguous", action="store_true")
+    p.add_argument("-w", "--words", type=int, default=None)
+    p.add_argument("--sep", default=DEFAULT_WORDS_SEP)
+    p.add_argument("-n", "--count", type=int, default=1)
+    p.add_argument("--copy", action="store_true")
+    p.add_argument("-q", "--quiet", action="store_true")
+    args = p.parse_args(argv)
+
+    if args.help:
+        print(__doc__.strip())
+        sys.exit(0)
+    if args.count < 1:
+        die(2, "--count must be at least 1")
+    if args.words is not None and args.words < 1:
+        die(2, "--words must be at least 1")
+    if args.symbols is not None:
+        if args.no_symbols:
+            die(2, "--symbols and --no-symbols contradict each other")
+        if not args.symbols or any(c.isspace() or not c.isprintable() for c in args.symbols):
+            die(2, "--symbols must be a non-empty set of printable, non-space characters")
+    if args.words is None and args.length < 1:
+        die(2, "--length must be at least 1")
+    return args
+
+
+# ── random password ─────────────────────────────────────────────────────────
+
+
+def password_classes(args):
+    classes = [string.ascii_lowercase, string.ascii_uppercase, string.digits]
+    if not args.no_symbols:
+        classes.append(DEFAULT_SYMBOLS if args.symbols is None else args.symbols)
+    if args.no_ambiguous:
+        classes = ["".join(c for c in cls if c not in AMBIGUOUS) for cls in classes]
+    # Characters may be shared between a custom symbol set and another class;
+    # keep each character in the first class that claims it so counts stay exact.
+    seen = set()
+    distinct = []
+    for cls in classes:
+        chars = "".join(c for c in dict.fromkeys(cls) if c not in seen)
+        seen.update(chars)
+        distinct.append(chars)
+    classes = [c for c in distinct if c]
+    if len(classes) < 2:
+        die(2, "the chosen character classes leave fewer than two usable classes")
+    return classes
+
+
+def strings_with_every_class(sizes, length):
+    """Count length-L strings over the union of disjoint classes that use every
+    class at least once (inclusion–exclusion). Exact integer."""
+    total = sum(sizes)
+    count = 0
+    for k in range(len(sizes) + 1):
+        for missing in combinations(sizes, k):
+            count += (-1) ** k * (total - sum(missing)) ** length
+    return count
+
+
+def make_password(classes, length):
+    alphabet = "".join(classes)
+    while True:
+        candidate = "".join(secrets.choice(alphabet) for _ in range(length))
+        if all(any(c in cls for c in candidate) for cls in classes):
+            return candidate
+
+
+def generate_passwords(args):
+    classes = password_classes(args)
+    if args.length < len(classes):
+        die(2, f"--length must be at least {len(classes)} so every character class can appear")
+    sizes = [len(c) for c in classes]
+    results = [make_password(classes, args.length) for _ in range(args.count)]
+    bits = math.log2(strings_with_every_class(sizes, args.length))
+    note(args, f"entropy: {bits:.1f} bits ({args.length} chars, {sum(sizes)}-symbol alphabet, "
+               f"every class present)")
+    return results
+
+
+# ── passphrase ──────────────────────────────────────────────────────────────
+
+
+def read_wordlist(path):
+    words = []
+    with open(path, encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            words.append(line.split()[-1])  # EFF format: "<dice>\t<word>"
+    return sorted(set(words))
+
+
+def load_wordlist(args):
+    override = os.environ.get("PWD_GEN_WORDLIST")
+    if override:
+        path = Path(override)
+        if not path.is_file():
+            die(1, f"PWD_GEN_WORDLIST points at no readable file: {path}")
+        words, source = read_wordlist(path), str(path)
+    elif DEFAULT_WORDLIST.is_file():
+        words, source = read_wordlist(DEFAULT_WORDLIST), "EFF large wordlist"
+    elif SYSTEM_DICT.is_file():
+        words = [w for w in read_wordlist(SYSTEM_DICT) if SYSTEM_DICT_WORD.match(w)]
+        source = str(SYSTEM_DICT)
+        print(f"pwd-gen: {DEFAULT_WORDLIST} is missing; falling back to {SYSTEM_DICT}",
+              file=sys.stderr)
+    else:
+        die(1, f"no wordlist: {DEFAULT_WORDLIST} is missing and PWD_GEN_WORDLIST is unset")
+    if len(words) < MIN_WORDLIST:
+        die(1, f"wordlist {source} has {len(words)} distinct words; need at least {MIN_WORDLIST}")
+    return words, source
+
+
+def generate_passphrases(args):
+    words, source = load_wordlist(args)
+    results = [args.sep.join(secrets.choice(words) for _ in range(args.words))
+               for _ in range(args.count)]
+    bits = args.words * math.log2(len(words))
+    note(args, f"entropy: {bits:.1f} bits ({args.words} words from {len(words)}, {source})")
+    return results
+
+
+# ── output ──────────────────────────────────────────────────────────────────
+
+
+def emit(args, results):
+    text = "\n".join(results) + "\n"
+    if not args.copy:
+        sys.stdout.write(text)
+        return
+    try:
+        subprocess.run(["pbcopy"], input=text.rstrip("\n"), text=True, check=True)
+    except FileNotFoundError:
+        die(1, "pbcopy not found; run without --copy")
+    except subprocess.CalledProcessError as exc:
+        die(1, f"pbcopy failed with exit {exc.returncode}")
+    note(args, f"copied {len(results)} to the clipboard; nothing printed")
+
+
+def main(argv):
+    args = parse_args(argv)
+    results = generate_passphrases(args) if args.words is not None else generate_passwords(args)
+    emit(args, results)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

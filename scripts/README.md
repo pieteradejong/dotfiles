@@ -78,6 +78,7 @@ Scheduling and output locations: [`docs/maintenance.md`](../docs/maintenance.md)
 | `test-bin.sh` | [`bin/`](../bin/) | yes (`bin`) |
 | `test-mail-report.py` | [`bin/mail-report`](../bin/mail-report) against a fake `security`; every send is a `--dry-run` | yes (`mail`) |
 | `test-logs.sh` | decision log + changelog coverage end to end: `security/lib/logs.sh`, [`bin/whatsup`](../bin/whatsup), the `SessionStart` and `Stop` hooks, the gate's log rules (through real commits in a sandbox), the two dotaudit ids, registration and docs | yes (`logs`) |
+| `test-pwd-gen.py` | [`bin/pwd-gen`](../bin/pwd-gen): lengths, character classes, counts, the exact entropy line, wordlist resolution and exit codes; `--copy` against a fake `pbcopy` | yes (`pwdgen`) |
 | `test-docs.py` | policy doc links and anchors, index coverage, workspace `CLAUDE.md` sync | yes (`docs`) |
 | `test-dotfiles-setup.sh` (`dottest`) | checks that this machine's live configs are in place | **no** |
 | `test/assertions.sh` | a restore into a clean Debian container ends up in the expected state | **no** (manual `docker run`) |

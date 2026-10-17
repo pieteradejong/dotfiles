@@ -1037,3 +1037,49 @@ blocking on open work named with no `TODO.md` write, in a repo and at `~/dev` (`
 in the next session).
 
 ---
+
+## D38 — `pwd-gen`: passwords come from `secrets` in `bin/`, passphrases from a vendored EFF list, nothing is ever stored · 2026-10-17
+
+**Problem.** Nothing in the repo generated a password; each new account meant an ad-hoc
+`openssl rand` or a browser's suggestion, with no record of how strong the result was and no
+passphrase option for things that have to be typed (disk encryption, Wi-Fi, a master password).
+
+**Decision.** One command, `bin/pwd-gen`, in Python with the standard library only. Random
+passwords draw every character with `secrets.choice` from lower, upper, digits and symbols and
+require each class at least once, enforced by redrawing the whole candidate — never by placing
+one character of each class at a fixed position, which would cut the search space. The entropy
+printed on stderr is exact (inclusion–exclusion over the class sizes), so the class rule is
+already priced in: 128.1 bits for the 20-character default, not the naive 128.3. Passphrases
+(`-w N`) draw from the EFF large wordlist, shipped as `config/pwd-gen/wordlist.txt` with the dice
+numbers stripped (CC BY 3.0, attributed in `bin/README.md`); `PWD_GEN_WORDLIST` overrides it and
+`/usr/share/dict/words` is only a warned fallback. The tool never writes anything; `--copy` goes to
+`pbcopy` with nothing on stdout, so the value is not in scrollback or a session log either.
+
+**Rejected.** *A bash script*: bash 3.2 has no CSPRNG primitive, and `head -c … /dev/urandom |
+tr -dc` is modulo-biased unless the rejection is done by hand, which then needs its own tests;
+zsh would dodge shellcheck. *`scripts/`*: that directory is repo tooling and deliberately off
+`PATH`; a generator is a command one types, so it is `bin/` (bin/README.md § bin vs scripts).
+*`/usr/share/dict/words` as the wordlist*: 236k entries with proper nouns, obscure and offensive
+words, and it differs per machine; the EFF list is curated for memorability and typing.
+*Fixed-position class guarantee*: cheaper than redrawing, but lowers entropy and makes the printed
+number a lie. *Storing in the Keychain or printing to a file*: the password manager is the store;
+a second copy is a second place to leak from. *A `genpass` name*: Pieter asked for `pwd-gen`. *Testing it from `scripts/test-bin.sh`*: that
+suite is bash around two zsh tools; a Python tool gets a Python suite (`scripts/test-pwd-gen.py`,
+like `test-mail-report.py`) so the entropy string can be recomputed in the test. *No minimum
+wordlist size*: a three-word file would silently yield 1.6-bit words; the floor is 1024 distinct
+words (10 bits each), and a smaller list exits 1 instead.
+
+**Cost.** 64 KB of wordlist in the repo. Redrawing costs about 1.2 attempts at the default
+length; at `-l 4` with four classes it is about 10, still instant. The entropy line is on stderr
+unless `-q`, so `pwd-gen | pbcopy` stays clean.
+
+**Verified.** 2026-10-17: `./test.sh pwdgen` → `Ran 24 tests … OK` (lengths, every class present
+over 20 draws, `--no-symbols`, `--symbols #`, `--no-ambiguous` over 30 draws, five distinct lines
+for `-n 5`, the exact entropy string recomputed in the test, `-q` silent, the shipped list is
+7776 unique words starting `abacus`, comments/blanks/dice format accepted via `PWD_GEN_WORDLIST`,
+missing and too-small lists exit 1, `--copy` against a fake `pbcopy` writes 24 chars and prints
+nothing, no `pbcopy` on PATH exits 1, `--bogus` and `-l 3` exit 2, stdlib-only imports).
+`./test.sh ruff` → clean including both new files. Live: `pwd-gen` → 20 chars, `entropy: 128.1
+bits (20 chars, 85-symbol alphabet, every class present)`; `pwd-gen -n 3 --no-ambiguous -q` → 0
+ambiguous characters; `pwd-gen -w 6` → 6 words, 77.5 bits; `pwd-gen --copy -q` → empty stdout,
+`pbpaste | wc -c` → 20; `pwd-gen --bogus` → exit 2.

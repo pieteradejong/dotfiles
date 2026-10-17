@@ -4,7 +4,8 @@
 #
 #   ./test.sh                 all suites
 #   ./test.sh gate            one suite: shellcheck | zsh-syntax | ruff | bin | gate |
-#                                        tools | dotaudit | containers | maint | mail | logs | docs
+#                                        tools | dotaudit | containers | maint | mail | pwdgen |
+#                                        logs | docs
 #   ./test.sh --verbose       pass --verbose through to each suite
 #
 # Suites:
@@ -23,6 +24,8 @@
 #                                                fake HOME; mail stubbed)
 #   mail        scripts/test-mail-report.py      (bin/mail-report against a fake
 #                                                Keychain; nothing is sent)
+#   pwdgen      scripts/test-pwd-gen.py          (bin/pwd-gen: lengths, classes,
+#                                                wordlist, exit codes; fake pbcopy)
 #   logs        scripts/test-logs.sh            (decision log + changelog coverage:
 #                                                security/lib/logs.sh, bin/whatsup,
 #                                                the SessionStart and Stop hooks, the
@@ -40,7 +43,7 @@ ONLY=""
 for a in "$@"; do
   case "$a" in
     --verbose) VERBOSE="--verbose" ;;
-    shellcheck|zsh-syntax|ruff|bin|gate|tools|dotaudit|containers|maint|mail|logs|docs) ONLY="$a" ;;
+    shellcheck|zsh-syntax|ruff|bin|gate|tools|dotaudit|containers|maint|mail|pwdgen|logs|docs) ONLY="$a" ;;
     -h|--help) sed -n '3,25p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown argument: $a" >&2; exit 2 ;;
   esac
@@ -92,9 +95,11 @@ bin/weekly-disk-cleanup.sh
 # bin/mail-report has no extension; ruff lints a file it is given by name.
 PYTHON_FILES="
 bin/mail-report
+bin/pwd-gen
 scripts/audit-dashboard.py
 scripts/test-docs.py
 scripts/test-mail-report.py
+scripts/test-pwd-gen.py
 "
 
 RESULTS=""
@@ -142,6 +147,7 @@ run_suite dotaudit bash scripts/test-dev-audit.sh $VERBOSE
 run_suite containers bash scripts/test-containers-doctor.sh $VERBOSE
 run_suite maint    bash scripts/test-mac-maintenance.sh $VERBOSE
 run_suite mail     python3 scripts/test-mail-report.py $VERBOSE
+run_suite pwdgen   python3 scripts/test-pwd-gen.py $VERBOSE
 run_suite logs     bash scripts/test-logs.sh $VERBOSE
 run_suite docs     python3 scripts/test-docs.py $VERBOSE
 
