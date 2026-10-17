@@ -34,6 +34,8 @@ only; this file is public. Workspace-wide items: `~/dev/TODO.md`. Decisions: `do
       `TODO.md`, both READMEs, `test.sh` and the decision log were staged alone (`git hash-object` +
       `update-index`, no pwd-gen line in the commit) rather than committed together, so each decision
       has its own commit.
+      The branch also carries D38 (`3033ca6`) and D39 (`fd09cb4`, model-selection section in
+      `claude/dev-CLAUDE.md`), 2026-10-17; one push covers all three.
 
 - [ ] **Mail reports: the one-time setup** (`docs/maintenance.md` § Email reports): a Gmail App
       Password, `security add-generic-password -U -s dotfiles-mail-report -a <address> -w`,
