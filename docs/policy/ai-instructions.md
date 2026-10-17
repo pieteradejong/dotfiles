@@ -91,8 +91,8 @@ for months ("a public repo publishes the committer email") with no check behind 
 exposure accumulated anyway. Anything mechanical — block a command, run a formatter, refuse a
 bypass — needs a hook in `settings.json` or a git-level check. The git gate and the
 [assistant guardrail](security-and-privacy.md#14-assistant-guardrails) are that layer for security;
-the `SessionStart` and `Stop` hooks (`session-start.sh`, `stop-log-check.sh`) are that layer for the
-session workflow's decision and changelog steps.
+the `SessionStart`, `UserPromptSubmit` and `Stop` hooks (`session-start.sh`, `prompt-followup.sh`,
+`stop-log-check.sh`) are that layer for the session workflow's decision, changelog and TODO steps.
 
 | Settings file | Scope |
 |---|---|
@@ -150,6 +150,47 @@ Checked, not only read: the commit gate blocks an entry added without a `Verifie
 is owed and refuses to end the turn until one exists or the answer is given, and `dotaudit` reports
 entries without one (`decisions-unverified`). Whether a choice *is* a decision stays a judgment —
 the hook asks, it does not answer. `whatsup` shows the last entry and the open items.
+
+## Open items live in `TODO.md`
+
+A closing summary that says "still open" is chat; the next session does not read it. Everything
+left undone when a turn ends — a `Verified: NOT YET`, a follow-up, a check not run, a question
+for Pieter — is one checkbox line in a `TODO.md`:
+
+- **Which file.** The repo's own `TODO.md` at its root, created on the first item. Items about the
+  workspace rather than one repo go in `~/dev/TODO.md`; this repo's tooling and scheduled jobs in
+  `dotfiles/TODO.md`; the templates in `templates/TODO.md`. An item lives in exactly one file; a
+  second file that needs it points to the first.
+- **Shape.** `- [ ] <what>, <date> — <the decision, report or finding it points to>`. One item per
+  line; the steps belong in the item or in the document it points to, not in further items.
+- **Closing.** Tick the box (`- [x]`), never delete the line: the ticked line records that it was
+  done, and the owning decision's `Verified:` line records how. A TODO is not evidence either
+  way — that stays with `Verified:`.
+- **Public files name no repo or exposure.** A security finding appears by its register ID only.
+
+Checked, not only read: the `UserPromptSubmit` hook (`claude/hooks/prompt-followup.sh`) says on
+every prompt typed under `~/dev` where this repo's decisions and open items go and how many are
+open; the Stop hook (`stop-log-check.sh`) refuses to end a turn whose closing summary names open
+work (`NOT YET`, `TODO`, "still open", "follow-up", … — the pattern is `LOGS_OPEN_WORK_ERE` in
+`security/lib/logs.sh`), or that added a `NOT YET` decision entry, while no `TODO.md` was touched
+— once per set of changes, and "no item is owed" in one line closes it. At `~/dev` itself the
+same applies to `~/dev/TODO.md`. `whatsup` shows the open count. Decided in `design-decisions.md`
+D37.
+
+## Logs are checked for redundancy
+
+Three logs written in a hurry grow duplicates: the same TODO item twice, once ticked; a decision
+re-decided under a new number; a changelog line pasted into `[Unreleased]` that a release already
+carries. `bin/doc-dupes` finds the mechanical kind — equal after normalisation, or sharing 80 % of
+their tokens — in `TODO.md`, the decision log and `CHANGELOG.md`, and across a repo's `TODO.md`
+and `~/dev/TODO.md` (`--workspace`). The Stop hook runs it on the logs a session touched and
+blocks while a duplicate stands; `dotaudit` reports what is already there, weekly
+(`docs-redundant`, INFO).
+
+Whether two differently worded entries mean the same thing is not mechanical. The Stop hook asks
+the assistant to compare what it added against the existing entries on the same subject; the
+answer is a merge, a superseding entry that links back (decision logs are append-only), or one
+line saying they differ.
 
 ## One source of truth for assistant config
 

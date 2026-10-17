@@ -6,6 +6,13 @@ only; this file is public. Workspace-wide items: `~/dev/TODO.md`. Decisions: `do
 
 ## Verify after the next scheduled runs
 
+- [ ] D37 live check, 2026-10-17 — in a fresh Claude Code session under `~/dev/projects/chrome-bookmarks`
+      every prompt shows the three `followup` lines; a reply naming open work with no `TODO.md`
+      touched is blocked once by `stop-log-check`; the same at `~/dev` itself. Record in D37's
+      `Verified:` (the suite covers it; the live check is what proves the hook is wired).
+- [ ] First weekly `dotaudit` with `docs-redundant`, Sun 2026-10-18 — baseline was 0 findings over
+      50 log files on 2026-10-17 (`doc-dupes --all`); record the count in D37.
+
 - [ ] Sun 2026-10-11 09:00 — first launchd run of the rewritten `bin/weekly-disk-cleanup.sh`
       (D27 plus the Trash probe). `~/.weekly-disk-cleanup.log` should show every D27 step, the
       pip step reclaiming under launchd, the Trash step saying `no Full Disk Access … skipped`,

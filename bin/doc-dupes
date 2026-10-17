@@ -1,0 +1,225 @@
+#!/usr/bin/env bash
+#
+# doc-dupes — duplicate and near-duplicate entries in a repo's markdown logs.
+#
+#   doc-dupes                    the repo you are in: TODO.md, the decision log, CHANGELOG.md
+#   doc-dupes <file>…            just these files (any markdown; the checks run by name)
+#   doc-dupes --workspace        also compare each TODO.md with the workspace ~/dev/TODO.md
+#   doc-dupes --all              every repo under ~/dev (exempt ones skipped), for the audit
+#   doc-dupes --quiet            findings only, no summary line (what the hooks call)
+#   doc-dupes -h                 this header
+#
+# One finding per line, tab-separated:  <path>:<line>  <kind>  <text>
+#
+#   decision-dup-number   two entries in the decision log parse to the same number
+#   decision-dup-title    two titles equal after normalisation, or token-Jaccard ≥ 0.8
+#   todo-dup              two checkbox items equal after normalisation
+#   todo-near-dup         two checkbox items with token-Jaccard ≥ 0.8 (3+ tokens each)
+#   todo-cross-file       the same item in this TODO.md and the workspace TODO.md
+#                         (--workspace); says when it is open in one, ticked in the other
+#   changelog-dup         a line repeated inside [Unreleased], or present both there
+#                         and in a released section
+#
+# Normalisation: lowercase, markdown emphasis and code marks dropped, punctuation
+# to spaces, whitespace collapsed. Jaccard = |A∩B| / |A∪B| over the token sets;
+# THRESHOLD below. What stays a judgment — two entries about the same subject in
+# different words — is the assistant's, asked for by the Stop hook.
+#
+# Read-only; always exits 0 (it runs inside hooks, and a hook that can wedge a
+# session is worse than none). Which file is the decision log and which repos are
+# exempt come from security/lib/logs.sh, shared with the gate and the hooks.
+# Rules: docs/policy/ai-instructions.md § Logs are checked for redundancy.
+#
+# Env:  DEV_ROOT   the workspace (default ~/dev)
+#
+# Tested by scripts/test-logs.sh (./test.sh logs). bash 3.2 compatible.
+
+set -u
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DOTFILES_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+DEV_ROOT="${DEV_ROOT:-$HOME/dev}"
+THRESHOLD="0.8"
+# shellcheck source=security/lib/logs.sh
+. "$DOTFILES_DIR/security/lib/logs.sh"
+
+QUIET=0; WORKSPACE=0; ALL=0; FILES=""
+for a in "$@"; do
+  case "$a" in
+    --quiet) QUIET=1 ;;
+    --workspace) WORKSPACE=1 ;;
+    --all) ALL=1 ;;
+    -h|--help) sed -n '3,36p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -*) printf 'doc-dupes: unknown argument %s\n' "$a" >&2; exit 0 ;;
+    *) FILES="${FILES}${a}"$'\n' ;;
+  esac
+done
+
+N_FINDINGS=0; N_FILES=0
+emit() { N_FINDINGS=$((N_FINDINGS + 1)); printf '%s\n' "$1"; }
+
+# compare — stdin: "file<TAB>line<TAB>state<TAB>text" items; stdout: findings.
+#   $1 kind for an exact match in one file   $2 kind for a near match in one file ("" = exact only)
+#   $3 kind for a match across files         ("" = ignore cross-file pairs)
+compare() {
+  LC_ALL=C awk -F'\t' -v exact="$1" -v near="$2" -v cross="$3" -v thr="$THRESHOLD" '
+    function norm(s) {
+      s = tolower(s)
+      gsub(/\*\*|__|`|~~/, "", s)
+      gsub(/[^a-z0-9]+/, " ", s)   # punctuation (and accents, equally on both sides) to spaces
+      gsub(/^ +| +$/, "", s); gsub(/ +/, " ", s)
+      return s
+    }
+    function tokset(s, arr,   n, i, t) {
+      n = split(s, t, " ")
+      for (i in arr) delete arr[i]
+      for (i = 1; i <= n; i++) if (t[i] != "") arr[t[i]] = 1
+    }
+    function jaccard(a, b,   i, both, all) {
+      both = 0; all = 0
+      for (i in a) { all++; if (i in b) both++ }
+      for (i in b) if (!(i in a)) all++
+      return all == 0 ? 0 : both / all
+    }
+    function ntok(s,   t) { return split(s, t, " ") }
+    NF >= 4 {
+      n++; file[n] = $1; line[n] = $2; state[n] = $3; text[n] = $4; nrm[n] = norm($4)
+    }
+    END {
+      for (i = 1; i <= n; i++) for (j = i + 1; j <= n; j++) {
+        if (nrm[i] == "" || nrm[j] == "") continue
+        same = (file[i] == file[j])
+        if (!same && cross == "") continue
+        if (nrm[i] == nrm[j]) { how = "same as" }
+        else if (near == "" && same) continue
+        else if (ntok(nrm[i]) < 3 || ntok(nrm[j]) < 3) continue
+        else {
+          tokset(nrm[i], A); tokset(nrm[j], B)
+          if (jaccard(A, B) < thr) continue
+          how = "near-duplicate of"
+        }
+        if (same) kind = (how == "same as") ? exact : near
+        else kind = cross
+        where = same ? ("line " line[i]) : (file[i] ":" line[i])
+        note = ""
+        if (!same && state[i] != state[j] && state[i] != "-" && state[j] != "-")
+          note = " (" state[j] " here, " state[i] " there)"
+        printf "%s:%s\t%s\t%s %s%s: %s\n", file[j], line[j], kind, how, where, note, text[j]
+      }
+    }'
+}
+
+check_todo() { # <TODO.md> [<workspace TODO.md>]
+  # The workspace list goes first so a cross-file finding is reported against
+  # the file being checked and says how the item stands in each.
+  local f="$1" ws="${2:-}" items=""
+  if [ -n "$ws" ] && [ -f "$ws" ] && [ "$(cd "$(dirname "$ws")" && pwd -P)/$(basename "$ws")" != "$(cd "$(dirname "$f")" && pwd -P)/$(basename "$f")" ]; then
+    items="$(logs_todo_items "$ws" | awk -F'\t' -v f="$ws" '{ printf "%s\t%s\t%s\t%s\n", f, $1, $2, $3 }')
+"
+  fi
+  items="$items$(logs_todo_items "$f" | awk -F'\t' -v f="$f" '{ printf "%s\t%s\t%s\t%s\n", f, $1, $2, $3 }')"
+  printf '%s\n' "$items" | compare todo-dup todo-near-dup todo-cross-file
+}
+
+check_decisions() { # <decision log>
+  local f="$1" rows nums dup
+  rows="$(logs_decisions "$f")"
+  [ -n "$rows" ] || return 0
+  # Numbers: the explicit ones, counted from the headings themselves.
+  nums="$(LC_ALL=C sed -nE 's/^## +(ADR-)?D?0*([0-9]+)([.:]|[[:space:]]|$).*/\2/p' "$f" | LC_ALL=C grep -vE '^[0-9]{4}$' | LC_ALL=C sort | uniq -d)"
+  for dup in $nums; do
+    LC_ALL=C grep -nE "^## +(ADR-)?D?0*${dup}([.:]|[[:space:]]|$)" "$f" | sed -n '2,$p' | while IFS=: read -r ln rest; do
+      printf '%s:%s\tdecision-dup-number\tnumber %s is already used: %s\n' "$f" "$ln" "$dup" "$rest"
+    done
+  done
+  # Titles: each row mapped to its heading line (the k-th entry is the k-th heading).
+  LC_ALL=C grep -nE '^## |^\*\*[0-9]{4}-[0-9]{2}-[0-9]{2}[[:space:]]+·' "$f" | cut -d: -f1 \
+    | paste -d'\t' - <(printf '%s\n' "$rows" | cut -f4) \
+    | awk -F'\t' -v f="$f" 'NF == 2 && $2 != "" { printf "%s\t%s\t-\t%s\n", f, $1, $2 }' \
+    | compare decision-dup-title decision-dup-title ""
+}
+
+check_changelog() { # <CHANGELOG.md>
+  local f="$1"
+  LC_ALL=C awk -v f="$f" '
+    /^## / { sec = ($0 ~ /^## \[Unreleased\]/) ? "unreleased" : "released"; next }
+    sec != "" && /^[ \t]*[-*] / {
+      t = $0; sub(/^[ \t]*[-*][ \t]*/, "", t); sub(/[ \t]+$/, "", t)
+      printf "%s\t%d\t%s\t%s\n", f, NR, sec, t
+    }' "$f" | LC_ALL=C awk -F'\t' -v f="$f" '
+    function norm(s) { s = tolower(s); gsub(/\*\*|__|`/, "", s); gsub(/[^a-z0-9]+/, " ", s); gsub(/^ +| +$/, "", s); gsub(/ +/, " ", s); return s }
+    { n++; line[n] = $2; sec[n] = $3; text[n] = $4; nrm[n] = norm($4) }
+    END {
+      for (i = 1; i <= n; i++) for (j = i + 1; j <= n; j++) {
+        if (nrm[i] == "" || nrm[i] != nrm[j]) continue
+        if (sec[i] == "released" && sec[j] == "released") continue   # history may legitimately repeat
+        if (sec[i] == sec[j]) note = "repeated inside [Unreleased], first at line " line[i]
+        else note = "also in a released section at line " line[i]
+        printf "%s:%s\tchangelog-dup\t%s: %s\n", f, line[j], note, text[j]
+      }
+    }'
+}
+
+check_file() { # <path> — pick the checks by the file's name
+  local f="$1" out
+  [ -f "$f" ] || return 0
+  N_FILES=$((N_FILES + 1))
+  case "$(basename "$f")" in
+    CHANGELOG.md|CHANGELOG*.md) out="$(check_changelog "$f")" ;;
+    DECISIONS.md|design-decisions.md|decisions.md) out="$(check_decisions "$f")" ;;
+    *) out="$(check_todo "$f" "$([ "$WORKSPACE" = 1 ] && printf '%s' "$DEV_ROOT/TODO.md")")" ;;
+  esac
+  [ -n "$out" ] || return 0
+  while IFS= read -r l; do [ -n "$l" ] && emit "$l"; done <<EOF
+$out
+EOF
+  return 0
+}
+
+repo_files() { # <top> — the three logs this repo has, absolute
+  local top="$1" f
+  for f in TODO.md "$(logs_decisions_file "$top" || true)" "$(logs_changelog_file "$top" || true)"; do
+    [ -n "$f" ] && [ -f "$top/$f" ] && printf '%s\n' "$top/$f"
+  done
+  return 0
+}
+
+all_repos() {
+  find "$DEV_ROOT" -maxdepth 6 \( -name node_modules -o -name .venv -o -name venv -o -name .worktrees -o -name worktrees \) -prune \
+    -o -type f -path '*/.git/index' -print 2>/dev/null | sed 's#/\.git/index$##' | LC_ALL=C sort
+}
+
+main() {
+  local top f
+  if [ "$ALL" = 1 ]; then
+    while IFS= read -r top; do
+      [ -n "$top" ] || continue
+      logs_exempt "$top" >/dev/null && continue
+      while IFS= read -r f; do [ -n "$f" ] && check_file "$f"; done <<EOF
+$(repo_files "$top")
+EOF
+    done <<EOF
+$(all_repos)
+EOF
+    [ -f "$DEV_ROOT/TODO.md" ] && check_file "$DEV_ROOT/TODO.md"
+  elif [ -n "$FILES" ]; then
+    while IFS= read -r f; do [ -n "$f" ] && check_file "$f"; done <<EOF
+$FILES
+EOF
+  elif top="$(logs_git rev-parse --show-toplevel)" && [ -n "$top" ]; then
+    cd "$top" || exit 0   # findings read as repo-relative paths
+    while IFS= read -r f; do [ -n "$f" ] && check_file "${f#"$top"/}"; done <<EOF
+$(repo_files "$top")
+EOF
+  else
+    case "$PWD/" in "$DEV_ROOT"/*) [ -f "$PWD/TODO.md" ] && check_file "$PWD/TODO.md" ;; esac
+  fi
+  if [ "$QUIET" != 1 ]; then
+    if [ "$N_FILES" = 0 ]; then printf 'doc-dupes: nothing to check here (no TODO.md, decision log or CHANGELOG.md)\n'
+    elif [ "$N_FINDINGS" = 0 ]; then printf 'doc-dupes: clean — %s file(s), no duplicates\n' "$N_FILES"
+    else printf 'doc-dupes: %s finding(s) in %s file(s)\n' "$N_FINDINGS" "$N_FILES"; fi
+  fi
+  exit 0
+}
+
+main

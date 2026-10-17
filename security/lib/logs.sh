@@ -3,14 +3,15 @@
 # logs.sh — where a repo keeps its decision log and changelog, and who owes them.
 #
 # Sourced by security/gate.sh (no-changelog-entry, decision-unverified),
-# claude/hooks/stop-log-check.sh, bin/whatsup and scripts/audit/20-policy.sh,
-# so the four can never disagree about which file counts, which repos are
-# exempt, or which paths are "doc-only". Functions only; nothing runs on source.
+# claude/hooks/stop-log-check.sh, claude/hooks/prompt-followup.sh, bin/whatsup,
+# bin/doc-dupes and scripts/audit/20-policy.sh, so none of them can disagree
+# about which file counts, which repos are exempt, or which paths are "doc-only". Functions only; nothing runs on source.
 # Every git call is read-only and takes --no-optional-locks, the same rule the
 # audit's git_ro() follows, so sourcing this in a do-not-touch repo is safe.
 #
 # The rules implemented here are written in:
-#   docs/policy/ai-instructions.md § Decisions need verification
+#   docs/policy/ai-instructions.md § Decisions need verification,
+#                                  § Open items live in TODO.md, § Logs are checked for redundancy
 #   docs/policy/repo-standards.md  § Changelog, § Enforcement
 #
 # Env:  LOGS_SKIPLIST_FILE   the audit skip list (default: private/audit/skiplist.conf)
@@ -47,6 +48,32 @@ logs_changelog_file() {
   [ -f "$1/CHANGELOG.md" ] && { printf 'CHANGELOG.md'; return 0; }
   return 1
 }
+
+# logs_todo_file <top> — TODO.md relative to <top>, or fails. Open items live at
+# the repo root (ai-instructions.md § Open items live in TODO.md); the workspace's
+# own list is $DEV_ROOT/TODO.md, which callers name directly.
+logs_todo_file() {
+  [ -f "$1/TODO.md" ] && { printf 'TODO.md'; return 0; }
+  return 1
+}
+
+# logs_todo_items <file> — the checkbox items, one per line: "lineno<TAB>open|done<TAB>text".
+logs_todo_items() {
+  [ -f "$1" ] || return 0
+  LC_ALL=C awk '
+    /^[ \t]*[-*] \[[ xX]\]/ {
+      s = ($0 ~ /^[ \t]*[-*] \[ \]/) ? "open" : "done"
+      t = $0; sub(/^[ \t]*[-*] \[[ xX]\][ \t]*/, "", t); sub(/[ \t]+$/, "", t)
+      printf "%d\t%s\t%s\n", NR, s, t
+    }' "$1"
+}
+
+# Phrases in a closing summary that name work left open. When the assistant's
+# last message matches and no TODO.md was touched, the Stop hook asks for the
+# item to be written down. Case matters for the tokens (PARTIAL, TODO), so that
+# "partially" and "todos" in prose do not count; the phrases take both cases.
+# shellcheck disable=SC2034 # read by stop-log-check.sh and test-logs.sh
+LOGS_OPEN_WORK_ERE='NOT YET|PARTIAL|TODO|[Ss]till open|[Ff]ollow-?up|[Uu]nverified|[Nn]ot yet|[Oo]pen item|[Ll]eft open|[Oo]pen:'
 
 # logs_doc_only <path> — true when the path never owes a changelog entry.
 logs_doc_only() { printf '%s\n' "$1" | LC_ALL=C grep -qE -- "$CHANGELOG_EXEMPT_ERE"; }
@@ -237,4 +264,25 @@ logs_transcript_paths() {
     | LC_ALL=C sed -E 's/^"file_path": ?"//; s/"$//' \
     | awk -v top="$top/" 'index($0, top) == 1 { print substr($0, length(top) + 1) }' \
     | LC_ALL=C sort -u
+}
+
+# logs_transcript_last_text <transcript.jsonl> — the text of the assistant's most
+# recent message that had any (its closing summary, at Stop time). Transcript lines
+# are {"type":"assistant","message":{"content":[{"type":"text","text":…},…]}}.
+logs_transcript_last_text() {
+  local t="$1"
+  [ -f "$t" ] && command -v jq >/dev/null 2>&1 || return 0
+  tail -n 400 "$t" 2>/dev/null \
+    | jq -c 'select(.type == "assistant") | [.message.content[]? | select(.type == "text") | .text] | select(length > 0) | join("\n")' 2>/dev/null \
+    | tail -n 1 | jq -r '.' 2>/dev/null
+}
+
+# logs_outside_repos <root> — stdin: paths relative to <root>; stdout: those whose
+# directory is in no git repo (the workspace's own files, e.g. ~/dev/TODO.md).
+logs_outside_repos() {
+  local root="$1" p
+  while IFS= read -r p; do
+    [ -n "$p" ] || continue
+    logs_git -C "$(dirname "$root/$p")" rev-parse --show-toplevel >/dev/null || printf '%s\n' "$p"
+  done
 }

@@ -44,6 +44,11 @@ What checks each rule, and where: `dotfiles/docs/policy/repo-standards.md` § En
 - **Confirm before outward-facing actions:** push, visibility or settings changes, deletes, anything
   published. Never open or print credential files.
 - **A "done" needs its verification command and output**, not a statement.
+- **Every prompt ends in markdown.** Decisions go in `docs/DECISIONS.md`, open items in the
+  repo's `TODO.md` (workspace-level items: `~/dev/TODO.md`), and the files written come out of
+  `doc-dupes` clean. Chat, commit messages and the closing summary are not a record. The
+  `UserPromptSubmit` hook says so on every prompt; the `Stop` hook holds the turn open until it
+  is true or the reply says in one line why nothing is owed.
 
 ## Do-not-touch
 
@@ -53,7 +58,7 @@ If that file is missing, ask before modifying any repo under projects/.
 
 ## Session workflow
 
-Every session runs the same loop. Steps 2 to 4 are stated in full elsewhere — what follows is the
+Every session runs the same loop. Steps 2 to 5 are stated in full elsewhere — what follows is the
 order they happen in, not a second copy of them.
 
 1. **Open by reading state, not code.** `whatsup` — git state and last commits, the decision
@@ -76,10 +81,20 @@ order they happen in, not a second copy of them.
    pure-refactor changes, and skip `projects/scratch/`, forks, upstream clones and do-not-touch
    repos. The `Stop` hook asks for it in the same turn; the gate blocks a commit of
    behaviour-relevant files with no `CHANGELOG.md` change.
-5. **Close with a summary:** what changed, what is unverified, what is still open, and which
-   decision and changelog entries were added. Update the project's README or `CLAUDE.md` in the
-   same session when commands or behavior changed; a doc that lags by one session is where drift
-   starts. Say any `Verified: NOT YET` out loud rather than leaving it to be discovered.
+5. **Open items go to `TODO.md`.** Anything left undone when the turn ends — a `Verified: NOT
+   YET`, a follow-up, a check not run, a question for Pieter — is one `- [ ]` line in the repo's
+   `TODO.md` (create it on the first item; workspace-level items go in `~/dev/TODO.md`), with the
+   date and the decision or report it points to. Tick items, never delete them; an item lives in
+   exactly one file and any other file points to it. Per `dotfiles/docs/policy/ai-instructions.md`
+   § Open items live in `TODO.md`. The `UserPromptSubmit` hook reminds on every prompt; the
+   `Stop` hook blocks a turn whose summary names open work while no `TODO.md` was touched.
+6. **Close with a summary**, after `doc-dupes` on the files written is clean: what changed, what is
+   unverified, what is still open and where it is written down, and which decision, changelog and
+   TODO entries were added. Update the project's README or `CLAUDE.md` in the same session when
+   commands or behavior changed; a doc that lags by one session is where drift starts. Say any
+   `Verified: NOT YET` out loud rather than leaving it to be discovered. The `Stop` hook blocks
+   while a log touched this session holds a duplicate (`ai-instructions.md` § Logs are checked
+   for redundancy).
 
 ```mermaid
 flowchart TD
@@ -93,13 +108,17 @@ flowchart TD
     D -- no --> B{Behavior changed?}
     L --> B
     B -- yes --> CH["CHANGELOG.md entry<br/>under [Unreleased]"]
-    B -- no --> C{First commit in this repo?}
-    CH --> C
+    B -- no --> T{Anything left open?}
+    CH --> T
+    T -- yes --> TD["TODO.md item<br/>date · what it points to"]
+    T -- no --> C{First commit in this repo?}
+    TD --> C
     C -- yes --> G["First-commit checklist:<br/>gitignore · tier · identity · LICENSE · CI"]
     C -- no --> K[Commit - gate runs]
     G --> K
     K --> W
-    W --> E(["Session end: what changed / unverified / open<br/>+ entries added"])
+    W --> DD["doc-dupes on the files written"]
+    DD --> E(["Session end: what changed / unverified / open<br/>+ entries added"])
 ```
 
 ## Where the rules live
@@ -114,7 +133,7 @@ Read these when their subject comes up; they are not loaded automatically.
 | `dotfiles/docs/policy/supply-chain.md` | Adding dependencies, lockfiles, Actions pinned by SHA, vulnerability response, deployed surfaces |
 | `dotfiles/docs/policy/ai-and-external-services.md` | What may go to a hosted model, connector writes, prompt injection, permission allowlists |
 | `dotfiles/docs/policy/repo-standards.md` | Licensing, GitHub tiers, `.gitignore` baseline, `init.sh`/`test.sh`/`run.sh`, dependencies, media, lint, changelog |
-| `dotfiles/docs/policy/ai-instructions.md` | Instruction-file layering, `CLAUDE.md` vs memory, decision records |
+| `dotfiles/docs/policy/ai-instructions.md` | Instruction-file layering, `CLAUDE.md` vs memory, decision records, TODO items, the redundancy check |
 | `dotfiles/docs/policy/backups.md` | Backup principles |
 | `dotfiles/docs/design-decisions.md` | Why the gate, audit and public/private split are built this way |
 | `dotfiles/docs/maintenance.md` | The weekly security audit and what to do with its findings |

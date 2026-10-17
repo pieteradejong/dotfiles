@@ -971,3 +971,69 @@ models dir where alpha and beta are complete and delta's manifest names an absen
 `llm status` shows all three lineup models `ok`, and `/api/show` for the MLX model reports
 `runner: mlx`, `format: safetensors`, `FROM qwen3.6:35b-a3b-coding`, no `remote_host`, with 1,062
 manifest layers and 0 missing blobs on disk.
+
+## D37 — Every prompt under `~/dev` ends in markdown: decisions, TODO items, then a redundancy check · 2026-10-17
+
+**Problem.** Pieter's standing instruction, repeated across sessions and stated again on
+2026-10-17: every command typed in the workspace is followed up by documenting decisions and
+TODOs in markdown, and those documents are then checked for duplicates and redundancy. Decisions
+and the changelog were already enforced (D33: Stop hook, gate, dotaudit). Open work was not:
+`TODO.md` was a convention in three places, the session workflow's step 5 put "what is still
+open" in the closing summary — chat, which the next session never reads — and nothing fired on
+a prompt that changed no file, or at `~/dev` itself, which is not a repo. Nothing checked any log
+for duplicate entries; `~/dev/TODO.md` and the project lists were drifting apart by hand.
+
+**Decision.** Three pieces, all reading `security/lib/logs.sh`. (1) A `UserPromptSubmit` hook,
+`claude/hooks/prompt-followup.sh`, prints three lines into the context of every prompt typed
+under `~/dev`: where this repo's decisions go (and the last entry), where its open items go (and
+how many are open), and that the files written are to be checked with `doc-dupes`. Silent
+outside `~/dev` and in exempt repos. (2) The Stop hook, `stop-log-check.sh`, gains three checks
+inside its one-block-per-change-set ack: the closing summary names open work
+(`LOGS_OPEN_WORK_ERE`: `NOT YET`, `PARTIAL`, `TODO`, "still open", "follow-up", …) or a new decision
+entry is `NOT YET`, and no `TODO.md` was touched; a `TODO.md`, decision log or `CHANGELOG.md`
+touched this session now holds a duplicate; and at the workspace root — `~/dev` or a non-repo
+directory under it — the same two over the files the transcript shows written, against
+`~/dev/TODO.md`. The ack key now covers the matched open-work lines too, so a newly named item
+reopens the question once. (3) `bin/doc-dupes`, bash + awk like `whatsup`: duplicate decision
+numbers and titles, duplicate and near-duplicate (token-Jaccard ≥ 0.8, 3+ tokens) TODO items,
+items shared with `~/dev/TODO.md` (`--workspace`, says open-here/ticked-there), changelog lines
+repeated inside `[Unreleased]` or already released; `--all` for the audit, which gains
+`docs-redundant` (INFO). The rule is written in `ai-instructions.md` § Open items live in
+`TODO.md` and § Logs are checked for redundancy, the workspace `CLAUDE.md` gets the hard rule and
+workflow steps 5–6, and § Enforcement gets two rows.
+
+**Rejected.** *Blocking every turn unconditionally*: literal "every command", but it doubles the
+cost of every answer, including questions, and produces a stream of empty "no entry owed" lines;
+the per-prompt reminder is what fires every time, the block fires on evidence. *A gate rule for
+duplicates*: a pre-existing duplicate would block an unrelated commit; what a commit adds is
+already covered at turn end, and the weekly audit covers the rest. *A batch sweep creating
+`TODO.md` and `DECISIONS.md` in the 137 project directories*: § Per-project files are lazy; files
+are created on the first entry. *Python with `difflib` for the similarity*: `bin/` is bash, and
+`SequenceMatcher` buys little over token Jaccard on one-line items. *Semantic duplicate
+detection in the tool*: whether two entries mean the same thing is a judgment, so the Stop hook
+asks for it, as D33 keeps "is this a decision" a judgment.
+
+**Cost.** Three lines of context per prompt. One extra block per session where open work is
+named without a TODO item — the intended cost. `doc-dupes` is O(n²) over the items of one file;
+the largest list here (`~/dev/TODO.md`, ~60 items) takes well under a second. The open-work
+pattern is a heuristic: a reply that discusses `TODO.md` itself trips it once, and "no item is
+owed" closes it. The transcript read is the last 400 lines of the session's JSONL.
+
+**Verified.** 2026-10-17, PARTIAL. `./test.sh logs` → `test-logs: 264 passed, 0 failed, 0 skipped`
+(prompt hook: in a repo, at the root, non-repo dirs, scratch, skip list, foreign remote, outside
+`~/dev`, malformed input; Stop hook: the `NOT YET` entry, open work named with and without a
+`TODO.md` write, the ack on repeated lines and its reopening, lower-case tokens ignored,
+`todo-dup`, `decision-dup-title`, `todo-cross-file`, the workspace root, scratch under it;
+`doc-dupes`: every kind, `--quiet`, `--workspace`, `--all` with an exempt repo, `-h`;
+dotaudit `docs-redundant`; registration and docs). `./test.sh docs` → `9 passed, 0 failed`
+(synced copies, every check id in § Enforcement). `./test.sh dotaudit` → `All tests passed`,
+fixture `dup-logs`: `2 duplicate or near-duplicate log entries: TODO.md:5 todo-dup;
+docs/DECISIONS.md:6 decision-dup-title`. `./test.sh shellcheck` → exit 0. `./test.sh bin` → 102
+passed. `bin/doc-dupes --all` → `clean — 50 file(s), no duplicates`. Live: the hook was added to
+`~/.claude/settings.json` in the session that wrote this, and its next prompt carried
+`followup (~/dev/CLAUDE.md § Session workflow, steps 3–6): … decisions → docs/design-decisions.md
+(last: 38 · …) | open items → TODO.md (26 open)`. Not yet seen in a fresh session: the Stop hook
+blocking on open work named with no `TODO.md` write, in a repo and at `~/dev` (`TODO.md`, recheck
+in the next session).
+
+---

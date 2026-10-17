@@ -1,19 +1,24 @@
 #!/usr/bin/env bash
 #
-# test-logs.sh — decision log and changelog coverage, in one readable suite.
+# test-logs.sh — decision log, changelog and TODO coverage, in one readable suite.
 #
-# Everything that checks "is this change covered by a decision entry and a
-# changelog line" is exercised here, top to bottom, one block per component:
+# Everything that checks "is this change covered by a decision entry, a
+# changelog line and a TODO item, free of duplicates" is exercised here, top to
+# bottom, one block per component:
 #
 #   1. security/lib/logs.sh          which file counts, which repos are exempt,
 #                                    which paths are doc-only, how a log is read
 #   2. bin/whatsup                   the one-screen answer, and --brief
 #   3. claude/hooks/session-start.sh orientation at session start + the baseline
-#   4. claude/hooks/stop-log-check.sh the Stop hook: blocks once per change set
-#   5. security/gate.sh              no-changelog-entry, changelog-no-unreleased,
+#   4. claude/hooks/prompt-followup.sh the UserPromptSubmit hook: every prompt's reminder
+#   5. claude/hooks/stop-log-check.sh the Stop hook: blocks once per change set,
+#                                    also for open work named with no TODO item,
+#                                    and for duplicates in the logs touched
+#   6. bin/doc-dupes                 duplicate and near-duplicate entries, per kind
+#   7. security/gate.sh              no-changelog-entry, changelog-no-unreleased,
 #                                    decision-unverified, decision-ref-missing
-#   6. dotaudit (20-policy.sh)       no-changelog, decisions-unverified
-#   7. registration and docs         settings.json, test.sh, the Enforcement table
+#   8. dotaudit (20-policy.sh)       no-changelog, decisions-unverified, docs-redundant
+#   9. registration and docs         settings.json, test.sh, the Enforcement table
 #
 # Every case builds throwaway repos under a temp dir with a fixture global git
 # config that registers the gate exactly as ~/.gitconfig does, a stub `gh`, and
@@ -23,6 +28,7 @@
 # Run: ./scripts/test-logs.sh [--verbose]      Exit: 0 all passed, 1 otherwise.
 #
 # shellcheck disable=SC2015 # `cond && pass || fail` is safe here: pass/fail always return 0
+# shellcheck disable=SC2016,SC2088 # literal backticks and ~/dev in grep patterns
 
 set -u
 
@@ -33,6 +39,8 @@ GATE="$DOTFILES_DIR/security/gate.sh"
 WHATSUP="$DOTFILES_DIR/bin/whatsup"
 START="$DOTFILES_DIR/claude/hooks/session-start.sh"
 STOP="$DOTFILES_DIR/claude/hooks/stop-log-check.sh"
+FOLLOWUP="$DOTFILES_DIR/claude/hooks/prompt-followup.sh"
+DUPES="$DOTFILES_DIR/bin/doc-dupes"
 AUDIT="$DOTFILES_DIR/scripts/dev-audit.sh"
 VERBOSE=false
 [ "${1:-}" = "--verbose" ] && VERBOSE=true
@@ -138,6 +146,10 @@ run_stop() {
   printf '{"session_id":"%s","cwd":"%s","transcript_path":"%s","stop_hook_active":%s}' \
     "$1" "$PWD" "${2:-/dev/null}" "${3:-false}" | "$STOP" > "$OUT" 2>&1
 }
+# run_prompt — the UserPromptSubmit hook, as Claude Code calls it, in cwd.
+run_prompt() { printf '{"session_id":"p","cwd":"%s","prompt":"hi"}' "$PWD" | "$FOLLOWUP" > "$OUT" 2>&1; }
+# transcript <file> <text> — a one-message transcript whose last assistant text is <text>.
+transcript() { jq -cn --arg t "$2" '{type: "assistant", message: {role: "assistant", content: [{type: "text", text: $t}]}}' > "$1"; }
 blocks()  { if jq -e '.decision == "block"' "$OUT" >/dev/null 2>&1; then pass "$1"; else fail "$1 (no block decision)"; fi; }
 reason_has() { if jq -r '.reason' "$OUT" 2>/dev/null | grep -qE -- "$1"; then pass "$2"; else fail "$2 (reason lacks /$1/)"; fi; }
 
@@ -333,7 +345,36 @@ expect 0 "'../..' id is rejected, exit 0" bash -c "printf '{\"session_id\":\"../
 [ -e "$T/x.base" ] && fail "path traversal in session_id" || pass "a session_id with path characters writes nothing"
 
 # ================================================================================
-header "4. claude/hooks/stop-log-check.sh — blocks once per change set"
+header "4. claude/hooks/prompt-followup.sh — every prompt's reminder"
+mk_repo prompt
+expect 0 "in a repo: exit 0" run_prompt
+out_has '^followup \(~/dev/CLAUDE.md § Session workflow' "first line names the rule"
+out_has 'decisions → docs/DECISIONS.md \(last: 1 · First choice' "names the decision log and its last entry"
+out_has 'open items → TODO.md \(create it on the first item' "says to create TODO.md when there is none"
+out_has 'doc-dupes' "asks for the redundancy check"
+lines_le 3 "three lines, no more"
+printf '# TODO\n\n- [ ] one\n- [ ] two\n- [x] done\n' > TODO.md
+run_prompt; out_has 'TODO.md \(2 open\)' "counts the open items when TODO.md exists"
+rm -rf docs; run_prompt; out_has 'docs/DECISIONS.md \(create it on the first entry\)' "says to create the decision log when there is none"
+cd "$DEV_ROOT" || exit 1
+printf '# TODO\n\n- [ ] ws item\n' > "$DEV_ROOT/TODO.md"
+expect 0 "at the workspace root: exit 0" run_prompt
+out_has 'design-decisions.md' "root: points decisions at the dotfiles log"
+out_has '~/dev/TODO.md \(1 open\)' "root: counts the workspace TODO"
+mkdir -p "$DEV_ROOT/projects/notarepo"; cd "$DEV_ROOT/projects/notarepo" || exit 1
+run_prompt; out_has '~/dev/TODO.md' "a non-repo directory under ~/dev gets the workspace lines"
+mkdir -p "$DEV_ROOT/projects/scratch/play"; cd "$DEV_ROOT/projects/scratch/play" || exit 1
+run_prompt; out_empty "a non-repo directory under projects/scratch: silent"
+mk_repo memorial; run_prompt; out_empty "a skip-listed repo: silent"
+mk_repo theirs other; run_prompt; out_empty "someone else's remote: silent"
+cd "$T" || exit 1
+run_prompt; out_empty "outside ~/dev: silent"
+printf 'garbage' | "$FOLLOWUP" > "$OUT" 2>&1 && pass "malformed stdin: exit 0" || fail "malformed stdin"
+out_empty "malformed stdin: no output"
+rm -f "$DEV_ROOT/TODO.md"
+
+# ================================================================================
+header "5. claude/hooks/stop-log-check.sh — blocks once per change set"
 mk_repo stop; run_start st1
 echo 'echo more' >> run.sh
 expect 0 "uncovered code change: exit 0 (decision is in the JSON)" run_stop st1
@@ -349,10 +390,68 @@ reason_has 'other.sh' "and names the new file"
 expect 0 "stop_hook_active: true" run_stop st1 /dev/null true
 out_empty "stop_hook_active → silent, never loops"
 echo '- more (#1)' >> CHANGELOG.md; printf '\n## 2. More\n**Date:** 2026-10-13\n**Verified:** NOT YET\n' >> docs/DECISIONS.md
-run_stop st1b; out_empty "CHANGELOG.md and a NOT YET decision entry added → silent"
+run_stop st1b; blocks "CHANGELOG.md and a NOT YET decision entry added → asks for the TODO item"
+reason_has 'A decision entry added this session is Verified: NOT YET, and no TODO.md was touched' "reason says why"
+reason_has 'TODO.md — create it at the repo root' "reason says to create TODO.md"
+out_lacks 'no CHANGELOG.md change|No entry added' "changelog and decision are satisfied"
+printf '# TODO\n\n- [ ] Verify entry 2 — 2026-10-13, docs/DECISIONS.md #2\n' > TODO.md
+run_stop st1c; out_empty "with the TODO item written → silent"
 
 mk_repo docsonly; run_start st2; echo more >> README.md; echo n >> docs/notes.md
 run_stop st2; out_empty "doc-only changes → silent"
+
+# Open work named in the closing summary, nothing changed on disk.
+mk_repo openwork; run_start st12
+transcript "$T/t12.jsonl" $'Done.\n\nVerified: NOT YET for the live run; the EAS build is still open.'
+run_stop st12 "$T/t12.jsonl"; blocks "a reply naming open work with no file change blocks"
+reason_has 'Your reply names open work \(Verified: NOT YET for the live run' "reason quotes the line"
+reason_has 'TODO.md — create it at the repo root' "reason says where the item goes"
+reason_has 'doc-dupes catches repeated wording, not repeated meaning' "reason asks for the judgment half"
+run_stop st12 "$T/t12.jsonl"; out_empty "the same open-work lines again → silent (acknowledged)"
+transcript "$T/t12b.jsonl" $'Also left open: the Sentry event.'
+run_stop st12 "$T/t12b.jsonl"; blocks "a newly named open item reopens the question"
+printf '# TODO\n\n- [ ] EAS build — 2026-10-17\n- [ ] Sentry event — 2026-10-17\n' > TODO.md
+run_stop st12 "$T/t12b.jsonl"; out_empty "with TODO.md written → silent"
+transcript "$T/t12c.jsonl" 'All green, nothing left to do.'
+rm -f TODO.md; run_stop st12 "$T/t12c.jsonl"; out_empty "a reply with no open work and no change → silent"
+transcript "$T/t12d.jsonl" 'The todos were partially done; see the follow-up.'
+run_stop st12x "$T/t12d.jsonl"; blocks "lower-case phrases count (follow-up)"
+transcript "$T/t12e.jsonl" 'The todos were partially done.'
+run_stop st12y "$T/t12e.jsonl"; out_empty "but lower-case tokens (todos, partially) in prose do not"
+
+# Duplicates in the logs this session touched.
+mk_repo duptodo; run_start st13
+printf '# TODO\n\n- [ ] Wire the export job into launchd\n- [ ] Something else\n- [ ] Wire the export job into launchd\n' > TODO.md
+run_stop st13; blocks "a duplicated TODO item blocks"
+reason_has 'TODO.md:5: todo-dup — same as line 3' "reason names file:line and kind"
+reason_has 'Merge or remove the duplicate' "reason says what to do"
+mk_repo duptitle; run_start st14; printf '\n## 2. First choice\n**Date:** 2026-10-13\n**Verified:** ok\n' >> docs/DECISIONS.md
+run_stop st14; blocks "a decision entry titled like an existing one blocks"
+reason_has 'docs/DECISIONS.md:9: decision-dup-title — same as line 3' "reason names the earlier entry"
+mk_repo crossfile; run_start st15
+printf '# TODO\n\n- [x] Ship the export job to launchd\n' > "$DEV_ROOT/TODO.md"
+printf '# TODO\n\n- [ ] Ship the export job to launchd\n' > TODO.md
+run_stop st15; blocks "an item that is also in ~/dev/TODO.md blocks"
+reason_has 'todo-cross-file — same as .*/dev/TODO.md:3 \(open here, done there\)' "reason names the other file and the state mismatch"
+rm -f "$DEV_ROOT/TODO.md"
+
+# The workspace root: not a repo, measured through the transcript only.
+cd "$DEV_ROOT" || exit 1
+printf '# TODO\n\n- [ ] Review the sweep\n- [ ] Review the sweep\n' > TODO.md
+printf '{"name":"Write","input":{"file_path":"%s/TODO.md"}}\n' "$DEV_ROOT" > "$T/t16.jsonl"
+run_stop st16 "$T/t16.jsonl"; blocks "at ~/dev, a duplicated workspace TODO item written this session blocks"
+reason_has 'changes in the workspace \(~/dev\)' "reason names the workspace"
+reason_has 'TODO.md:4: todo-dup' "reason names the duplicate"
+out_lacks 'CHANGELOG|decision log' "root mode asks nothing about changelog or decisions"
+transcript "$T/t17.jsonl" 'Left open: the push.'
+run_stop st17 "$T/t17.jsonl"; blocks "at ~/dev, open work named with no TODO write blocks"
+reason_has 'in ~/dev/TODO.md' "reason points at the workspace TODO"
+expect 0 "at ~/dev with nothing changed and nothing open: exit 0" run_stop st18
+out_empty "and silent"
+rm -f TODO.md
+mkdir -p "$DEV_ROOT/projects/scratch/notes"; cd "$DEV_ROOT/projects/scratch/notes" || exit 1
+printf '{"name":"Write","input":{"file_path":"%s/x.md"}}\n' "$PWD" > "$T/t19.jsonl"; printf 'a\na\n' > x.md
+run_stop st19 "$T/t19.jsonl"; out_empty "a non-repo directory under projects/scratch: silent"
 
 mk_repo unverified; run_start st3; printf '\n## 2. Unverified\n**Date:** 2026-10-13\n**Decision:** d\n' >> docs/DECISIONS.md
 run_stop st3; blocks "a decision entry without Verified blocks even with no code change"
@@ -389,7 +488,52 @@ out_empty "outside a repo: silent"
 [ "$(stat -f %Lp "$T/state/st1.ack")" = 600 ] && pass "ack file is mode 600" || fail "ack mode"
 
 # ================================================================================
-header "5. security/gate.sh — the log rules at commit time (through git commit)"
+header "6. bin/doc-dupes — duplicate and near-duplicate entries"
+DD="$T/dd"; mkdir -p "$DD"; cd "$DD" || exit 1
+printf '# TODO\n\n- [ ] Review and push the 61 commits in batches\n- [ ] Add the WA_DATA_DIR skip\n- [x] Review and push the 61 commits in batches\n- [ ] Review and push the 61 commits, in two batches\n- [ ] fix tests\n- [ ] fix tests\n- [ ] fix docs\n' > TODO.md
+expect 0 "a TODO.md with duplicates: exit 0" "$DUPES" TODO.md
+out_has 'TODO.md:5	todo-dup	same as line 3: Review and push the 61 commits in batches' "todo-dup: the same item, ticked or not"
+out_has 'TODO.md:6	todo-near-dup	near-duplicate of line 3: Review and push the 61 commits, in two batches' "todo-near-dup: token-Jaccard ≥ 0.8"
+out_has 'TODO.md:8	todo-dup	same as line 7: fix tests' "todo-dup: short items match exactly"
+out_lacks 'fix docs' "short items (under 3 tokens) never near-match"
+out_has 'doc-dupes: 4 finding\(s\) in 1 file\(s\)' "summary line counts"
+expect 0 "--quiet: exit 0" "$DUPES" --quiet TODO.md
+out_lacks '^doc-dupes:' "--quiet drops the summary"
+lines_le 4 "--quiet keeps the findings"
+printf '# Decisions\n\n## 1. Use bash for the hooks\n**Verified:** ok\n\n## 2. Use bash for the hooks\n**Verified:** ok\n\n## 2. Something distinct\n**Verified:** ok\n\n## 3. use Bash for hooks\n**Verified:** ok\n' > DECISIONS.md
+"$DUPES" DECISIONS.md > "$OUT" 2>&1
+out_has 'DECISIONS.md:9	decision-dup-number	number 2 is already used' "decision-dup-number: the second use of a number"
+out_has 'DECISIONS.md:6	decision-dup-title	same as line 3: Use bash for the hooks' "decision-dup-title: equal after normalisation"
+out_has 'DECISIONS.md:12	decision-dup-title	near-duplicate of line 3: use Bash for hooks' "decision-dup-title: near match"
+printf '# Changelog\n\n## [Unreleased]\n\n### Added\n- `bin/doc-dupes` finds duplicates\n- `bin/doc-dupes` finds duplicates\n- new thing\n\n## [1.0.0] - 2026-01-01\n- new thing\n- old thing\n- old thing\n' > CHANGELOG.md
+"$DUPES" CHANGELOG.md > "$OUT" 2>&1
+out_has 'CHANGELOG.md:7	changelog-dup	repeated inside \[Unreleased\], first at line 6' "changelog-dup: repeated in [Unreleased]"
+out_has 'CHANGELOG.md:11	changelog-dup	also in a released section at line 8: new thing' "changelog-dup: released line repeated under [Unreleased]"
+out_lacks 'old thing' "two released lines alike are history, not a finding"
+printf '# TODO\n\n- [ ] Ship the export job to launchd\n- [ ] Something only here\n' > "$DEV_ROOT/TODO.md"
+printf '# TODO\n\n- [x] Ship the export job to launchd\n' > TODO.md
+"$DUPES" --workspace TODO.md > "$OUT" 2>&1
+out_has '^TODO.md:3	todo-cross-file	same as .*/dev/TODO.md:3 \(done here, open there\)' "todo-cross-file: reported against the file checked, with both states"
+"$DUPES" TODO.md > "$OUT" 2>&1; out_lacks 'cross-file' "without --workspace the workspace TODO is not consulted"
+"$DUPES" --workspace "$DEV_ROOT/TODO.md" > "$OUT" 2>&1; out_lacks 'cross-file' "the workspace TODO is never compared with itself"
+rm -f "$DEV_ROOT/TODO.md"
+printf -- '- [ ] a b c d\n- [ ] e f g h\n' > clean.md
+"$DUPES" clean.md > "$OUT" 2>&1; out_has 'doc-dupes: clean — 1 file\(s\), no duplicates' "a clean file says so"
+"$DUPES" missing.md > "$OUT" 2>&1; out_has 'nothing to check here' "a missing file is nothing to check"
+expect 0 "-h: exit 0" "$DUPES" -h; out_has 'duplicate and near-duplicate entries' "-h prints the header"
+expect 0 "an unknown flag: exit 0" "$DUPES" --bogus
+mk_repo dupesrepo; printf '# TODO\n\n- [ ] x y z\n- [ ] x y z\n' > TODO.md
+expect 0 "in a repo with no arguments: exit 0" "$DUPES"
+out_has 'TODO.md:4	todo-dup' "picks up the repo's TODO.md"
+out_has '3 file\(s\)' "and its decision log and changelog"
+mk_repo memorial; printf '# TODO\n\n- [ ] x y z\n- [ ] x y z\n' > TODO.md
+cd "$T" || exit 1
+"$DUPES" --all > "$OUT" 2>&1
+out_has 'dupesrepo/TODO.md:4	todo-dup' "--all walks every repo under ~/dev"
+out_lacks 'memorial' "--all skips exempt repos"
+
+# ================================================================================
+header "7. security/gate.sh — the log rules at commit time (through git commit)"
 mk_repo gate
 echo 'echo more' >> run.sh; git add run.sh
 expect 1 "code change without CHANGELOG.md staged is blocked" git commit -qm code
@@ -424,36 +568,48 @@ expect 0 "a repo with no CHANGELOG.md at all is not blocked: existing debt, repo
 out_lacks 'no-changelog-entry' "no finding without a changelog to update"
 
 # ================================================================================
-header "6. dotaudit — no-changelog and decisions-unverified"
+header "8. dotaudit — no-changelog, decisions-unverified and docs-redundant"
 rm -rf "$T/dev/projects"; mkdir -p "$T/dev/projects"
 mk_bare_repo auditnolog
 mk_repo auditopen; printf '\n## 2. Silent\n**Date:** 2026-10-13\n\n## 3. Open\n**Date:** 2026-10-13\n**Verified:** NOT YET\n' >> docs/DECISIONS.md; git add -A; git commit -qm more >/dev/null 2>&1 || true
 mk_bare_repo someones
 mk_repo auditclean
+mk_repo auditdup; printf '# TODO\n\n- [ ] Wire the export job into launchd\n- [ ] Wire the export job into launchd\n' > TODO.md; git add -A; git commit -qm todo >/dev/null 2>&1 || true
 "$AUDIT" --only policy --no-report > "$OUT" 2>&1 || true
+out_has 'INFO auditdup +docs-redundant +1 duplicate or near-duplicate log entries: TODO.md:4 todo-dup' "docs-redundant counts and names the duplicate"
+out_lacks 'auditclean +docs-redundant' "a repo without duplicates gets none"
 out_has 'WARN auditnolog +no-changelog +no CHANGELOG.md, and behaviour-relevant files are tracked' "no-changelog fires on a repo with code and no changelog"
 out_has 'WARN auditopen +decisions-unverified +docs/DECISIONS.md: 1 without a Verified line, 1 open' "decisions-unverified counts both kinds"
 out_lacks 'auditclean +(no-changelog|decisions-unverified)' "a fully logged repo gets neither"
 out_lacks 'someones +(no-changelog|decisions-unverified)' "a fork: skip-list row is skipped"
 
 # ================================================================================
-header "7. Registration and docs"
+header "9. Registration and docs"
 SET="$DOTFILES_DIR/claude/settings.json"
 jq -e '[.hooks.Stop[] | .hooks[].command] | any(test("stop-log-check\\.sh$"))' "$SET" >/dev/null \
   && pass "settings.json registers stop-log-check.sh under Stop" || fail "Stop hook not registered"
 jq -e '[.hooks.SessionStart[] | .hooks[].command] | any(test("session-start\\.sh$"))' "$SET" >/dev/null \
   && pass "settings.json registers session-start.sh under SessionStart" || fail "SessionStart hook not registered"
-for f in security/lib/logs.sh bin/whatsup claude/hooks/session-start.sh claude/hooks/stop-log-check.sh scripts/test-logs.sh; do
+jq -e '[.hooks.UserPromptSubmit[] | .hooks[].command] | any(test("prompt-followup\\.sh$"))' "$SET" >/dev/null \
+  && pass "settings.json registers prompt-followup.sh under UserPromptSubmit" || fail "UserPromptSubmit hook not registered"
+for f in security/lib/logs.sh bin/whatsup bin/doc-dupes claude/hooks/session-start.sh claude/hooks/prompt-followup.sh claude/hooks/stop-log-check.sh scripts/test-logs.sh; do
   grep -qx "$f" "$DOTFILES_DIR/test.sh" && pass "test.sh shellchecks $f" || fail "test.sh does not shellcheck $f"
 done
 grep -q 'run_suite logs' "$DOTFILES_DIR/test.sh" && pass "test.sh runs this suite (./test.sh logs)" || fail "suite not wired"
 STD="$DOTFILES_DIR/docs/policy/repo-standards.md"
 grep -q "\`no-changelog-entry\`" "$STD" && grep -q "\`no-changelog\`" "$STD" && pass "Enforcement table has the changelog row" || fail "no changelog row in § Enforcement"
 grep -q "\`decision-unverified\`" "$STD" && grep -q "\`decisions-unverified\`" "$STD" && pass "Enforcement table has the decisions row" || fail "no decisions row in § Enforcement"
+grep -q "\`docs-redundant\`" "$STD" && grep -q 'prompt-followup.sh' "$STD" && grep -q 'doc-dupes' "$STD" \
+  && pass "Enforcement table has the TODO and redundancy rows" || fail "no TODO / redundancy rows in § Enforcement"
 grep -q "\`no-changelog\`" "$DOTFILES_DIR/docs/dev-audit.md" && grep -q "\`decisions-unverified\`" "$DOTFILES_DIR/docs/dev-audit.md" \
-  && pass "docs/dev-audit.md documents both check ids" || fail "dev-audit.md lacks the ids"
-grep -q 'whatsup' "$DOTFILES_DIR/bin/README.md" && pass "bin/README.md lists whatsup" || fail "bin/README.md lacks whatsup"
-grep -q 'whatsup' "$DOTFILES_DIR/claude/dev-CLAUDE.md" && pass "the workspace CLAUDE.md names whatsup" || fail "dev-CLAUDE.md lacks whatsup"
+  && grep -q "\`docs-redundant\`" "$DOTFILES_DIR/docs/dev-audit.md" \
+  && pass "docs/dev-audit.md documents the three check ids" || fail "dev-audit.md lacks an id"
+AI="$DOTFILES_DIR/docs/policy/ai-instructions.md"
+grep -q '^## Open items live in `TODO.md`' "$AI" && grep -q '^## Logs are checked for redundancy' "$AI" \
+  && pass "ai-instructions.md has the TODO and redundancy sections" || fail "ai-instructions.md lacks a section"
+grep -q 'whatsup' "$DOTFILES_DIR/bin/README.md" && grep -q 'doc-dupes' "$DOTFILES_DIR/bin/README.md" && pass "bin/README.md lists whatsup and doc-dupes" || fail "bin/README.md lacks a tool"
+grep -q 'whatsup' "$DOTFILES_DIR/claude/dev-CLAUDE.md" && grep -q 'doc-dupes' "$DOTFILES_DIR/claude/dev-CLAUDE.md" && grep -q 'TODO.md' "$DOTFILES_DIR/claude/dev-CLAUDE.md" \
+  && pass "the workspace CLAUDE.md names whatsup, doc-dupes and TODO.md" || fail "dev-CLAUDE.md lacks a name"
 
 # ================================================================================
 echo ""

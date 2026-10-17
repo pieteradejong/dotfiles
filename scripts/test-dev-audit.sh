@@ -259,6 +259,16 @@ YML
   printf '#!/usr/bin/env bash\nset -euo pipefail\n' > "$d/init.sh"
   commit_all "$d"
 
+  # dup-logs: a TODO.md with the same item twice and a decision log with two
+  # entries titled alike. Clean otherwise, so only docs-redundant may fire.
+  d="$(mkrepo dup-logs)"
+  printf 'MIT License\n\nCopyright (c) 2026 Pieter de Jong\n' > "$d/LICENSE"
+  printf '# notes\n' > "$d/README.md"
+  printf '# TODO\n\n- [ ] Wire the nightly export job into launchd\n- [ ] Review the export schema\n- [x] Wire the nightly export job into launchd\n' > "$d/TODO.md"
+  mkdir -p "$d/docs"
+  printf '# Decisions\n\n## 1. Exports run nightly from launchd\n**Verified:** ok\n\n## 2. Exports run nightly, from launchd\n**Verified:** ok\n' > "$d/docs/DECISIONS.md"
+  commit_all "$d"
+
   # A skiplist scoped to the fixtures.
   SKIPLIST_FIXTURE="$FIXTURE_ROOT/skiplist.conf"
   printf 'skip:do-not-touch:test fixture, must never be scanned\nfork:fixture-noise:test fixture fork\n' \
@@ -549,6 +559,17 @@ if LC_ALL=C grep -q '	standards-bad	no-project-scripts	missing: init.sh test.sh 
   pass "no-project-scripts names both missing scripts"
 else
   fail "no-project-scripts message wrong: $(LC_ALL=C grep '	standards-bad	no-project-scripts	' "$TSV12" | cut -f5)"
+fi
+
+# docs-redundant: a duplicated TODO item and two alike decision titles are one
+# INFO finding that counts them; a clean repo and a docs-only repo get none.
+assert_finding    "$TSV12" INFO dup-logs   docs-redundant
+assert_no_finding "$TSV12" clean-repo      docs-redundant
+assert_no_finding "$TSV12" docs-only       docs-redundant
+if LC_ALL=C grep -q '	dup-logs	docs-redundant	2 duplicate or near-duplicate log entries: TODO.md:5 todo-dup; docs/DECISIONS.md:6 decision-dup-title (' "$TSV12"; then
+  pass "docs-redundant counts both kinds and names file:line kind"
+else
+  fail "docs-redundant message wrong: $(LC_ALL=C grep '	dup-logs	docs-redundant	' "$TSV12" | cut -f5)"
 fi
 
 # ...and stays silent on the clean repo's edge cases.

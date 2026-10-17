@@ -287,6 +287,8 @@ this existed.
 | `.gitignore` baseline | [baseline](#gitignore-baseline) | — | — | `no-gitignore`, `gitignore-env`, `gitignore-gaps` |
 | Behaviour change ⇒ `CHANGELOG.md` line under `[Unreleased]` | [changelog](#changelog) | `no-changelog-entry`, `changelog-no-unreleased` block, `decision-ref-missing` warn / — ; the assistant: `stop-log-check.sh` | — (local only: CI cannot see the session) | `no-changelog` |
 | Decision entries carry `Verified:` | [ai-instructions § Decisions](ai-instructions.md#decisions-need-verification) | `decision-unverified` block / — ; the assistant: `stop-log-check.sh` | — | `decisions-unverified` |
+| Open work ⇒ a `TODO.md` item, never only the closing summary | [ai-instructions § Open items](ai-instructions.md#open-items-live-in-todomd) | — / — ; the assistant: `prompt-followup.sh` on every prompt, `stop-log-check.sh` at turn end | — | — |
+| Logs hold no duplicate entries | [ai-instructions § Redundancy](ai-instructions.md#logs-are-checked-for-redundancy) | — / — ; the assistant: `stop-log-check.sh` runs `doc-dupes` on the logs touched | — | `docs-redundant` |
 | `init.sh` and `test.sh` in every repo with code, `run.sh` where runnable | [scripts](#scripts-initsh-testsh-and-runsh) | — | — | `no-project-scripts` |
 | `private/` never in public dotfiles | [security §2](security-and-privacy.md#2-the-commitpush-gate) | block / block | `private-guard` job | — |
 | Never bypass the gate | [security §3](security-and-privacy.md#3-bypass-procedure) | the assistant: `guard-git-bypass.sh`; people: the bypass log | gate (no bypass) | `gate-bypassed`, `gate-disabled`, `gate-not-registered` |

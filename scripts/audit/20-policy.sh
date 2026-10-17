@@ -60,6 +60,7 @@ audit_policy() {
     check_media       "$repo" "$name" "$tracked"
     check_actions     "$repo" "$name" "$tracked"
     check_logs_audit  "$repo" "$name" "$tracked"
+    check_docs_dupes  "$repo" "$name"
     check_scripts     "$repo" "$name" "$tracked"
   done < <(list_repos)
 }
@@ -84,6 +85,26 @@ check_logs_audit() {
       finding WARN "$CAT" "$name" decisions-unverified "$dec: $n_none without a Verified line, $n_open open (NOT YET / PARTIAL)"
     fi
   fi
+  return 0
+}
+
+# --- duplicate log entries ------------------------------------------------------
+# ai-instructions.md § Logs are checked for redundancy. The Stop hook runs
+# bin/doc-dupes on the logs a session touched; this reports what is already
+# there, across every repo, so a duplicate TODO item or decision title that
+# slipped past a session stays visible. INFO: nothing leaks, the list is the
+# to-do. Which repos are exempt and which file is the decision log come from
+# security/lib/logs.sh via doc-dupes itself.
+DOC_DUPES="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/bin/doc-dupes"
+check_docs_dupes() {
+  local repo="$1" name="$2" out n first
+  logs_exempt "$repo" >/dev/null && return 0
+  [ -x "$DOC_DUPES" ] || return 0
+  out="$(cd "$repo" 2>/dev/null && DEV_ROOT="$DEV_ROOT" "$DOC_DUPES" --quiet --workspace 2>/dev/null | awk 'NF')"
+  [ -n "$out" ] || return 0
+  n="$(printf '%s\n' "$out" | wc -l | tr -d ' ')"
+  first="$(printf '%s\n' "$out" | head -n 3 | awk -F'\t' '{ s = s (s == "" ? "" : "; ") $1 " " $2 } END { printf "%s", s }')"
+  finding INFO "$CAT" "$name" docs-redundant "$n duplicate or near-duplicate log entries: $first$([ "$n" -gt 3 ] && printf ' (+%s more)' $((n - 3))) (ai-instructions.md § Logs are checked for redundancy)"
   return 0
 }
 

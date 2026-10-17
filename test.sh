@@ -56,6 +56,7 @@ claude/hooks/guard-git-bypass.sh
 claude/hooks/guard-github-write.sh
 claude/hooks/session-start.sh
 claude/hooks/stop-log-check.sh
+claude/hooks/prompt-followup.sh
 scripts/dev-audit.sh
 scripts/audit/lib.sh
 scripts/audit/10-git-hygiene.sh
@@ -77,6 +78,7 @@ scripts/test-bin.sh
 scripts/test-logs.sh
 bin/rcdev
 bin/whatsup
+bin/doc-dupes
 "
 
 # zsh scripts. shellcheck has no zsh support, so these get `zsh -n` instead of a
