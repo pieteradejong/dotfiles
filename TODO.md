@@ -28,6 +28,13 @@ only; this file is public. Workspace-wide items: `~/dev/TODO.md`. Decisions: `do
 
 ## Needs Pieter
 
+- [ ] Push branch `prompt-followup` (D37, commit `007a3a0`) and fast-forward `main`, 2026-10-17 —
+      waits for Pieter's go-ahead (push is outward-facing). The D38 `pwd-gen` work was left in the
+      working tree and is committed separately by its own session; D37's hunks of `CHANGELOG.md`,
+      `TODO.md`, both READMEs, `test.sh` and the decision log were staged alone (`git hash-object` +
+      `update-index`, no pwd-gen line in the commit) rather than committed together, so each decision
+      has its own commit.
+
 - [ ] **Mail reports: the one-time setup** (`docs/maintenance.md` § Email reports): a Gmail App
       Password, `security add-generic-password -U -s dotfiles-mail-report -a <address> -w`,
       then `mail-report --test`. Until then every real run logs `WARN: report not mailed
