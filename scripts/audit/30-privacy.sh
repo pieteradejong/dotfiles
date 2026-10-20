@@ -101,7 +101,7 @@ audit_privacy() {
 # ourselves. Without SCAN_HISTORY this stays on the working tree (--no-git),
 # matching the tracked-files-only posture of everything above.
 run_gitleaks() {
-  local repo name n args rpt gsz TIMEOUT_BIN
+  local repo name n args rpt gsz TIMEOUT_BIN gid scope hint
   TIMEOUT_BIN=""
   command -v timeout  >/dev/null 2>&1 && TIMEOUT_BIN=timeout
   [ -z "$TIMEOUT_BIN" ] && command -v gtimeout >/dev/null 2>&1 && TIMEOUT_BIN=gtimeout
@@ -135,10 +135,16 @@ run_gitleaks() {
         continue
       fi
     fi
+    # The two modes answer different questions - what is on disk now (ignored
+    # .venv/ and node_modules/ included) versus what was ever committed - so
+    # they report under different check ids, each with a rerun hint for the
+    # same mode. One id for both misranked repos (GT-2).
     if [ "${SCAN_HISTORY:-0}" = "1" ]; then
       args="detect --redact --no-banner --exit-code 0 --report-format json"
+      gid=gitleaks-history; scope="in git history"; hint=""
     else
       args="detect --redact --no-banner --no-git --exit-code 0 --report-format json"
+      gid=gitleaks-disk; scope="in files on disk (not history)"; hint=" --no-git"
     fi
     : > "$rpt"
     # Bound each repo. A full-history scan of a multi-GB repo can run for many
@@ -158,8 +164,8 @@ run_gitleaks() {
     # dependency, and the value itself is already redacted by gitleaks.
     n="$(grep -c '"RuleID"' "$rpt" 2>/dev/null)" || true
     n="$(num "${n:-0}")"
-    [ "${n:-0}" -gt 0 ] && finding FAIL "$CAT" "$name" gitleaks \
-      "gitleaks reports $n finding(s) - rerun with 'gitleaks detect --redact --source $repo' to see them"
+    [ "${n:-0}" -gt 0 ] && finding FAIL "$CAT" "$name" "$gid" \
+      "gitleaks reports $n finding(s) $scope - rerun with 'gitleaks detect --redact$hint --source $repo' to see them"
   done < <(list_repos)
   rm -f "$rpt"
   return 0

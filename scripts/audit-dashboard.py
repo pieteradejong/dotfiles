@@ -42,8 +42,9 @@ UNITS = {"": 1, "B": 1, "K": 1024, "M": 1024**2, "G": 1024**3, "T": 1024**4, "P"
 FIX_GROUPS = [
     ("Rotate exposed credentials",
      "Rotate at the provider first; only then remove the value from the tree and history, or archive the repo.",
+     # "gitleaks" is the pre-D40 id, still in older findings TSVs.
      {"aws-access-key", "openai-key", "google-api-key", "private-key-block", "gitleaks",
-      "secret-assignment", "service-account-json", "env-file", "history-env-file"}),
+      "gitleaks-disk", "gitleaks-history", "secret-assignment", "service-account-json", "env-file", "history-env-file"}),
     ("Unbacked-up work",
      "Push it, or give it a remote. This disk is the only copy.",
      {"unpushed", "no-remote", "no-offmachine-copy", "behind", "no-upstream"}),
@@ -52,7 +53,7 @@ FIX_GROUPS = [
      {"committer-email", "email", "home-path"}),
     (".gitignore gaps",
      "Add the baseline entries (docs/policy/repo-standards.md).",
-     {"gitignore-env", "gitignore-gaps"}),
+     {"gitignore-env", "gitignore-env-uncommitted", "gitignore-gaps"}),
     ("Security CI missing",
      "Call security-reusable.yml from the repo's CI. Never in forks or upstream clones.",
      {"no-security-ci"}),

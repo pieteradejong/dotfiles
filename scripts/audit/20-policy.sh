@@ -162,14 +162,21 @@ check_license() {
 
 # --- .gitignore -------------------------------------------------------------
 check_gitignore() {
-  local repo="$1" name="$2" p missing=""
+  local repo="$1" name="$2" p missing="" uncommitted=""
   if [ ! -f "$repo/.gitignore" ]; then
     finding FAIL "$CAT" "$name" no-gitignore "no .gitignore at all"
     return 0
   fi
+  # core.excludesFile=/dev/null: the global ignore file covers .env on this
+  # machine only. A clone anywhere else, or CI, gets the repo's own rules, and
+  # counting the global file as coverage is what hid go-service (2026-10-20).
   for p in $GITIGNORE_BASELINE; do
-    git_ro "$repo" check-ignore -q "$p" || missing="$missing $p"
+    git_ro "$repo" -c core.excludesFile=/dev/null check-ignore -q "$p" || missing="$missing $p"
   done
+  uncommitted="$(_env_covered_only_uncommitted "$repo")"
+  [ -n "$uncommitted" ] && \
+    finding WARN "$CAT" "$name" gitignore-env-uncommitted \
+      "ignored only by an uncommitted .gitignore:$uncommitted - commit .gitignore so a fresh clone has it"
 
   # .env is separated out of the general gaps list and raised to FAIL. The rest
   # of the baseline is hygiene - an unignored __pycache__ costs disk. An
@@ -192,6 +199,27 @@ check_gitignore() {
   [ -n "${missing// /}" ] && \
     finding WARN "$CAT" "$name" gitignore-gaps "not ignored:$missing"
   return 0
+}
+
+# _env_covered_only_uncommitted <repo> — the .env paths the working-tree
+# .gitignore ignores but the committed one (HEAD) does not, space-separated.
+# check-ignore reads the working tree, uncommitted edits included, so 24 repos
+# looked covered on 2026-10-20 while what they pushed was not. HEAD's file is
+# tested in a scratch repo; nothing is written to the audited repo.
+_env_covered_only_uncommitted() {
+  local repo="$1" st tmp p out=""
+  st="$(git_ro "$repo" status --porcelain -- .gitignore)"
+  [ -z "$st" ] && return 0
+  tmp="$(mktemp -d)"
+  git init -q "$tmp" 2>/dev/null || { rm -rf "$tmp"; return 0; }
+  git_ro "$repo" show HEAD:.gitignore > "$tmp/.gitignore" || : > "$tmp/.gitignore"
+  for p in .env .env.local; do
+    git_ro "$repo" -c core.excludesFile=/dev/null check-ignore -q "$p" || continue
+    git -C "$tmp" -c core.excludesFile=/dev/null check-ignore -q --no-index "$p" 2>/dev/null \
+      || out="$out $p"
+  done
+  rm -rf "$tmp"
+  printf '%s' "$out"
 }
 
 # _files <tracked> <ERE> — the tracked paths matching ERE, one per line.

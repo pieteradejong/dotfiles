@@ -89,7 +89,8 @@ Added 2026-09-07. Every other privacy check reads `git ls-files`, which is
 `HEAD` — so a secret that was committed and later deleted is invisible to them
 while remaining fully present in history and, on a public repo, fetchable by
 anyone. `--history` walks `git log --all --diff-filter=A` for paths that once
-existed and no longer do, and puts `gitleaks` into full-history mode.
+existed and no longer do, and puts `gitleaks` into full-history mode (reported as
+`gitleaks-history`; the default run's on-disk scan is `gitleaks-disk`).
 
 It is off by default because it walks every commit in every repo. Findings are
 prefixed `history-` so they never blur with a currently-tracked file.
@@ -142,7 +143,8 @@ until the repo is next touched. The patterns are shared with the gate through
 | `copyright-drift` | WARN | Canonical line `Copyright (c) <year> Pieter de Jong`. Catches the existing "Peter" / "Pieter Arthur" drift. |
 | `license-mismatch` | WARN | The manifest `license` field and the LICENSE file must agree. Catches `npm init -y`'s `"ISC"` default. |
 | `no-gitignore` | FAIL | [`.gitignore` baseline](policy/repo-standards.md#gitignore-baseline): every project has one before the first commit. |
-| `gitignore-env` | FAIL | `.env` or `.env.local` is not ignored — a stray `git add -A` publishes it. |
+| `gitignore-env` | FAIL | `.env` or `.env.local` is not ignored by the repo's own rules — a stray `git add -A` publishes it. The global ignore file does not count (`core.excludesFile=/dev/null`): a clone on another machine, or CI, does not have it (D40). |
+| `gitignore-env-uncommitted` | WARN | `.env` or `.env.local` is ignored only because of an untracked or modified `.gitignore`; the committed one (`HEAD`) does not cover it, so neither does a fresh clone. Fix: commit `.gitignore` (D40). |
 | `gitignore-gaps` | WARN | The rest of the baseline (caches, `.vscode/`, `.idea/`, logs, …) is missing. Tested with `git check-ignore` — what git actually does — not by grepping the `.gitignore` text, which misses negations and directory scoping. |
 | `no-security-ci` | FAIL | Hard rule: every repo's CI calls the reusable `security-reusable.yml` (gitleaks over full history + the gate over what was pushed). A workflow calling only `gitleaks-reusable.yml` is secrets-only and does not count. Replaces the old INFO `no-ci`. |
 | `unpinned-deps` | FAIL | Hard rule: exact version pins. Counts `package.json` dependency/dev/optional specs that are ranges (`^`, `~`, `>=`, `*`, `x`, `latest`), `requirements*.txt` lines without `==`, and `pyproject.toml` PEP 508 / Poetry specs that are not exact (`python` exempt). `peerDependencies` are not checked: they declare compatibility and install nothing. Reports counts and files, never specs. |
@@ -172,7 +174,8 @@ the patterns are shared with the gate through `security/patterns.sh`.
 | `secret-assignment` | WARN | A tracked file assigns a quoted literal of 8+ characters to a `key`/`secret`/`token`/`password`-shaped name. This is the `CLAUDE.md` "grep for `api[_-]?key\|secret\|token\|password`" rule, narrowed to the shape that indicates a committed *value* — the bare grep matches ordinary code in most repos and would bury the rules above it. Placeholders (`${VAR}`, `<fill-me>`, empty) do not match. WARN because it is a heuristic. |
 | `committer-email` | FAIL on public | Commits carry a non-`noreply` committer address. `CLAUDE.md`: a public repo "permanently publishes the committer's name and email to anyone, including scrapers," and it cannot be scrubbed without rewriting history. Counted over the whole history, because that is what is published. The address is never printed. |
 | `history-*` | FAIL | `--history` only. A path matching one of the tracked-file rules was committed at some point and is no longer in `HEAD`. Still in history, still fetchable. |
-| `gitleaks` | FAIL | `gitleaks` reported findings. Run with `--redact` so the report never carries the value; rerun by hand to see them. Its ~150-rule default set covers what the seven hand-written content rules do not: Anthropic, Stripe, Twilio, SendGrid, HuggingFace, database URLs with embedded passwords, JWTs, generic high-entropy strings. |
+| `gitleaks-disk` | FAIL | Default run: `gitleaks --no-git` found matches in the files on disk, ignored directories (`.venv/`, `node_modules/`) included. Says nothing about what was committed; the rerun hint keeps `--no-git`. Until 2026-10-20 both modes reported as `gitleaks` (D40). |
+| `gitleaks-history` | FAIL | `--history` run: `gitleaks` found matches in git history, which is what a public repo publishes. Run with `--redact` so the report never carries the value; rerun by hand to see them. Its ~150-rule default set covers what the seven hand-written content rules do not: Anthropic, Stripe, Twilio, SendGrid, HuggingFace, database URLs with embedded passwords, JWTs, generic high-entropy strings. |
 | `gitleaks-skipped` | WARN | A repo's `.git` exceeded `GITLEAKS_MAX_GIT_MB` and **was not scanned**. Same principle as `gitleaks-timeout`: an unscanned repo must never be silently indistinguishable from a clean one. |
 | `gitleaks-timeout` | WARN | A repo's gitleaks scan exceeded `GITLEAKS_TIMEOUT` (default 300s) and **was not scanned**. Reported rather than skipped silently, because an unscanned repo and a clean repo must never look the same. Needs `timeout`/`gtimeout` on PATH; without one, the bound is skipped. |
 | `gitleaks-absent` | INFO | `gitleaks` is not installed; the content rules above are the fallback. |

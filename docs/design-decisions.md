@@ -971,3 +971,42 @@ models dir where alpha and beta are complete and delta's manifest names an absen
 `llm status` shows all three lineup models `ok`, and `/api/show` for the MLX model reports
 `runner: mlx`, `format: safetensors`, `FROM qwen3.6:35b-a3b-coding`, no `remote_host`, with 1,062
 manifest layers and 0 missing blobs on disk.
+
+## D40 — dotaudit's gitleaks and `.env` checks say what they measured · 2026-10-20
+
+**Problem.** Two dotaudit checks answered a different question from the one their names asked.
+*gitleaks*: the default run scans files on disk with `--no-git`, ignored `.venv/` and
+`node_modules/` included; `--history` scans git history. Both reported as `gitleaks`, and the rerun
+hint dropped `--no-git`, so following it answered the other question. The 2026-09-24 triage
+(private `findings.md` GT-2) found the ranking inverted: `twittertools` 26 on disk / 0 in history,
+`Google-Drive-Manager` 2 on disk / 41,129 in history. *`gitignore-env`*: a plain `check-ignore`
+counts `~/.gitignore_global` and uncommitted `.gitignore` edits as coverage. On 2026-10-20 all 124
+repos passed it, while `go-service`'s committed `.gitignore` had no `.env` line and 24 more repos
+covered `.env` only in an uncommitted or untracked `.gitignore` — what a push or a clone gets was not
+covered.
+
+**Decision.** Split the gitleaks id by mode: `gitleaks-disk` (default) and `gitleaks-history`
+(`--history`), each with a rerun hint in the same mode and a message that names the scope. Every
+`.gitignore` baseline check runs with `core.excludesFile=/dev/null`, so only the repo's own rules
+count. A new WARN, `gitignore-env-uncommitted`, reports `.env` / `.env.local` ignored by the working
+tree's `.gitignore` but not by `HEAD`'s; `HEAD:.gitignore` is tested in a scratch repo under
+`mktemp`, so the audited repo is still never written. The dashboard groups the new ids with the old
+ones and keeps `gitleaks` for older TSVs.
+
+**Rejected.** *Keep one `gitleaks` id and only reword the message*: the TSV and the dashboard group
+by id, so the two scans would still be counted as one. *Make `gitleaks-history` the default*: a full
+history sweep does not finish on this machine (`docs/dev-audit.md` § Scoping). *Raise
+`gitignore-env-uncommitted` to FAIL*: the working tree is protected, and the fix is a commit the
+assistant cannot make without review; WARN keeps it visible without making every dirty repo red.
+*Count the global ignore file only for forks*: forks are skipped by these checks already.
+
+**Cost.** Anything that matched the literal id `gitleaks` in a findings TSV must use the new ids
+(only `audit-dashboard.py` did). `gitignore-gaps` may grow for repos that leaned on the global file
+for non-`.env` entries. Each repo with a dirty `.gitignore` costs one `git init` in a temp dir.
+D37–D39 are on the unmerged `prompt-followup` branch, so `main` skips from D36 to D40 until it
+lands.
+
+**Verified.** `./test.sh dotaudit` → "All tests passed", including the new cases: the fixture
+global ignore file covers `.env` and `unignored-env` still FAILs `gitignore-env`; `uncommitted-env`
+WARNs `gitignore-env-uncommitted` and not `gitignore-env`; `gitleaks-bait` reports `gitleaks-disk`
+in the default run and `gitleaks-history` in the `--history` run, never both.

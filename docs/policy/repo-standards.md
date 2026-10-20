@@ -273,7 +273,7 @@ this existed.
 
 | Rule | Written in | Gate (commit / push) | CI | dotaudit check id |
 |---|---|---|---|---|
-| No secrets | [security §2](security-and-privacy.md#2-the-commitpush-gate) | `gitleaks` block / block | gitleaks full history + gate | `gitleaks`, `secret-assignment`, `history-*` |
+| No secrets | [security §2](security-and-privacy.md#2-the-commitpush-gate) | `gitleaks` block / block | gitleaks full history + gate | `gitleaks-disk`, `gitleaks-history`, `secret-assignment`, `history-*` |
 | No `.env`, key or credential files | [security §2](security-and-privacy.md#2-the-commitpush-gate) | block / block | gate | `env-file`, `private-key`, `ssh-key`, … (rule names in `patterns.sh`) |
 | No personal data on GitHub, private repos included | [security §2](security-and-privacy.md#2-the-commitpush-gate) | warn (block if public) / **block** | gate | `home-path`, `email`, `ssh-config` |
 | Committer identity is the noreply address | [security §6](security-and-privacy.md#6-committer-identity) | warn / **block** | gate | `committer-email` |
@@ -284,7 +284,7 @@ this existed.
 | Actions pinned by commit SHA | [tier B5](#tier-b--additionally-any-repo-pushed-within-12-months) | `unpinned-action` block / block | gate | `unpinned-action` |
 | Security CI in every repo | [security §9](security-and-privacy.md#9-secret-scanning-in-ci--the-standard-for-every-repo) | — / `no-security-ci` block | — | `no-security-ci` |
 | Public ⇒ LICENSE naming the canonical holder | [licensing](#licensing) | — / `no-license`, `license-holder` block | gate | `no-license`, `license-malformed`, `copyright-drift`, `license-mismatch` |
-| `.gitignore` baseline | [baseline](#gitignore-baseline) | — | — | `no-gitignore`, `gitignore-env`, `gitignore-gaps` |
+| `.gitignore` baseline | [baseline](#gitignore-baseline) | — | — | `no-gitignore`, `gitignore-env`, `gitignore-env-uncommitted`, `gitignore-gaps` |
 | Behaviour change ⇒ `CHANGELOG.md` line under `[Unreleased]` | [changelog](#changelog) | `no-changelog-entry`, `changelog-no-unreleased` block, `decision-ref-missing` warn / — ; the assistant: `stop-log-check.sh` | — (local only: CI cannot see the session) | `no-changelog` |
 | Decision entries carry `Verified:` | [ai-instructions § Decisions](ai-instructions.md#decisions-need-verification) | `decision-unverified` block / — ; the assistant: `stop-log-check.sh` | — | `decisions-unverified` |
 | `init.sh` and `test.sh` in every repo with code, `run.sh` where runnable | [scripts](#scripts-initsh-testsh-and-runsh) | — | — | `no-project-scripts` |
