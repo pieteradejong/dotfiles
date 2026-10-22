@@ -48,7 +48,14 @@ vercel-project check            # later: exit 1 if the settings drifted
 ```
 
 `bin/vercel-project` uses the `vercel` CLI's own login, so no token ever goes into GitHub. It
-refuses any repo whose `origin` owner isn't `pieteradejong`, and sets:
+refuses any repo whose `origin` owner isn't `pieteradejong`.
+
+The project is named after the repo unless you pass `--name`. `<name>.vercel.app` is first come,
+first served across all of Vercel, so `init` refuses a new name whose address already answers
+(`cnc-web.vercel.app` is someone else's site, so the games repo uses `cnc-web-padj`). After the
+first `init`, the linked name in `.vercel/project.json` is used.
+
+It sets:
 
 | Setting | Value | Why |
 |---|---|---|

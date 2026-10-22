@@ -8,7 +8,9 @@
 #   vercel-project check    compare the live project with those settings; exit 1 on drift
 #   vercel-project -h       this header
 #
-#   --name <project>        Vercel project name (default: the GitHub repo name, lowercased)
+#   --name <project>        Vercel project name (default: the linked project in .vercel/,
+#                           else the GitHub repo name, lowercased). init refuses a new name
+#                           whose <name>.vercel.app already answers: someone else has it.
 #   --checks "<a>,<b>"      GitHub check names that must pass before production gets the
 #                           alias (default: "tests,security / gitleaks,security / gate")
 #   --dry-run               init only: print what would change, change nothing
@@ -34,7 +36,7 @@ DEFAULT_CHECKS="tests,security / gitleaks,security / gate"
 CHECK_TIMEOUT=1200          # seconds a check may take before Vercel gives up on it
 SSO_EXPECTED="all_except_custom_domains"
 
-usage() { sed -n '3,28p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { awk 'NR < 3 { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' "$0"; }
 die() { echo "vercel-project: $*" >&2; exit 2; }
 say() { echo "  $*"; }
 
@@ -66,6 +68,8 @@ URL="$(git remote get-url origin 2>/dev/null)" || die "no origin remote"
 OWNER="$(echo "$URL" | sed -E 's#^git@[^:]+:##; s#^https?://[^/]+/##; s#/.*##')"
 REPO="$(echo "$URL" | sed -E 's#\.git$##; s#.*/##')"
 [ "$OWNER" = "$OWNER_EXPECTED" ] || die "origin owner is '$OWNER', not $OWNER_EXPECTED: forks and upstream clones are never reshaped"
+# The linked project wins over the repo name, so --name is needed only on the first init.
+if [ -z "$NAME" ] && [ -f .vercel/project.json ]; then NAME="$(jq -r '.projectName // empty' .vercel/project.json 2>/dev/null)"; fi
 [ -n "$NAME" ] || NAME="$(echo "$REPO" | tr '[:upper:]' '[:lower:]')"
 
 # package.json engines.node overrides the project setting on Vercel, so the setting only
@@ -134,6 +138,11 @@ echo "vercel-project init: $NAME ← $OWNER/$REPO$( [ "$DRY" -eq 1 ] && echo ' (
 git check-ignore -q .vercel || die ".vercel/ is not gitignored here; add it to .gitignore first"
 
 if [ -z "$(project_json | jq -r '.id // empty' 2>/dev/null)" ]; then
+  # <name>.vercel.app is first come, first served across all of Vercel. If someone else
+  # holds it, the new project gets a different address, and every URL written down from
+  # the name (CI's site_url, a portfolio demoUrl) would point at a stranger's site.
+  code="$(curl -s -o /dev/null --max-time 15 -w '%{http_code}' "https://$NAME.vercel.app/" 2>/dev/null)"
+  [ "$code" = "404" ] || die "https://$NAME.vercel.app answers ($code) and is not one of your projects: pick another with --name"
   do_or_say vercel project create "$NAME" || die "could not create project $NAME"
 else
   say "project $NAME exists"

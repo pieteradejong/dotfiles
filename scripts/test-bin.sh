@@ -719,6 +719,25 @@ vp init --dry-run; rc=$?
   && ! grep -qE -- '-X (PATCH|POST)|project create|git connect|^link' "$VCALLS" \
   && pass "init --dry-run reports and writes nothing" || fail "init --dry-run reports and writes nothing (rc=$rc)"
 
+mkdir -p "$VDIR/.vercel" && printf '{"projectId":"prj_1","projectName":"cnc-web-padj"}\n' > "$VDIR/.vercel/project.json"
+: > "$VCALLS"; vp check
+grep -q 'api /v9/projects/cnc-web-padj ' "$VCALLS" && grep -q 'check: cnc-web-padj' "$OUT" \
+  && pass "the linked project name in .vercel/ wins over the repo name" || fail "the linked project name in .vercel/ wins over the repo name"
+rm -rf "$VDIR/.vercel"
+
+# A name nobody of ours holds, whose <name>.vercel.app answers: someone else's site.
+# The stub curl plays that site; the project lookup returns nothing.
+printf '#!/usr/bin/env bash\necho 200\n' > "$VSTUB/curl"; chmod +x "$VSTUB/curl"
+printf '{"error":{"code":"not_found"}}\n' > "$T/vp-project.json"; : > "$VCALLS"
+vp init --dry-run; rc=$?
+[ "$rc" = 2 ] && grep -q 'answers (200) and is not one of your projects' "$OUT" && ! grep -q 'project create' "$VCALLS" \
+  && pass "init refuses a name whose .vercel.app belongs to someone else" || fail "init refuses a taken .vercel.app name (rc=$rc)"
+printf '#!/usr/bin/env bash\necho 404\n' > "$VSTUB/curl"
+vp init --dry-run; rc=$?
+[ "$rc" = 0 ] && grep -q 'would run: vercel project create cnc-web' "$OUT" \
+  && pass "init --dry-run would create a project whose name is free" || fail "init would create a free name (rc=$rc)"
+rm -f "$VSTUB/curl"
+
 rm -f "$VDIR/.gitignore"
 vp init --dry-run; rc=$?
 [ "$rc" = 2 ] && grep -q 'not gitignored' "$OUT" && pass "init refuses when .vercel/ is not gitignored" || fail "init refuses when .vercel/ is not gitignored (rc=$rc)"

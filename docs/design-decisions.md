@@ -1041,11 +1041,16 @@ The one per-repo choice, listing on the portfolio, lives in `portfolio.md`.
 
 **Cost.** One more workflow called `@main` from every repo (like `security-reusable.yml`). A held
 build has to be promoted by hand when a check fails for an unrelated reason. Every page template
-needs the `build-commit` meta tag.
+needs the `build-commit` meta tag. `<name>.vercel.app` is first come, first served across all of
+Vercel: `cnc-web.vercel.app` turned out to be someone else's site, so a project cannot always be
+named after its repo. `init` refuses a new name whose address already answers, and the linked name
+in `.vercel/project.json` is reused from then on.
 
-**Verified.** `./test.sh bin` → 112 passed, 0 failed, including 9 `vercel-project` cases against a
-stub `vercel`: a foreign owner is refused before any call, a compliant project exits 0, a disabled
-`createDeployments` exits 1, `init --dry-run` writes nothing, an unignored `.vercel/` is refused.
+**Verified.** `./test.sh bin` → 115 passed, 0 failed, including 12 `vercel-project` cases against
+a stub `vercel` and `curl`: a foreign owner is refused before any call, a compliant project exits 0,
+a disabled `createDeployments` exits 1, `init --dry-run` writes nothing, a taken `.vercel.app` name
+is refused and a free one would be created, the linked name wins over the repo name, an unignored
+`.vercel/` is refused.
 `actionlint` passes on `vercel-live-reusable.yml`. `vercel-project check --name patriot-package`,
 read-only against the real API, reported the three missing Deployment Checks and nothing else.
 NOT YET: that `blocks: deployment-alias` holds the `<project>.vercel.app` alias on Hobby (Vercel's
