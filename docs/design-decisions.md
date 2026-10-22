@@ -1010,3 +1010,44 @@ lands.
 global ignore file covers `.env` and `unignored-env` still FAILs `gitignore-env`; `uncommitted-env`
 WARNs `gitignore-env-uncommitted` and not `gitignore-env`; `gitleaks-bait` reports `gitleaks-disk`
 in the default run and `gitleaks-history` in the `--history` run, never both.
+
+## D41 — Every web project deploys the same way: Vercel's Git integration, production gated by Deployment Checks · 2026-10-22
+
+**Problem.** Projects reached Vercel by two routes with no rule for which: the Git integration
+(`astropieter`, `patriotic_package`) or `vercel deploy --prebuilt` from Actions (`eu27`, `christ`).
+Two more repos had a `vercel.json` and no project. The Git-integration repos deployed whatever was
+pushed: `ci.yml` ran after the fact, and a red test still reached production
+(`patriotic_package` DECISIONS #2 accepted that). Each project was set up by hand in the
+dashboard, and one came out with `createDeployments: disabled`, which silently turned off its live
+check.
+
+**Decision.** One path, written once in `docs/deploy-pipeline.md`. Every repo gets its own Vercel
+project on the Git integration. Production is held by Vercel Deployment Checks until the GitHub
+checks `tests`, `security / gitleaks` and `security / gate` pass (`blocks: deployment-alias`,
+production only). Previews get Standard Protection. `bin/vercel-project init` applies all of this
+through the `vercel` CLI's own login and `vercel-project check` reports drift (exit 1). It refuses
+repos whose `origin` owner is not `pieteradejong`. `.github/workflows/vercel-live-reusable.yml`
+is the shared live job: on a production `deployment_status` it waits until the URL serves the
+deployed SHA (`<meta name="build-commit">`). `--prebuilt` stays the exception for builds Vercel
+cannot run, with the token in a `main`-only environment.
+
+**Rejected.** *`--prebuilt` from Actions everywhere*: it gates on tests too, but puts a long-lived
+deploy token in every repo's secrets and repeats what the integration does. *Keep the
+integration ungated*: a red gate means a secret or personal data may be in the commit, and
+production should not serve it. *GitHub branch protection with required checks*: it gates merges,
+not direct pushes to `main`, which is how a solo repo works. *A `deploy.json` manifest per repo*:
+`vercel-project`'s settings are the same for every repo, so a manifest would only repeat defaults.
+The one per-repo choice, listing on the portfolio, lives in `portfolio.md`.
+
+**Cost.** One more workflow called `@main` from every repo (like `security-reusable.yml`). A held
+build has to be promoted by hand when a check fails for an unrelated reason. Every page template
+needs the `build-commit` meta tag.
+
+**Verified.** `./test.sh bin` → 112 passed, 0 failed, including 9 `vercel-project` cases against a
+stub `vercel`: a foreign owner is refused before any call, a compliant project exits 0, a disabled
+`createDeployments` exits 1, `init --dry-run` writes nothing, an unignored `.vercel/` is refused.
+`actionlint` passes on `vercel-live-reusable.yml`. `vercel-project check --name patriot-package`,
+read-only against the real API, reported the three missing Deployment Checks and nothing else.
+NOT YET: that `blocks: deployment-alias` holds the `<project>.vercel.app` alias on Hobby (Vercel's
+docs say only "custom production domains"). The `games` pilot tests it with a deliberately red
+`tests` run (`~/dev/TODO.md`).

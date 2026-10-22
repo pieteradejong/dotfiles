@@ -1,0 +1,127 @@
+# Reusable live check for a project Vercel deploys from Git (docs/deploy-pipeline.md, D41).
+#
+# Call it from the project's .github/workflows/ci.yml, next to its own `tests` job:
+#
+#   on:
+#     push: { branches: [main] }
+#     pull_request:
+#     deployment_status:
+#     workflow_dispatch:
+#   permissions:
+#     contents: read
+#   jobs:
+#     tests: ...                     # the repo's own ./test.sh --offline
+#     live:
+#       uses: pieteradejong/dotfiles/.github/workflows/vercel-live-reusable.yml@main
+#       with:
+#         site_url: https://<project>.vercel.app
+#         project: <project>           # optional; see the environment note below
+#         command: ./test.sh --live    # optional
+#
+# What it proves: the production URL serves the commit Vercel just deployed. Pages
+# carry <meta name="build-commit" content="<40-hex sha>">; this job polls until the
+# live page reports the deployed SHA. With Vercel Deployment Checks on (set by
+# bin/vercel-project), production only gets the alias once `tests` and `security`
+# are green, so a red run here after a green build means "built but not promoted" or
+# "promoted and broken": both are worth a look.
+#
+# It decides for itself whether to run, so the caller needs no `if:`:
+#   - deployment_status, state success, environment `Production` (one Vercel project
+#     on the repo) or `Production – <project>` (several);
+#   - workflow_dispatch, by hand: checks that production serves the dispatched ref.
+# Preview deployments and every other event are skipped.
+#
+# Called @main like security-reusable.yml, so a fix reaches every repo at once;
+# everything it uses is pinned by SHA. It never deploys and holds no token.
+
+name: vercel live (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      site_url:
+        description: production URL to check, without a trailing slash
+        type: string
+        required: true
+      project:
+        description: Vercel project name, to match the `Production – <project>` environment
+        type: string
+        default: ""
+      command:
+        description: command run after the commit check, with SITE_URL and EXPECTED_COMMIT set
+        type: string
+        default: ""
+      node-version-file:
+        description: file setup-node reads when `command` needs Node
+        type: string
+        default: .nvmrc
+      playwright:
+        description: install Playwright's Chromium before `command`
+        type: boolean
+        default: false
+      wait-minutes:
+        description: how long to wait for production to serve the deployed commit
+        type: number
+        default: 25
+
+permissions:
+  contents: read
+
+jobs:
+  live:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'deployment_status' &&
+       github.event.deployment_status.state == 'success' &&
+       (github.event.deployment.environment == 'Production' ||
+        (inputs.project != '' && github.event.deployment.environment == format('Production – {0}', inputs.project))))
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      SITE_URL: ${{ inputs.site_url }}
+      # The commit production must serve: the deployed one, or the dispatched ref by hand.
+      EXPECTED_COMMIT: ${{ github.event.deployment.sha || github.sha }}
+      WAIT_MINUTES: ${{ inputs.wait-minutes }}
+      LIVE_COMMAND: ${{ inputs.command }}
+    steps:
+      - name: Wait for production to serve the deployed commit
+        run: |
+          attempts=$(( WAIT_MINUTES * 6 ))
+          for i in $(seq 1 "$attempts"); do
+            sha=$(curl -s -L --max-time 15 "$SITE_URL/" | grep -o 'name="build-commit" content="[0-9a-f]*"' | grep -o '[0-9a-f]\{40\}' || true)
+            if [ "$sha" = "$EXPECTED_COMMIT" ]; then
+              echo "$SITE_URL serves $EXPECTED_COMMIT (attempt $i)"
+              echo "### Live: \`${EXPECTED_COMMIT::7}\` at $SITE_URL" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            echo "attempt $i/$attempts: $SITE_URL serves ${sha:-no build-commit meta}, waiting for $EXPECTED_COMMIT"
+            sleep 10
+          done
+          echo "::error::after ${WAIT_MINUTES} min $SITE_URL still serves ${sha:-no build-commit meta}, not $EXPECTED_COMMIT. Held by a failing Deployment Check, or the page lacks the meta tag."
+          exit 1
+
+      - name: Check out the deployed commit
+        if: inputs.command != ''
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.deployment.sha || github.sha }}
+
+      - name: Set up Node
+        if: inputs.command != '' && hashFiles(inputs.node-version-file) != ''
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: ${{ inputs.node-version-file }}
+          cache: ${{ hashFiles('package-lock.json') != '' && 'npm' || '' }}
+
+      - name: Install dependencies
+        if: inputs.command != '' && hashFiles('package-lock.json') != ''
+        run: npm ci --ignore-scripts
+
+      - name: Install Playwright Chromium
+        if: inputs.command != '' && inputs.playwright
+        run: npx playwright install --with-deps chromium
+
+      - name: Live checks
+        if: inputs.command != ''
+        run: bash -c "$LIVE_COMMAND"

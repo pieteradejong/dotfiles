@@ -1,0 +1,179 @@
+#!/usr/bin/env bash
+#
+# vercel-project — give the repo you are in its own Vercel project, set up the one way
+# every project deploys (docs/deploy-pipeline.md, decision D41).
+#
+#   vercel-project init     create or reuse the Vercel project named after the repo, link
+#                           it, connect it to GitHub, and apply the settings below
+#   vercel-project check    compare the live project with those settings; exit 1 on drift
+#   vercel-project -h       this header
+#
+#   --name <project>        Vercel project name (default: the GitHub repo name, lowercased)
+#   --checks "<a>,<b>"      GitHub check names that must pass before production gets the
+#                           alias (default: "tests,security / gitleaks,security / gate")
+#   --dry-run               init only: print what would change, change nothing
+#
+# The settings:
+#   - Git integration: a push to main deploys production, other branches get previews.
+#   - gitProviderOptions.createDeployments = enabled, so GitHub receives deployment_status
+#     events and the live check (vercel-live-reusable.yml) runs.
+#   - ssoProtection = all_except_custom_domains (Standard Protection): previews need a
+#     Vercel login; production stays public (docs/policy/supply-chain.md §6).
+#   - Node version from .nvmrc, only when package.json has no engines.node (which wins).
+#   - Deployment Checks: each --checks name is a GitHub check that blocks the production
+#     alias until it passes, so a red test or a red gate never reaches production.
+#
+# Uses the vercel CLI's own stored login and the GitHub remote; never reads, prints or
+# stores a token. Refuses any repo whose origin owner is not pieteradejong (forks and
+# upstream clones are never reshaped). bash 3.2 compatible. Tested by scripts/test-bin.sh.
+
+set -u
+
+OWNER_EXPECTED="pieteradejong"
+DEFAULT_CHECKS="tests,security / gitleaks,security / gate"
+CHECK_TIMEOUT=1200          # seconds a check may take before Vercel gives up on it
+SSO_EXPECTED="all_except_custom_domains"
+
+usage() { sed -n '3,28p' "$0" | sed 's/^# \{0,1\}//'; }
+die() { echo "vercel-project: $*" >&2; exit 2; }
+say() { echo "  $*"; }
+
+CMD="${1:-}"
+case "$CMD" in
+  -h|--help|help) usage; exit 0 ;;
+  init|check) shift ;;
+  "") usage >&2; exit 2 ;;
+  *) die "unknown command '$CMD' (init | check | -h)" ;;
+esac
+
+NAME=""; CHECKS="$DEFAULT_CHECKS"; DRY=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --name) [ $# -ge 2 ] || die "--name needs a value"; NAME="$2"; shift 2 ;;
+    --checks) [ $# -ge 2 ] || die "--checks needs a value"; CHECKS="$2"; shift 2 ;;
+    --dry-run) DRY=1; shift ;;
+    *) die "unknown option '$1'" ;;
+  esac
+done
+
+command -v vercel >/dev/null 2>&1 || die "the vercel CLI is not on PATH"
+command -v jq >/dev/null 2>&1 || die "jq is not on PATH"
+TOP="$(git rev-parse --show-toplevel 2>/dev/null)" || die "not inside a git repository"
+cd "$TOP" || die "cannot cd to $TOP"
+
+# ── Which repo, and is it ours ───────────────────────────────────────────────
+URL="$(git remote get-url origin 2>/dev/null)" || die "no origin remote"
+OWNER="$(echo "$URL" | sed -E 's#^git@[^:]+:##; s#^https?://[^/]+/##; s#/.*##')"
+REPO="$(echo "$URL" | sed -E 's#\.git$##; s#.*/##')"
+[ "$OWNER" = "$OWNER_EXPECTED" ] || die "origin owner is '$OWNER', not $OWNER_EXPECTED: forks and upstream clones are never reshaped"
+[ -n "$NAME" ] || NAME="$(echo "$REPO" | tr '[:upper:]' '[:lower:]')"
+
+# package.json engines.node overrides the project setting on Vercel, so the setting only
+# matters when engines is absent and .nvmrc names the version. Vercel accepts 20.x / 22.x /
+# 24.x; anything else is left to the project default.
+node_major() {
+  local v=""
+  if [ -f package.json ] && [ -n "$(jq -r '.engines.node // empty' package.json 2>/dev/null)" ]; then return 0; fi
+  if [ -f .nvmrc ]; then v="$(head -1 .nvmrc)"; fi
+  v="$(echo "$v" | sed -E 's/^[^0-9]*//; s/[^0-9].*$//')"
+  case "$v" in 20|22|24) echo "$v.x" ;; *) echo "" ;; esac
+}
+NODE="$(node_major)"
+
+api() { vercel api "$@" --raw 2>/dev/null; }
+project_json() { api "/v9/projects/$NAME"; }
+checks_json() { api "/v2/projects/$NAME/checks"; }
+
+# The check names, one per line, from the comma-separated --checks value.
+wanted_checks() { echo "$CHECKS" | tr ',' '\n' | sed 's/^ *//; s/ *$//' | grep -v '^$'; }
+
+# ── check: read-only comparison ──────────────────────────────────────────────
+run_check() {
+  local p c drift=0 v name
+  p="$(project_json)"
+  if [ -z "$p" ] || [ "$(echo "$p" | jq -r '.id // empty')" = "" ]; then
+    echo "vercel-project: no Vercel project '$NAME' (run: vercel-project init)" >&2; return 1
+  fi
+  echo "vercel-project check: $NAME ← $OWNER/$REPO"
+  v="$(echo "$p" | jq -r '.link.type // "none"')/$(echo "$p" | jq -r '.link.org // ""')/$(echo "$p" | jq -r '.link.repo // ""')"
+  if [ "$v" = "github/$OWNER/$REPO" ]; then say "✓ connected to github/$OWNER/$REPO"; else say "✗ git link is $v, want github/$OWNER/$REPO"; drift=1; fi
+  v="$(echo "$p" | jq -r '.link.productionBranch // ""')"
+  if [ "$v" = "main" ]; then say "✓ production branch main"; else say "✗ production branch is '$v', want main"; drift=1; fi
+  v="$(echo "$p" | jq -r '.gitProviderOptions.createDeployments // ""')"
+  if [ "$v" = "enabled" ]; then say "✓ GitHub deployments enabled"; else say "✗ gitProviderOptions.createDeployments is '$v', want enabled (no deployment_status, no live check)"; drift=1; fi
+  v="$(echo "$p" | jq -r '.ssoProtection.deploymentType // "none"')"
+  if [ "$v" = "$SSO_EXPECTED" ]; then say "✓ previews protected ($v)"; else say "✗ ssoProtection is '$v', want $SSO_EXPECTED"; drift=1; fi
+  if [ -n "$NODE" ]; then
+    v="$(echo "$p" | jq -r '.nodeVersion // ""')"
+    if [ "$v" = "$NODE" ]; then say "✓ Node $v"; else say "✗ Node is '$v', repo asks for $NODE"; drift=1; fi
+  fi
+  c="$(checks_json)"
+  while IFS= read -r name; do
+    if echo "$c" | jq -e --arg n "$name" '.checks[]? | select(.source.externalCheckName == $n and (.targets | index("production")))' >/dev/null 2>&1; then
+      say "✓ deployment check '$name' gates production"
+    else
+      say "✗ no deployment check for GitHub check '$name'"; drift=1
+    fi
+  done <<EOF
+$(wanted_checks)
+EOF
+  v="$(echo "$p" | jq -r '.targets.production.alias[0] // empty')"
+  [ -n "$v" ] && say "  production: https://$v"
+  return $drift
+}
+
+if [ "$CMD" = "check" ]; then
+  run_check; exit $?
+fi
+
+# ── init ─────────────────────────────────────────────────────────────────────
+do_or_say() { if [ "$DRY" -eq 1 ]; then say "would run: $*"; else "$@"; fi; }
+
+echo "vercel-project init: $NAME ← $OWNER/$REPO$( [ "$DRY" -eq 1 ] && echo ' (dry run)')"
+[ -f .github/workflows/security.yml ] || say "! no .github/workflows/security.yml: the gate blocks the push until it exists"
+git check-ignore -q .vercel || die ".vercel/ is not gitignored here; add it to .gitignore first"
+
+if [ -z "$(project_json | jq -r '.id // empty' 2>/dev/null)" ]; then
+  do_or_say vercel project create "$NAME" || die "could not create project $NAME"
+else
+  say "project $NAME exists"
+fi
+if [ "$DRY" -eq 1 ]; then say "would run: vercel link --yes --project $NAME"
+else vercel link --yes --project "$NAME" >/dev/null || die "vercel link failed"; fi
+if [ "$(project_json | jq -r '.link.repo // empty' 2>/dev/null)" != "$REPO" ]; then
+  do_or_say vercel git connect "$URL" || die "vercel git connect failed"
+else
+  say "already connected to $OWNER/$REPO"
+fi
+
+BODY="$(jq -n --arg sso "$SSO_EXPECTED" --arg node "$NODE" '
+  {gitProviderOptions: {createDeployments: "enabled"}, ssoProtection: {deploymentType: $sso}}
+  + (if $node == "" then {} else {nodeVersion: $node} end)')"
+if [ "$DRY" -eq 1 ]; then
+  say "would PATCH /v9/projects/$NAME $(echo "$BODY" | jq -c .)"
+else
+  echo "$BODY" | vercel api "/v9/projects/$NAME" -X PATCH --input - --silent || die "settings PATCH failed"
+  say "settings applied: $(echo "$BODY" | jq -c .)"
+fi
+
+EXISTING="$(checks_json)"
+while IFS= read -r name; do
+  if echo "$EXISTING" | jq -e --arg n "$name" '.checks[]? | select(.source.externalCheckName == $n)' >/dev/null 2>&1; then
+    say "deployment check '$name' exists"; continue
+  fi
+  CB="$(jq -n --arg n "$name" --argjson t "$CHECK_TIMEOUT" '
+    {name: $n, requires: "build-ready", targets: ["production"], blocks: "deployment-alias", timeout: $t,
+     source: {kind: "git-provider", provider: "github", externalCheckName: $n}}')"
+  if [ "$DRY" -eq 1 ]; then
+    say "would add deployment check '$name'"
+  else
+    echo "$CB" | vercel api "/v2/projects/$NAME/checks" -X POST --input - --silent || die "adding deployment check '$name' failed"
+    say "deployment check '$name' added"
+  fi
+done <<EOF
+$(wanted_checks)
+EOF
+
+[ "$DRY" -eq 1 ] && exit 0
+echo ""
+run_check
