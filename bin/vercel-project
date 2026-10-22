@@ -135,7 +135,8 @@ do_or_say() { if [ "$DRY" -eq 1 ]; then say "would run: $*"; else "$@"; fi; }
 
 echo "vercel-project init: $NAME ← $OWNER/$REPO$( [ "$DRY" -eq 1 ] && echo ' (dry run)')"
 [ -f .github/workflows/security.yml ] || say "! no .github/workflows/security.yml: the gate blocks the push until it exists"
-git check-ignore -q .vercel || die ".vercel/ is not gitignored here; add it to .gitignore first"
+# A path inside it, so `.vercel/` (dir-only pattern) counts before the directory exists.
+git check-ignore -q .vercel/project.json || die ".vercel/ is not gitignored here; add it to .gitignore first"
 
 if [ -z "$(project_json | jq -r '.id // empty' 2>/dev/null)" ]; then
   # <name>.vercel.app is first come, first served across all of Vercel. If someone else

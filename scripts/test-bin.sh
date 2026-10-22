@@ -756,6 +756,13 @@ grep -q 'KEEP=1' "$VDIR/.env.local" 2>/dev/null \
   && pass "init leaves a .env.local that existed before alone" || fail "init leaves an existing .env.local alone"
 rm -f "$VDIR/.env.local"
 
+# `.vercel/` (dir-only) counts as ignored before vercel link creates the directory.
+cp "$VDIR/.gitignore" "$T/vp-gitignore.bak"; [ -d "$VDIR/.vercel" ] && mv "$VDIR/.vercel" "$T/vp-dotvercel.bak"
+printf '.vercel/\n.env\n.env.*\n' > "$VDIR/.gitignore"
+vp init --dry-run; rc=$?
+! grep -q 'not gitignored' "$OUT" && pass "init accepts .vercel/ in .gitignore before .vercel exists" || fail "init accepts .vercel/ before .vercel exists (rc=$rc)"
+cp "$T/vp-gitignore.bak" "$VDIR/.gitignore"; [ -d "$T/vp-dotvercel.bak" ] && mv "$T/vp-dotvercel.bak" "$VDIR/.vercel"
+
 rm -f "$VDIR/.gitignore"
 vp init --dry-run; rc=$?
 [ "$rc" = 2 ] && grep -q 'not gitignored' "$OUT" && pass "init refuses when .vercel/ is not gitignored" || fail "init refuses when .vercel/ is not gitignored (rc=$rc)"
