@@ -82,6 +82,7 @@ Planned additions, each with its reference doc. Nothing here is built yet. Sourc
 
 ## Tooling
 
+- [ ] Spot-check D41 in the next session that looks up library docs: did it try `<domain>/llms.txt` first, and fall back silently on a 404? Then set D41 `Verified` to yes. Added 2026-10-20, `docs/design-decisions.md` D41.
 - [ ] `security-audit.sh`: callees should print the path they wrote instead of the composer
       rebuilding `findings-$STAMP.tsv` (`scripts/README.md`, audit item 3).
 - [ ] `test.sh`: shellcheck an explicit list → a glob, so a new script cannot fall through

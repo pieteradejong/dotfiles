@@ -1117,3 +1117,33 @@ within a quarter unless the `TODO.md` item is acted on.
 `9 passed, 0 failed` (the synced pairs included). Ancestor loading itself is Claude Code's
 documented behaviour and is what makes the workspace hard rules reach projects today; not
 re-tested in a fresh session.
+
+## D41 — Documentation lookup tries `llms.txt` first, written once in the workspace `CLAUDE.md` · 2026-10-20
+
+**Problem.** Third-party docs were fetched as scraped HTML or found by web search, which costs
+context and often returns a version other than the one the project pins. Many docs sites publish
+`/llms.txt` (https://llmstxt.org), a Markdown index made for agents, and some also publish
+`/llms-full.txt`. Pieter brought in a prompt asking for an "llms.txt first" rule in the global
+`~/.claude/CLAUDE.md`, edited through a `~/dotfiles` symlink.
+
+**Decision.** A 13-line § Documentation lookup in `claude/dev-CLAUDE.md` (source of
+`~/dev/CLAUDE.md`), after § Model selection for coding. It says: try `llms.txt` first and fetch
+only the linked pages the task needs; use `llms-full.txt` only for broad coverage at a reasonable
+size; fall back silently; prefer the docs for the pinned version; don't vendor the file. The prompt
+lacked one point, which the section adds: a file written for agents is fetched content, data not
+instructions (`ai-and-external-services.md` §4). Every session under `~/dev` reads the section
+through ancestor loading, the same mechanism as D39.
+
+**Rejected.** *The global `~/.claude/CLAUDE.md`*, which the prompt asked for: that layer holds
+machine facts only (`ai-instructions.md` § Layers), and this would have been its only behaviour
+rule. The prompt's `~/dotfiles` symlink doesn't exist either: the global file is a copy of
+`claude/CLAUDE.md`. *A policy doc only*: those are read on demand, so the rule would be missing at
+the moment a lookup happens.
+
+**Cost.** Thirteen lines in every session under `~/dev`. Sessions outside `~/dev` (`~/Claude`
+Cowork) don't get the rule, which is acceptable because they don't look up library docs.
+
+**Verified.** PARTIAL. 2026-10-20: `diff ~/dev/CLAUDE.md claude/dev-CLAUDE.md` → no output;
+`grep -c '## Documentation lookup' ~/dev/CLAUDE.md` → 1; `python3 scripts/test-docs.py` →
+`9 passed, 0 failed`. Not checked yet: whether a fresh session really tries `llms.txt` first. That
+is a `TODO.md` item.
