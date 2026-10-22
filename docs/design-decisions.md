@@ -1011,6 +1011,32 @@ global ignore file covers `.env` and `unignored-env` still FAILs `gitignore-env`
 WARNs `gitignore-env-uncommitted` and not `gitignore-env`; `gitleaks-bait` reports `gitleaks-disk`
 in the default run and `gitleaks-history` in the `--history` run, never both.
 
+## D43 — A verbatim non-MIT license names its holder in `NOTICE`; the gate accepts that · 2026-10-22
+
+**Problem.** The pre-push gate's `license-holder` rule wants `Pieter de Jong` in the LICENSE file.
+The GPL's text may not be modified ("changing it is not allowed"), and the same holds in practice
+for Apache-2.0 and the CC legal codes (a prepended header also breaks GitHub's license
+detection). Three public repos with deliberate non-MIT licenses had local commits the gate would
+never let through: `games` (GPL-3.0), `miami` (CC0), `handwritten-letter-and-wax-seal-kit` (CC-BY-4.0).
+
+**Decision.** For a non-MIT LICENSE, the holder may be named in `NOTICE`, `COPYRIGHT` (or their
+`.md` / `.txt` forms) as `Copyright (c|C|©) <year>[-<year>] Pieter de Jong`. MIT, recognised by
+its title or its "Permission is hereby granted, free of charge" clause, must still carry the line
+in `LICENSE` itself, where its template puts it. `repo-standards.md` § Licensing says where the
+line goes for each license.
+
+**Rejected.** *Prepend a copyright line to the GPL text*: the license forbids changing it, and
+GitHub stops detecting the license. *Relicense to MIT*: `games` links GPL code (js-dos), so MIT is
+not available to it. *A per-repo exemption list*: it would repeat for every future GPL repo and
+make the rule depend on a list, not on the files.
+
+**Cost.** One more file in GPL/CC repos. A NOTICE that names someone else still blocks.
+
+**Verified.** `./test.sh gate` passes, including four new cases: an MIT `LICENSE` naming someone
+else is blocked even with a correct `NOTICE`; GPL text with a `NOTICE` naming someone else is
+blocked; GPL text with `Copyright (C) 2026 Pieter de Jong` in `NOTICE` is allowed, with no blocking
+findings. `./test.sh shellcheck` passes.
+
 ## D42 — Every web project deploys the same way: Vercel's Git integration, production gated by Deployment Checks · 2026-10-22
 
 (D41 is reserved for the `prompt-followup` branch's "Documentation lookup" entry, renumbered from its

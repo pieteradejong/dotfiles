@@ -150,7 +150,7 @@ false positive only. After a fix, `git add` again and retry. For a finding in a 
 | `multiple-lockfiles` | A second package manager's lockfile | Keep the project's one manager; delete the other lockfile. |
 | `media-file` | Video, audio, weights, or an image over 5 MB | Store it outside the repo ([media](repo-standards.md#media-and-large-binaries)) and list it in `assets/README.md`. |
 | `no-security-ci` | No workflow calls `security-reusable.yml` | Add `.github/workflows/security.yml` from §9. |
-| `no-license`, `license-holder` | A public push without a canonical LICENSE | Add LICENSE with `Copyright (c) <year> Pieter de Jong` ([licensing](repo-standards.md#licensing)). |
+| `no-license`, `license-holder` | A public push without a canonical LICENSE | Add LICENSE with `Copyright (c) <year> Pieter de Jong` ([licensing](repo-standards.md#licensing)). For a non-MIT license whose text must stay verbatim (GPL, Apache, CC), put that line in `NOTICE` or `COPYRIGHT` instead. |
 | `jq-missing`, `pyproject-unchecked` | A check could not run | `brew install jq`; use Python 3.11+ (`/opt/homebrew/bin/python3`). |
 
 ## 3. Bypass procedure

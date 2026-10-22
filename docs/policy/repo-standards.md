@@ -24,6 +24,13 @@ reserved": nobody may legally use, copy or contribute to it — almost never the
   harmless and saves a scramble if the repo ever flips public.
 - **Canonical copyright line: `Copyright (c) <year> Pieter de Jong`** — no other spelling of the
   name. `<year>` is the year of the first commit, not the year the file was added.
+- **Where that line goes:**
+  - **MIT:** in `LICENSE`, where the template has a slot for it.
+  - **GPL, Apache, CC:** these texts may not be edited, so the line goes in a `NOTICE` (or
+    `COPYRIGHT`) file at the root, next to the verbatim `LICENSE`. For GPL, add the short "This
+    program is free software…" notice under it.
+
+  The gate's `license-holder` accepts either place, but only `LICENSE` for MIT (D43).
 - **The manifest matches the LICENSE.** `npm init -y` writes `"license": "ISC"` — set `"MIT"`. Add
   `license` to `pyproject.toml`. Always fix the manifest to match the file, never the reverse:
   the file is what people read and GitHub reports.
