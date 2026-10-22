@@ -55,6 +55,11 @@ first served across all of Vercel, so `init` refuses a new name whose address al
 (`cnc-web.vercel.app` is someone else's site, so the games repo uses `cnc-web-padj`). After the
 first `init`, the linked name in `.vercel/project.json` is used.
 
+`vercel link` also writes a short-lived `VERCEL_OIDC_TOKEN` into `.env.local` and appends `.env*`
+to `.gitignore`, which re-ignores `.env.example`. `init` undoes both: it restores `.gitignore` and
+deletes the token file if this run created it. It refuses to run where `.env.local` isn't already
+ignored.
+
 It sets:
 
 | Setting | Value | Why |

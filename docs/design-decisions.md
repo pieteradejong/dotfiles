@@ -1049,11 +1049,19 @@ Vercel: `cnc-web.vercel.app` turned out to be someone else's site, so a project 
 named after its repo. `init` refuses a new name whose address already answers, and the linked name
 in `.vercel/project.json` is reused from then on.
 
-**Verified.** `./test.sh bin` → 115 passed, 0 failed, including 12 `vercel-project` cases against
-a stub `vercel` and `curl`: a foreign owner is refused before any call, a compliant project exits 0,
+`vercel link` (CLI 62) also writes a short-lived `VERCEL_OIDC_TOKEN` into `.env.local` and appends
+`.vercel` and `.env*` to `.gitignore`; the latter re-ignores the baseline's `!.env.example`. `init`
+requires `.env.local` to be ignored beforehand, restores a `.gitignore` that was clean, and removes
+a `.env.local` it created.
+
+**Verified.** `./test.sh bin` → 117 passed, 0 failed, including 14 `vercel-project` cases against
+a stub `vercel` and `curl` (the stub's `link` reproduces the CLI's side effects): a foreign owner is refused before any call, a compliant project exits 0,
 a disabled `createDeployments` exits 1, `init --dry-run` writes nothing, a taken `.vercel.app` name
-is refused and a free one would be created, the linked name wins over the repo name, an unignored
-`.vercel/` is refused.
+is refused and a free one would be created, the linked name wins over the repo name, `link`'s
+token file and `.gitignore` lines are undone while a pre-existing `.env.local` is left alone, an
+unignored `.vercel/` is refused. Live, 2026-10-22: `vercel-project init` in `patriotic_package`
+added the three Deployment Checks and `check` passed all seven lines (that run predates the
+clean-up, which was added after it left `.gitignore` modified; the file was restored by hand).
 `actionlint` passes on `vercel-live-reusable.yml`. `vercel-project check --name patriot-package`,
 read-only against the real API, reported the three missing Deployment Checks and nothing else.
 NOT YET: that `blocks: deployment-alias` holds the `<project>.vercel.app` alias on Hobby (Vercel's

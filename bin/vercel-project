@@ -147,8 +147,24 @@ if [ -z "$(project_json | jq -r '.id // empty' 2>/dev/null)" ]; then
 else
   say "project $NAME exists"
 fi
+# `vercel link` (CLI 62) also downloads a short-lived VERCEL_OIDC_TOKEN into .env.local
+# and appends `.vercel` and `.env*` to .gitignore. The second line re-ignores the
+# baseline's `!.env.example`, and nothing in this pipeline uses the token. So the file
+# must already be ignored, a .gitignore that was clean is restored, and a .env.local
+# this run created is removed again.
+git check-ignore -q .env.local || die ".env.local is not gitignored here; add the .gitignore baseline (.env.*) first"
 if [ "$DRY" -eq 1 ]; then say "would run: vercel link --yes --project $NAME"
-else vercel link --yes --project "$NAME" >/dev/null || die "vercel link failed"; fi
+else
+  gi_clean=0; git diff --quiet -- .gitignore 2>/dev/null && gi_clean=1
+  env_before=0; [ -e .env.local ] && env_before=1
+  vercel link --yes --project "$NAME" >/dev/null 2>&1 || die "vercel link failed"
+  if [ "$gi_clean" -eq 1 ] && ! git diff --quiet -- .gitignore 2>/dev/null; then
+    git checkout -- .gitignore && say "restored .gitignore (vercel link had appended to it)"
+  fi
+  if [ "$env_before" -eq 0 ] && [ -e .env.local ]; then
+    rm -f .env.local && say "removed the .env.local token file vercel link wrote (unused here)"
+  fi
+fi
 if [ "$(project_json | jq -r '.link.repo // empty' 2>/dev/null)" != "$REPO" ]; then
   do_or_say vercel git connect "$URL" || die "vercel git connect failed"
 else

@@ -670,13 +670,16 @@ echo "\$*" >> "$VCALLS"
 case "\$*" in
   "api /v9/projects/"*" --raw") cat "$T/vp-project.json" ;;
   "api /v2/projects/"*"/checks --raw") cat "$T/vp-checks.json" ;;
+  # What CLI 62's link does besides linking: a token file and two .gitignore lines.
+  "link "*) echo 'VERCEL_OIDC_TOKEN="stub"' >> .env.local; printf '.vercel\n.env*\n' >> .gitignore ;;
 esac
 exit 0
 STUBEOF
 chmod +x "$VSTUB/vercel"
 vp_repo() {  # vp_repo <dir> <owner>: a git repo with origin at github.com/<owner>/cnc-web
   mkdir -p "$1" && git -C "$1" init -q && git -C "$1" remote add origin "git@github.com:$2/cnc-web.git"
-  printf '.vercel\n' > "$1/.gitignore"
+  printf '.env\n.env.*\n!.env.example\n.vercel\n' > "$1/.gitignore"
+  git -C "$1" add .gitignore   # staged is enough: init compares and restores against the index
 }
 vp() { : > "$OUT"; ( cd "$VDIR" && PATH="$VSTUB:$PATH" "$VP" "$@" ) > "$OUT" 2>&1; }
 cat > "$T/vp-project.json" <<'EOF'
@@ -684,11 +687,13 @@ cat > "$T/vp-project.json" <<'EOF'
  "gitProviderOptions":{"createDeployments":"enabled"},"ssoProtection":{"deploymentType":"all_except_custom_domains"},
  "targets":{"production":{"alias":["cnc-web.vercel.app"]}}}
 EOF
+cp "$T/vp-project.json" "$T/vp-ok-project.json"
 cat > "$T/vp-checks.json" <<'EOF'
 {"checks":[{"targets":["production"],"source":{"externalCheckName":"tests"}},
  {"targets":["production"],"source":{"externalCheckName":"security / gitleaks"}},
  {"targets":["production"],"source":{"externalCheckName":"security / gate"}}]}
 EOF
+cp "$T/vp-checks.json" "$T/vp-ok-checks.json"
 
 /bin/bash -n "$VP" && pass "vercel-project parses under /bin/bash (3.2)" || fail "vercel-project parses under /bin/bash (3.2)"
 : > "$OUT"; "$VP" -h > "$OUT" 2>&1; rc=$?
@@ -737,6 +742,19 @@ vp init --dry-run; rc=$?
 [ "$rc" = 0 ] && grep -q 'would run: vercel project create cnc-web' "$OUT" \
   && pass "init --dry-run would create a project whose name is free" || fail "init would create a free name (rc=$rc)"
 rm -f "$VSTUB/curl"
+
+# A real init against the stub: link's side effects are undone. The stub's POSTs store
+# nothing, so the closing check reads the full set of checks again.
+cp "$T/vp-ok-project.json" "$T/vp-project.json"; cp "$T/vp-ok-checks.json" "$T/vp-checks.json"
+vp init; rc=$?
+[ "$rc" = 0 ] && [ ! -e "$VDIR/.env.local" ] && git -C "$VDIR" diff --quiet -- .gitignore \
+  && grep -q 'restored .gitignore' "$OUT" && grep -q 'removed the .env.local token file' "$OUT" \
+  && pass "init undoes vercel link's token file and .gitignore lines" || fail "init undoes vercel link's side effects (rc=$rc)"
+echo 'KEEP=1' > "$VDIR/.env.local"
+vp init >/dev/null 2>&1
+grep -q 'KEEP=1' "$VDIR/.env.local" 2>/dev/null \
+  && pass "init leaves a .env.local that existed before alone" || fail "init leaves an existing .env.local alone"
+rm -f "$VDIR/.env.local"
 
 rm -f "$VDIR/.gitignore"
 vp init --dry-run; rc=$?
