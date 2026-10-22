@@ -1011,7 +1011,10 @@ global ignore file covers `.env` and `unignored-env` still FAILs `gitignore-env`
 WARNs `gitignore-env-uncommitted` and not `gitignore-env`; `gitleaks-bait` reports `gitleaks-disk`
 in the default run and `gitleaks-history` in the `--history` run, never both.
 
-## D41 — Every web project deploys the same way: Vercel's Git integration, production gated by Deployment Checks · 2026-10-22
+## D42 — Every web project deploys the same way: Vercel's Git integration, production gated by Deployment Checks · 2026-10-22
+
+(D41 is reserved for the `prompt-followup` branch's "Documentation lookup" entry, renumbered from its
+clashing D40 when that branch merges; `~/dev/TODO.md`.)
 
 **Problem.** Projects reached Vercel by two routes with no rule for which: the Git integration
 (`astropieter`, `patriotic_package`) or `vercel deploy --prebuilt` from Actions (`eu27`, `christ`).

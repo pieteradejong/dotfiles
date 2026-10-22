@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # vercel-project — give the repo you are in its own Vercel project, set up the one way
-# every project deploys (docs/deploy-pipeline.md, decision D41).
+# every project deploys (docs/deploy-pipeline.md, decision D42).
 #
 #   vercel-project init     create or reuse the Vercel project named after the repo, link
 #                           it, connect it to GitHub, and apply the settings below

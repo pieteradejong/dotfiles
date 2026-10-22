@@ -1,7 +1,7 @@
 # Deploy pipeline: local → GitHub → Vercel → portfolio
 
 How a project goes from this machine to a URL, and onto the portfolio site if it should be
-listed. This is the one path every web project follows. Why it is built this way: decision D41
+listed. This is the one path every web project follows. Why it is built this way: decision D42
 in [design-decisions.md](design-decisions.md).
 
 ```mermaid

@@ -1,4 +1,4 @@
-# Reusable live check for a project Vercel deploys from Git (docs/deploy-pipeline.md, D41).
+# Reusable live check for a project Vercel deploys from Git (docs/deploy-pipeline.md, D42).
 #
 # Call it from the project's .github/workflows/ci.yml, next to its own `tests` job:
 #
