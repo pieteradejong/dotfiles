@@ -525,6 +525,17 @@ security_ci
 printf 'MIT License\n\nCopyright (c) 2026 Somebody Else\n' > LICENSE; git add LICENSE; git commit -qm license >/dev/null 2>&1
 expect 1 "LICENSE without the canonical holder is blocked" git push -q origin main
 out_has 'BLOCK license-holder' "license-holder finding"
+printf 'MIT License\n\nCopyright (c) 2026 Somebody Else\n' > LICENSE
+printf 'Copyright (C) 2026 Pieter de Jong\n' > NOTICE; git add LICENSE NOTICE; git commit -qm notice >/dev/null 2>&1
+expect 1 "MIT LICENSE must name the holder itself; a NOTICE does not stand in" git push -q origin main
+out_has 'BLOCK license-holder' "license-holder finding for MIT with NOTICE"
+printf '                    GNU GENERAL PUBLIC LICENSE\n                       Version 3, 29 June 2007\n' > LICENSE
+printf 'Copyright (C) 2026 Somebody Else\n' > NOTICE; git add LICENSE NOTICE; git commit -qm gpl >/dev/null 2>&1
+expect 1 "verbatim GPL text with a NOTICE naming someone else: blocked" git push -q origin main
+printf 'cnc-web\nCopyright (C) 2026 Pieter de Jong\n' > NOTICE; git add NOTICE; git commit -qm gpl-notice >/dev/null 2>&1
+expect 0 "verbatim GPL text with the holder in NOTICE: allowed" git push -q origin main
+out_lacks 'BLOCK' "no blocking findings for GPL + NOTICE"
+git rm -q NOTICE
 printf 'MIT License\n\nCopyright (c) 2026 Pieter de Jong\n' > LICENSE; git add LICENSE; git commit -qm license >/dev/null 2>&1
 expect 0 "own public repo with LICENSE and security CI: allowed" git push -q origin main
 out_lacks 'BLOCK' "no blocking findings"

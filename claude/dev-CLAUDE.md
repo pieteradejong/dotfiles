@@ -137,6 +137,7 @@ Read these when their subject comes up; they are not loaded automatically.
 | `dotfiles/docs/policy/backups.md` | Backup principles |
 | `dotfiles/docs/design-decisions.md` | Why the gate, audit and public/private split are built this way |
 | `dotfiles/docs/maintenance.md` | The weekly security audit and what to do with its findings |
+| `dotfiles/docs/deploy-pipeline.md` | Local → GitHub → Vercel → portfolio: one Vercel project per repo, Deployment Checks, the live check, `vercel-project`, the `portfolio.md` flag |
 | `dotfiles/docs/containers.md` | Colima on demand (no Docker Desktop), local vs hosted Supabase, native Postgres, what needs Docker |
 | `dotfiles/docs/dev-audit.md` | `dotaudit`: read-only audit of every local repo |
 | `dotfiles/private/registers/` | Private: repo inventory (`repos.md`: what each directory is, its shape, deploy target, Docker fit), open findings, per-repo privacy, licensing, GitHub baseline, backup state |

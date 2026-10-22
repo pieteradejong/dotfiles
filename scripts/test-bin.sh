@@ -658,9 +658,111 @@ kill "$RC_PID" 2>/dev/null
 # ── 6. Nothing here leaks personal data into a public repo ───────────────────
 # bin/ is published. These are the two findings that motivated the move; assert
 # they cannot silently return.
+header "vercel-project (stub vercel, throwaway repos; no network)"
+
+VP="$BIN_DIR/vercel-project"
+VSTUB="$T/vercel-stub"; VCALLS="$T/vercel.calls"; mkdir -p "$VSTUB"
+# The stub answers GETs from canned JSON and logs every call, so a test can assert
+# that a dry run or a refusal never wrote anything.
+cat > "$VSTUB/vercel" <<STUBEOF
+#!/usr/bin/env bash
+echo "\$*" >> "$VCALLS"
+case "\$*" in
+  "api /v9/projects/"*" --raw") cat "$T/vp-project.json" ;;
+  "api /v2/projects/"*"/checks --raw") cat "$T/vp-checks.json" ;;
+  # What CLI 62's link does besides linking: a token file and two .gitignore lines.
+  "link "*) echo 'VERCEL_OIDC_TOKEN="stub"' >> .env.local; printf '.vercel\n.env*\n' >> .gitignore ;;
+esac
+exit 0
+STUBEOF
+chmod +x "$VSTUB/vercel"
+vp_repo() {  # vp_repo <dir> <owner>: a git repo with origin at github.com/<owner>/cnc-web
+  mkdir -p "$1" && git -C "$1" init -q && git -C "$1" remote add origin "git@github.com:$2/cnc-web.git"
+  printf '.env\n.env.*\n!.env.example\n.vercel\n' > "$1/.gitignore"
+  git -C "$1" add .gitignore   # staged is enough: init compares and restores against the index
+}
+vp() { : > "$OUT"; ( cd "$VDIR" && PATH="$VSTUB:$PATH" "$VP" "$@" ) > "$OUT" 2>&1; }
+cat > "$T/vp-project.json" <<'EOF'
+{"id":"prj_1","link":{"type":"github","org":"pieteradejong","repo":"cnc-web","productionBranch":"main"},
+ "gitProviderOptions":{"createDeployments":"enabled"},"ssoProtection":{"deploymentType":"all_except_custom_domains"},
+ "targets":{"production":{"alias":["cnc-web.vercel.app"]}}}
+EOF
+cp "$T/vp-project.json" "$T/vp-ok-project.json"
+cat > "$T/vp-checks.json" <<'EOF'
+{"checks":[{"targets":["production"],"source":{"externalCheckName":"tests"}},
+ {"targets":["production"],"source":{"externalCheckName":"security / gitleaks"}},
+ {"targets":["production"],"source":{"externalCheckName":"security / gate"}}]}
+EOF
+cp "$T/vp-checks.json" "$T/vp-ok-checks.json"
+
+/bin/bash -n "$VP" && pass "vercel-project parses under /bin/bash (3.2)" || fail "vercel-project parses under /bin/bash (3.2)"
+: > "$OUT"; "$VP" -h > "$OUT" 2>&1; rc=$?
+[ "$rc" = 0 ] && grep -q 'vercel-project check' "$OUT" && pass "-h prints the header, exit 0" || fail "-h prints the header, exit 0 (rc=$rc)"
+: > "$OUT"; "$VP" > "$OUT" 2>&1; rc=$?
+[ "$rc" = 2 ] && pass "no command: exit 2" || fail "no command: exit 2 (rc=$rc)"
+: > "$OUT"; "$VP" deploy > "$OUT" 2>&1; rc=$?
+[ "$rc" = 2 ] && pass "unknown command: exit 2" || fail "unknown command: exit 2 (rc=$rc)"
+
+VDIR="$T/vp-foreign"; vp_repo "$VDIR" someone-else; : > "$VCALLS"
+vp check; rc=$?
+[ "$rc" = 2 ] && grep -q 'never reshaped' "$OUT" && [ ! -s "$VCALLS" ] \
+  && pass "refuses a repo owned by someone else, before any vercel call" || fail "refuses a repo owned by someone else (rc=$rc)"
+
+VDIR="$T/vp-own"; vp_repo "$VDIR" pieteradejong
+vp check; rc=$?
+[ "$rc" = 0 ] && grep -q 'production: https://cnc-web.vercel.app' "$OUT" \
+  && pass "check: compliant project, exit 0" || fail "check: compliant project, exit 0 (rc=$rc)"
+
+sed 's/"createDeployments":"enabled"/"createDeployments":"disabled"/' "$T/vp-project.json" > "$T/vp-p2" && mv "$T/vp-p2" "$T/vp-project.json"
+vp check; rc=$?
+[ "$rc" = 1 ] && grep -q '✗ gitProviderOptions.createDeployments' "$OUT" \
+  && pass "check: GitHub deployments disabled is drift, exit 1" || fail "check: deployments disabled is drift (rc=$rc)"
+
+printf '{"checks":[]}\n' > "$T/vp-checks.json"; : > "$VCALLS"
+vp init --dry-run; rc=$?
+[ "$rc" = 0 ] && grep -q "would add deployment check 'security / gate'" "$OUT" \
+  && ! grep -qE -- '-X (PATCH|POST)|project create|git connect|^link' "$VCALLS" \
+  && pass "init --dry-run reports and writes nothing" || fail "init --dry-run reports and writes nothing (rc=$rc)"
+
+mkdir -p "$VDIR/.vercel" && printf '{"projectId":"prj_1","projectName":"cnc-web-padj"}\n' > "$VDIR/.vercel/project.json"
+: > "$VCALLS"; vp check
+grep -q 'api /v9/projects/cnc-web-padj ' "$VCALLS" && grep -q 'check: cnc-web-padj' "$OUT" \
+  && pass "the linked project name in .vercel/ wins over the repo name" || fail "the linked project name in .vercel/ wins over the repo name"
+rm -rf "$VDIR/.vercel"
+
+# A name nobody of ours holds, whose <name>.vercel.app answers: someone else's site.
+# The stub curl plays that site; the project lookup returns nothing.
+printf '#!/usr/bin/env bash\necho 200\n' > "$VSTUB/curl"; chmod +x "$VSTUB/curl"
+printf '{"error":{"code":"not_found"}}\n' > "$T/vp-project.json"; : > "$VCALLS"
+vp init --dry-run; rc=$?
+[ "$rc" = 2 ] && grep -q 'answers (200) and is not one of your projects' "$OUT" && ! grep -q 'project create' "$VCALLS" \
+  && pass "init refuses a name whose .vercel.app belongs to someone else" || fail "init refuses a taken .vercel.app name (rc=$rc)"
+printf '#!/usr/bin/env bash\necho 404\n' > "$VSTUB/curl"
+vp init --dry-run; rc=$?
+[ "$rc" = 0 ] && grep -q 'would run: vercel project create cnc-web' "$OUT" \
+  && pass "init --dry-run would create a project whose name is free" || fail "init would create a free name (rc=$rc)"
+rm -f "$VSTUB/curl"
+
+# A real init against the stub: link's side effects are undone. The stub's POSTs store
+# nothing, so the closing check reads the full set of checks again.
+cp "$T/vp-ok-project.json" "$T/vp-project.json"; cp "$T/vp-ok-checks.json" "$T/vp-checks.json"
+vp init; rc=$?
+[ "$rc" = 0 ] && [ ! -e "$VDIR/.env.local" ] && git -C "$VDIR" diff --quiet -- .gitignore \
+  && grep -q 'restored .gitignore' "$OUT" && grep -q 'removed the .env.local token file' "$OUT" \
+  && pass "init undoes vercel link's token file and .gitignore lines" || fail "init undoes vercel link's side effects (rc=$rc)"
+echo 'KEEP=1' > "$VDIR/.env.local"
+vp init >/dev/null 2>&1
+grep -q 'KEEP=1' "$VDIR/.env.local" 2>/dev/null \
+  && pass "init leaves a .env.local that existed before alone" || fail "init leaves an existing .env.local alone"
+rm -f "$VDIR/.env.local"
+
+rm -f "$VDIR/.gitignore"
+vp init --dry-run; rc=$?
+[ "$rc" = 2 ] && grep -q 'not gitignored' "$OUT" && pass "init refuses when .vercel/ is not gitignored" || fail "init refuses when .vercel/ is not gitignored (rc=$rc)"
+
 header "publishability"
 
-for f in "$LLM" "$CLEANUP" "$RCDEV" "$RCDEV_PLIST" "$RCDEV_PROJ_PLIST" "$BIN_DIR/README.md"; do
+for f in "$LLM" "$CLEANUP" "$RCDEV" "$RCDEV_PLIST" "$RCDEV_PROJ_PLIST" "$VP" "$BIN_DIR/README.md"; do
   : > "$OUT"
   grep -nE '/Users/[a-z]' "$f" > "$OUT" 2>&1
   [ -s "$OUT" ] && fail "$(basename "$f") contains no absolute /Users/<name>/ path" \

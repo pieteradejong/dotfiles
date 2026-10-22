@@ -1118,6 +1118,43 @@ within a quarter unless the `TODO.md` item is acted on.
 documented behaviour and is what makes the workspace hard rules reach projects today; not
 re-tested in a fresh session.
 
+## D40 — dotaudit's gitleaks and `.env` checks say what they measured · 2026-10-20
+
+**Problem.** Two dotaudit checks answered a different question from the one their names asked.
+*gitleaks*: the default run scans files on disk with `--no-git`, ignored `.venv/` and
+`node_modules/` included; `--history` scans git history. Both reported as `gitleaks`, and the rerun
+hint dropped `--no-git`, so following it answered the other question. The 2026-09-24 triage
+(private `findings.md` GT-2) found the ranking inverted: `twittertools` 26 on disk / 0 in history,
+`Google-Drive-Manager` 2 on disk / 41,129 in history. *`gitignore-env`*: a plain `check-ignore`
+counts `~/.gitignore_global` and uncommitted `.gitignore` edits as coverage. On 2026-10-20 all 124
+repos passed it, while `go-service`'s committed `.gitignore` had no `.env` line and 24 more repos
+covered `.env` only in an uncommitted or untracked `.gitignore` — what a push or a clone gets was not
+covered.
+
+**Decision.** Split the gitleaks id by mode: `gitleaks-disk` (default) and `gitleaks-history`
+(`--history`), each with a rerun hint in the same mode and a message that names the scope. Every
+`.gitignore` baseline check runs with `core.excludesFile=/dev/null`, so only the repo's own rules
+count. A new WARN, `gitignore-env-uncommitted`, reports `.env` / `.env.local` ignored by the working
+tree's `.gitignore` but not by `HEAD`'s; `HEAD:.gitignore` is tested in a scratch repo under
+`mktemp`, so the audited repo is still never written. The dashboard groups the new ids with the old
+ones and keeps `gitleaks` for older TSVs.
+
+**Rejected.** *Keep one `gitleaks` id and only reword the message*: the TSV and the dashboard group
+by id, so the two scans would still be counted as one. *Make `gitleaks-history` the default*: a full
+history sweep does not finish on this machine (`docs/dev-audit.md` § Scoping). *Raise
+`gitignore-env-uncommitted` to FAIL*: the working tree is protected, and the fix is a commit the
+assistant cannot make without review; WARN keeps it visible without making every dirty repo red.
+*Count the global ignore file only for forks*: forks are skipped by these checks already.
+
+**Cost.** Anything that matched the literal id `gitleaks` in a findings TSV must use the new ids
+(only `audit-dashboard.py` did). `gitignore-gaps` may grow for repos that leaned on the global file
+for non-`.env` entries. Each repo with a dirty `.gitignore` costs one `git init` in a temp dir.
+
+**Verified.** `./test.sh dotaudit` → "All tests passed", including the new cases: the fixture
+global ignore file covers `.env` and `unignored-env` still FAILs `gitignore-env`; `uncommitted-env`
+WARNs `gitignore-env-uncommitted` and not `gitignore-env`; `gitleaks-bait` reports `gitleaks-disk`
+in the default run and `gitleaks-history` in the `--history` run, never both.
+
 ## D41 — Documentation lookup tries `llms.txt` first, written once in the workspace `CLAUDE.md` · 2026-10-20
 
 **Problem.** Third-party docs were fetched as scraped HTML or found by web search, which costs
@@ -1147,3 +1184,83 @@ Cowork) don't get the rule, which is acceptable because they don't look up libra
 `grep -c '## Documentation lookup' ~/dev/CLAUDE.md` → 1; `python3 scripts/test-docs.py` →
 `9 passed, 0 failed`. Not checked yet: whether a fresh session really tries `llms.txt` first. That
 is a `TODO.md` item.
+
+## D42 — Every web project deploys the same way: Vercel's Git integration, production gated by Deployment Checks · 2026-10-22
+
+**Problem.** Projects reached Vercel by two routes with no rule for which: the Git integration
+(`astropieter`, `patriotic_package`) or `vercel deploy --prebuilt` from Actions (`eu27`, `christ`).
+Two more repos had a `vercel.json` and no project. The Git-integration repos deployed whatever was
+pushed: `ci.yml` ran after the fact, and a red test still reached production
+(`patriotic_package` DECISIONS #2 accepted that). Each project was set up by hand in the
+dashboard, and one came out with `createDeployments: disabled`, which silently turned off its live
+check.
+
+**Decision.** One path, written once in `docs/deploy-pipeline.md`. Every repo gets its own Vercel
+project on the Git integration. Production is held by Vercel Deployment Checks until the GitHub
+checks `tests`, `security / gitleaks` and `security / gate` pass (`blocks: deployment-alias`,
+production only). Previews get Standard Protection. `bin/vercel-project init` applies all of this
+through the `vercel` CLI's own login and `vercel-project check` reports drift (exit 1). It refuses
+repos whose `origin` owner is not `pieteradejong`. `.github/workflows/vercel-live-reusable.yml`
+is the shared live job: on a production `deployment_status` it waits until the URL serves the
+deployed SHA (`<meta name="build-commit">`). `--prebuilt` stays the exception for builds Vercel
+cannot run, with the token in a `main`-only environment.
+
+**Rejected.** *`--prebuilt` from Actions everywhere*: it gates on tests too, but puts a long-lived
+deploy token in every repo's secrets and repeats what the integration does. *Keep the
+integration ungated*: a red gate means a secret or personal data may be in the commit, and
+production should not serve it. *GitHub branch protection with required checks*: it gates merges,
+not direct pushes to `main`, which is how a solo repo works. *A `deploy.json` manifest per repo*:
+`vercel-project`'s settings are the same for every repo, so a manifest would only repeat defaults.
+The one per-repo choice, listing on the portfolio, lives in `portfolio.md`.
+
+**Cost.** One more workflow called `@main` from every repo (like `security-reusable.yml`). A held
+build has to be promoted by hand when a check fails for an unrelated reason. Every page template
+needs the `build-commit` meta tag. `<name>.vercel.app` is first come, first served across all of
+Vercel: `cnc-web.vercel.app` turned out to be someone else's site, so a project cannot always be
+named after its repo. `init` refuses a new name whose address already answers, and the linked name
+in `.vercel/project.json` is reused from then on.
+
+`vercel link` (CLI 62) also writes a short-lived `VERCEL_OIDC_TOKEN` into `.env.local` and appends
+`.vercel` and `.env*` to `.gitignore`; the latter re-ignores the baseline's `!.env.example`. `init`
+requires `.env.local` to be ignored beforehand, restores a `.gitignore` that was clean, and removes
+a `.env.local` it created.
+
+**Verified.** `./test.sh bin` → 117 passed, 0 failed, including 14 `vercel-project` cases against
+a stub `vercel` and `curl` (the stub's `link` reproduces the CLI's side effects): a foreign owner is refused before any call, a compliant project exits 0,
+a disabled `createDeployments` exits 1, `init --dry-run` writes nothing, a taken `.vercel.app` name
+is refused and a free one would be created, the linked name wins over the repo name, `link`'s
+token file and `.gitignore` lines are undone while a pre-existing `.env.local` is left alone, an
+unignored `.vercel/` is refused. Live, 2026-10-22: `vercel-project init` in `patriotic_package`
+added the three Deployment Checks and `check` passed all seven lines (that run predates the
+clean-up, which was added after it left `.gitignore` modified; the file was restored by hand).
+`actionlint` passes on `vercel-live-reusable.yml`. `vercel-project check --name patriot-package`,
+read-only against the real API, reported the three missing Deployment Checks and nothing else.
+NOT YET: that `blocks: deployment-alias` holds the `<project>.vercel.app` alias on Hobby (Vercel's
+docs say only "custom production domains"). The `games` pilot tests it with a deliberately red
+`tests` run (`~/dev/TODO.md`).
+
+## D43 — A verbatim non-MIT license names its holder in `NOTICE`; the gate accepts that · 2026-10-22
+
+**Problem.** The pre-push gate's `license-holder` rule wants `Pieter de Jong` in the LICENSE file.
+The GPL's text may not be modified ("changing it is not allowed"), and the same holds in practice
+for Apache-2.0 and the CC legal codes (a prepended header also breaks GitHub's license
+detection). Three public repos with deliberate non-MIT licenses had local commits the gate would
+never let through: `games` (GPL-3.0), `miami` (CC0), `handwritten-letter-and-wax-seal-kit` (CC-BY-4.0).
+
+**Decision.** For a non-MIT LICENSE, the holder may be named in `NOTICE`, `COPYRIGHT` (or their
+`.md` / `.txt` forms) as `Copyright (c|C|©) <year>[-<year>] Pieter de Jong`. MIT, recognised by
+its title or its "Permission is hereby granted, free of charge" clause, must still carry the line
+in `LICENSE` itself, where its template puts it. `repo-standards.md` § Licensing says where the
+line goes for each license.
+
+**Rejected.** *Prepend a copyright line to the GPL text*: the license forbids changing it, and
+GitHub stops detecting the license. *Relicense to MIT*: `games` links GPL code (js-dos), so MIT is
+not available to it. *A per-repo exemption list*: it would repeat for every future GPL repo and
+make the rule depend on a list, not on the files.
+
+**Cost.** One more file in GPL/CC repos. A NOTICE that names someone else still blocks.
+
+**Verified.** `./test.sh gate` passes, including four new cases: an MIT `LICENSE` naming someone
+else is blocked even with a correct `NOTICE`; GPL text with a `NOTICE` naming someone else is
+blocked; GPL text with `Copyright (C) 2026 Pieter de Jong` in `NOTICE` is allowed, with no blocking
+findings. `./test.sh shellcheck` passes.

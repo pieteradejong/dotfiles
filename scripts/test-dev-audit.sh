@@ -187,6 +187,14 @@ YML
   printf '# x\n' > "$d/README.md"
   commit_all "$d"
 
+  # uncommitted-env: the committed .gitignore lacks .env; only an uncommitted
+  # edit adds it. Covered on this disk, not in what a push sends.
+  d="$(mkrepo uncommitted-env)"
+  printf '.DS_Store\nnode_modules/\n' > "$d/.gitignore"
+  printf '# x\n' > "$d/README.md"
+  commit_all "$d"
+  printf '.env\n.env.*\n' >> "$d/.gitignore"
+
   # deleted-secret: a .env committed and then removed. Invisible to ls-files,
   # fully present in history. The case --history exists for.
   d="$(mkrepo deleted-secret)"
@@ -288,11 +296,23 @@ run_audit() {
 echo -e "${BOLD}${CYAN}dev-audit test suite${NC}"
 build_fixtures
 info "fixtures at $FIXTURE_ROOT"
+# A global ignore file that covers .env, as ~/.gitignore_global does on the real
+# machine. The audit must not count it: a clone elsewhere does not have it. Set
+# after the fixtures are built, so the ones that commit a .env still can.
+printf '.env\n.env.*\n' > "$GIT_TEST_HOME/gitignore_global"
+printf '[core]\n\texcludesFile = %s\n' "$GIT_TEST_HOME/gitignore_global" >> "$GIT_CONFIG_GLOBAL"
 
 # --- 1. read-only guarantee -------------------------------------------------
 header "1. Read-only guarantee (the property that matters most)"
 STAMP="$(mktemp)"; sleep 1
 TSV="$(run_audit)"
+
+# The default run scans files on disk and must say so in its id. Asserted here
+# because every later run writes the same dated TSV.
+if command -v gitleaks >/dev/null 2>&1; then
+  assert_finding    "$TSV" FAIL gitleaks-bait gitleaks-disk
+  assert_no_finding "$TSV" gitleaks-bait gitleaks-history
+fi
 
 CHANGED="$(find "$FIXTURE_ROOT" -newer "$STAMP" -not -path '*/.git/*' 2>/dev/null | grep -v "^$FIXTURE_ROOT$" || true)"
 if [ -z "$CHANGED" ]; then
@@ -476,8 +496,13 @@ assert_finding "$TSV12" FAIL malformed-license license-malformed
 assert_no_finding "$TSV12" clean-repo license-malformed
 
 # .env missing from .gitignore is its own FAIL, not buried in gitignore-gaps.
+# The fixture global ignore file covers .env; unignored-env must still FAIL.
 assert_finding "$TSV12" FAIL unignored-env gitignore-env
 assert_no_finding "$TSV12" clean-repo gitignore-env
+# Coverage that exists only in an uncommitted .gitignore is a WARN of its own.
+assert_finding    "$TSV12" WARN uncommitted-env gitignore-env-uncommitted
+assert_no_finding "$TSV12" uncommitted-env gitignore-env
+assert_no_finding "$TSV12" clean-repo gitignore-env-uncommitted
 
 # History: a secret deleted from HEAD is still reported.
 assert_finding "$TSV12" FAIL deleted-secret history-env-file
@@ -512,7 +537,9 @@ rm -f "$STDERR12"
 
 # gitleaks, when installed, must actually report the fixture secret.
 if command -v gitleaks >/dev/null 2>&1; then
-  assert_finding "$TSV12" FAIL gitleaks-bait gitleaks
+  # Each scan mode has its own id; the default run's is asserted in section 1.
+  assert_finding    "$TSV12" FAIL gitleaks-bait gitleaks-history
+  assert_no_finding "$TSV12" gitleaks-bait gitleaks-disk
   # ...and the value itself must not reach the report, even via the scanner.
   if LC_ALL=C grep -q 'aB3dE5fG7hI9jK1lM3nO5pQ7rS9tU1vW3xY5' "$TSV12" 2>/dev/null; then
     fail "gitleaks finding leaked the credential value into the report"

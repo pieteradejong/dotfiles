@@ -517,10 +517,22 @@ check_repo_at() {
   done
   if [ -z "$lic" ]; then
     block no-license "pushing to a public (or unknown-visibility) repo without a LICENSE file (docs/policy/repo-standards.md § Licensing)"
-  elif ! git show "$tip:$lic" 2>/dev/null | grep -qF -- "$CANONICAL_HOLDER"; then
-    block license-holder "$lic does not name the canonical holder \"$CANONICAL_HOLDER\""
+  elif ! git show "$tip:$lic" 2>/dev/null | grep -qF -- "$CANONICAL_HOLDER" && ! holder_in_notice "$tip" "$lic"; then
+    block license-holder "$lic does not name the canonical holder \"$CANONICAL_HOLDER\" (a non-MIT license whose text must stay verbatim may name it in NOTICE or COPYRIGHT instead)"
   fi
   return 0
+}
+
+# GPL, Apache and CC license texts may not be edited, so their copyright line lives in a
+# separate NOTICE or COPYRIGHT file (repo-standards.md § Licensing). MIT carries its own
+# copyright line, so for MIT the LICENSE itself must name the holder.
+holder_in_notice() {
+  local tip="$1" lic="$2" f
+  git show "$tip:$lic" 2>/dev/null | grep -qE '^[[:space:]]*MIT License|Permission is hereby granted, free of charge' && return 1
+  for f in NOTICE NOTICE.md NOTICE.txt COPYRIGHT COPYRIGHT.md COPYRIGHT.txt; do
+    git show "$tip:$f" 2>/dev/null | grep -qE "Copyright (\\(c\\)|\\(C\\)|©) [0-9]{4}(-[0-9]{4})? $CANONICAL_HOLDER" && return 0
+  done
+  return 1
 }
 
 # --- pre-commit -----------------------------------------------------------------
