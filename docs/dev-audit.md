@@ -158,7 +158,9 @@ until the repo is next touched. The patterns are shared with the gate through
 | `no-project-scripts` | INFO | [Scripts](policy/repo-standards.md#scripts-initsh-testsh-and-runsh): a repo that tracks a code manifest (`package.json`, `pyproject.toml`, `requirements*.txt`, `Makefile`, `go.mod`, `Cargo.toml`, an `.xcodeproj`, `*.tf`; nested ones count) has no `init.sh` or no `test.sh` at its root. INFO because nothing leaks when a script is missing: the list is the to-do for the sweep that adds them. `run.sh` is not checked (only runnable repos have one). Scratch, `_to_delete`, forks and the skip list are exempt. |
 
 Forks are skipped for this whole category: *"Never relicense or reshape a fork
-or an upstream clone."*
+or an upstream clone."* A fork is a `fork:` row in the skip list, or any repo whose `origin` is a
+GitHub repo owned by someone other than `pieteradejong`. The report says `SKIP <name> (policy
+checks: remote owner is <owner>)`; an `own:` row keeps a repo of ours that lives under an org (D44).
 
 ### `privacy` — what got committed that should not have been
 

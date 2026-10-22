@@ -1264,3 +1264,32 @@ make the rule depend on a list, not on the files.
 else is blocked even with a correct `NOTICE`; GPL text with a `NOTICE` naming someone else is
 blocked; GPL text with `Copyright (C) 2026 Pieter de Jong` in `NOTICE` is allowed, with no blocking
 findings. `./test.sh shellcheck` passes.
+
+## D44 — dotaudit's policy checks skip someone else's repo by its remote, not only by the skip list · 2026-10-22
+
+**Problem.** The 2026-10-20 audit reported 40 `gitignore-env` FAILs. Three of them were forks
+(`mockingbird`, `miami-masterclass-2024`, `machine-learning-engineering-for-production-public`)
+that the private skip list did not name. A FAIL on a fork asks for an edit the rules forbid
+("never reshape a fork or upstream clone"), and the list has no way of noticing a new clone.
+
+**Decision.** `audit_policy` in `scripts/audit/20-policy.sh` skips a repo when its `origin` is a
+GitHub repo whose owner is not `OWN_GITHUB_OWNER`, the same test as the gate's `is_own_url` and
+`logs_exempt`. The skip list still works and still carries the reason, and the three forks were
+added to it as well. No remote, or a non-GitHub remote, still counts as own.
+
+**Rejected.** *Skip list only*: it had already drifted, and a forgotten row turns into a FAIL
+that asks for a forbidden edit. *Owner test inside `check_gitignore` only*: licensing, pins and
+CI checks have the same problem on a fork.
+
+A repo of ours under an org (`eu27-data-sovereignty`, owner `EU27-data-sovereignty`) gets an
+`own:` row in the skip list and keeps its policy checks.
+
+**Cost.** A new repo of ours under an org drops out of the policy checks silently until it gets
+an `own:` row. On 2026-10-22 nine checkouts had a non-`pieteradejong` GitHub owner: eight forks or
+upstream clones and `eu27-data-sovereignty`. The gate's `is_own_url` and `logs_exempt` still treat
+that org repo as someone else's; that is the gate's scope, not this decision's.
+
+**Verified.** `./test.sh dotaudit` → "All tests passed", including `unlisted-fork -> correctly
+silent on gitignore-env` and `on no-license`. With the `20-policy.sh` change stashed, the same run
+reports `✗ FAIL: unlisted-fork -> should NOT report gitignore-env`, so the test guards the change Fixture
+`org-own` (an `own:` row, org remote) still FAILs `gitignore-env`.

@@ -38,13 +38,24 @@ audit_policy() {
   # dynamically scoped in bash, so the check_* helpers still see it.
   local CAT=policy
   hdr "Policy compliance (repo-standards.md)"
-  local repo name reason tracked
+  local repo name reason tracked url slug
 
   while IFS= read -r repo; do
     name="$(repo_name "$repo")"
     is_skipped "$name" >/dev/null && continue
     if reason="$(is_fork "$name")"; then
       note "SKIP $name (policy checks: $reason)"
+      continue
+    fi
+    # A clone of someone else's GitHub repo is a fork or upstream clone even
+    # when the skip list forgot it (three were missing on 2026-10-20): never
+    # reshape it. Same owner test as the gate's is_own_url; an `own:` row in
+    # the skip list keeps a repo of ours that lives under an org (D44).
+    url="$(git_ro "$repo" config --get remote.origin.url)"
+    if [ -n "$url" ] && slug="$(gh_slug_from_url "$url")" \
+       && [ "${slug%%/*}" != "$OWN_GITHUB_OWNER" ] \
+       && ! is_own_override "$name" >/dev/null; then
+      note "SKIP $name (policy checks: remote owner is ${slug%%/*})"
       continue
     fi
 

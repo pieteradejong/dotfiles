@@ -187,6 +187,22 @@ YML
   printf '# x\n' > "$d/README.md"
   commit_all "$d"
 
+  # unlisted-fork: the same gap as unignored-env, but origin is someone else's
+  # GitHub repo and the skip list does not name it. Policy checks must skip it.
+  d="$(mkrepo unlisted-fork)"
+  printf '.DS_Store\nnode_modules/\n' > "$d/.gitignore"
+  printf '# x\n' > "$d/README.md"
+  commit_all "$d"
+  git -C "$d" remote add origin git@github.com:someone-else/upstream.git
+
+  # org-own: the same gap, under an org's remote, but an `own:` row says the
+  # repo is ours. Policy checks must still run.
+  d="$(mkrepo org-own)"
+  printf '.DS_Store\nnode_modules/\n' > "$d/.gitignore"
+  printf '# x\n' > "$d/README.md"
+  commit_all "$d"
+  git -C "$d" remote add origin git@github.com:some-org-of-ours/org-own.git
+
   # uncommitted-env: the committed .gitignore lacks .env; only an uncommitted
   # edit adds it. Covered on this disk, not in what a push sends.
   d="$(mkrepo uncommitted-env)"
@@ -279,7 +295,7 @@ YML
 
   # A skiplist scoped to the fixtures.
   SKIPLIST_FIXTURE="$FIXTURE_ROOT/skiplist.conf"
-  printf 'skip:do-not-touch:test fixture, must never be scanned\nfork:fixture-noise:test fixture fork\n' \
+  printf 'skip:do-not-touch:test fixture, must never be scanned\nfork:fixture-noise:test fixture fork\nown:org-own:test fixture, our repo under an org\n' \
     > "$SKIPLIST_FIXTURE"
 }
 
@@ -499,6 +515,10 @@ assert_no_finding "$TSV12" clean-repo license-malformed
 # The fixture global ignore file covers .env; unignored-env must still FAIL.
 assert_finding "$TSV12" FAIL unignored-env gitignore-env
 assert_no_finding "$TSV12" clean-repo gitignore-env
+# A clone of someone else's repo is skipped even when the skip list misses it.
+assert_no_finding "$TSV12" unlisted-fork gitignore-env
+assert_no_finding "$TSV12" unlisted-fork no-license
+assert_finding    "$TSV12" FAIL org-own gitignore-env
 # Coverage that exists only in an uncommitted .gitignore is a WARN of its own.
 assert_finding    "$TSV12" WARN uncommitted-env gitignore-env-uncommitted
 assert_no_finding "$TSV12" uncommitted-env gitignore-env

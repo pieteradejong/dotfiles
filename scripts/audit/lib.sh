@@ -118,6 +118,11 @@ is_skipped() { _skiplist_field "$1" skip; }
 # relicense or reshape a fork. Still gets git-hygiene and disk checks.
 is_fork() { _skiplist_field "$1" fork; }
 
+# is_own_override <repo-name> — repo is ours although its GitHub owner is not
+# OWN_GITHUB_OWNER (an org of ours). Keeps it in the policy checks that skip
+# other owners' repos (D44).
+is_own_override() { _skiplist_field "$1" own; }
+
 # --- discovery --------------------------------------------------------------
 DEV_ROOT="${DEV_ROOT:-$HOME/dev}"
 
