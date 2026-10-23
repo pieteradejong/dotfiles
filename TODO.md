@@ -28,7 +28,7 @@ only; this file is public. Workspace-wide items: `~/dev/TODO.md`. Decisions: `do
 
 ## Needs Pieter
 
-- [ ] `claude/settings.json` has an uncommitted `statusLine` block (model · directory, via `jq`) from an earlier session; commit it with a CHANGELOG line or drop it. Left out of the 2026-10-22 merge on purpose — 2026-10-22, D41 merge (`c6d3ed2`)
+- [x] **Committed 2026-10-23.** `claude/settings.json` had an uncommitted `statusLine` block (model · directory, via `jq`) from an earlier session; commit it with a CHANGELOG line or drop it. Left out of the 2026-10-22 merge on purpose — 2026-10-22, D41 merge (`c6d3ed2`)
 - [ ] Push branch `prompt-followup` (D37, commit `007a3a0`) and fast-forward `main`, 2026-10-17 —
       waits for Pieter's go-ahead (push is outward-facing). The D38 `pwd-gen` work was left in the
       working tree and is committed separately by its own session; D37's hunks of `CHANGELOG.md`,

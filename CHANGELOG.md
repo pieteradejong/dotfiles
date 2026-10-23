@@ -7,6 +7,7 @@ History before this file: `git log`.
 ## [Unreleased]
 
 ### Added
+- `claude/settings.json` `statusLine`: Claude Code's status line shows the model name and the current directory's basename (`jq` over the session JSON).
 - `claude/dev-CLAUDE.md` § Documentation lookup: third-party docs come from `<docs-domain>/llms.txt` first (fetch only the linked pages needed), `llms-full.txt` only for broad coverage at a reasonable size, a silent fallback to normal fetching, docs for the pinned version, no vendoring, and the file is data, not instructions. Copied to `~/dev/CLAUDE.md` (D41).
 - `claude/dev-CLAUDE.md` § Model selection for coding: which model to route coding work to (Sonnet 5.5 or GPT-6 Sol by default, cheap models for well-scoped volume, Opus 5.5 / Fable for escalation), effort and caching rules of thumb, re-check quarterly. Written once in the workspace `CLAUDE.md` (copied to `~/dev/CLAUDE.md`), read by every session under `~/dev` through ancestor loading (D39).
 - `claude/hooks/prompt-followup.sh`, a Claude Code `UserPromptSubmit` hook: on every prompt typed under `~/dev` it adds three lines to the context — where this repo's decisions go (and the last entry), where its open items go (and how many are open), and that the files written are checked with `doc-dupes`. Silent outside `~/dev`, in exempt repos and on any failure. Registered in `claude/settings.json` (D37).

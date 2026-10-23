@@ -28,6 +28,10 @@
       "Bash(rm -rf /:*)"
     ]
   },
+  "statusLine": {
+    "type": "command",
+    "command": "jq -r '\"\\(.model.display_name) · \\(.workspace.current_dir | split(\"/\") | last)\"'"
+  },
   "hooks": {
     "PreToolUse": [
       {
