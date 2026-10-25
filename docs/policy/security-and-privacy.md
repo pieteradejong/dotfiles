@@ -213,6 +213,11 @@ scrapers included, and it cannot be scrubbed without rewriting history.
 - Set the GitHub noreply address globally, before any first commit:
   `git config --global user.email '<id>+<username>@users.noreply.github.com'`.
 - Never set a repo-local `user.email` to a personal address.
+- Turn on GitHub's *Keep my email addresses private* and *Block command line pushes that expose
+  my email* (Settings → Emails). Without the first, commits GitHub writes for you carry the primary
+  address even when every local commit uses noreply: PR test-merge refs (`refs/pull/N/merge`), web
+  edits and merges. Check: `gh api user/emails --jq '.[] | select(.primary) | .visibility'` →
+  `private` (needs the `user` scope). The second setting has no API; the gate covers it locally.
 - Tracked config (a dotfiles `.gitconfig`) carries the noreply address too, or it publishes the
   real one a second time. A sync script that copies live config into a repo must sanitize on write.
 - Addresses already in pushed history are published: stop the accrual; don't rewrite (§8).
