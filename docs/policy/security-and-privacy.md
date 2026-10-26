@@ -39,6 +39,44 @@ scraped. Every rule below follows from that.
 | **B** | Inside the tree, gitignored | [Five-layer guard](#12-five-layer-guard-for-paths-that-must-never-be-committed) | The app truly needs a fixed in-repo path |
 | **C** | Synthetic fixtures committed; real data local only | Light | Tests need shape, not substance |
 
+### Trust zones: who can see what
+
+Every destination falls into one of three zones. The gate guards the step from private to public.
+The real inventory, with names, is in the private companion repo
+(`registers/backup-state.md`), not here.
+
+```mermaid
+flowchart LR
+  classDef pub fill:#d4f4dd,stroke:#2b8a3e,color:#111
+  classDef priv fill:#fff3bf,stroke:#e67700,color:#111
+  classDef local fill:#ffe3e3,stroke:#c92a2a,color:#111
+
+  subgraph Public["Public: anyone can read"]
+    pubrepo["Public repos<br/>dotfiles, open-source projects"]:::pub
+  end
+  subgraph Private["Private: owner only, still a third party"]
+    privrepo["Private repos<br/>project code, decision logs"]:::priv
+    companion["Private companion repo<br/>registers, audit reports, personal patterns"]:::priv
+    objstore[("Object storage<br/>media archive, private, versioned")]:::priv
+    drive[("Cloud drive<br/>nightly document backups")]:::priv
+  end
+  subgraph Local["Never leaves the machine"]
+    creds["Credentials<br/>keys, tokens, .env"]:::local
+    caches["Caches and work files<br/>hash caches, upload plans"]:::local
+  end
+
+  privrepo -- "gate: strict on the way to public" --> pubrepo
+  companion -. "never copied" .-x pubrepo
+  privrepo -. "media never in git" .-x objstore
+  creds -. "never committed, never synced in plaintext" .-x privrepo
+```
+
+- **Code goes to GitHub, media goes to object storage,** and security- or privacy-sensitive
+  material goes only to private destinations ([backups § Where things go](backups.md#where-things-go)).
+- **A diagram is content too.** A public diagram names roles ("object storage", "private repo"),
+  never real bucket names, account IDs, hostnames or personal file names. The detailed version
+  lives in the private repo.
+
 - **Prefer Tier A.** Tier B's protection is a stack that must keep working on every clone,
   forever. Tier A's protection is distance.
 - **Nested private repo:** git never descends into a directory containing `.git`, so even

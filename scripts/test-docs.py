@@ -14,8 +14,14 @@ Checks, over every docs/**/*.md in this repo:
              where a live file does not exist, e.g. in CI)
   enforced   every check id scripts/audit/20-policy.sh can emit has a row in
              repo-standards.md § Enforcement, and dev-CLAUDE.md points there
-  self-test  a fixture with a broken link and a broken anchor is reported, so a
-             checker that silently finds nothing fails
+  mermaid    every ```mermaid block in a public .md (docs/, claude/, scripts/, README;
+             not private/ or archive/) starts with a known diagram type, opens and
+             closes its subgraphs evenly, and names no private specifics: no /Users/
+             path, s3:// URL, email address or 12-digit AWS account id (a public
+             diagram names roles; the detailed one lives in private/)
+  self-test  a fixture with a broken link and a broken anchor is reported, and a
+             fixture with a bad mermaid block is reported, so a checker that
+             silently finds nothing fails
 
 Usage:  scripts/test-docs.py [--verbose]
         scripts/test-docs.py -h | --help
@@ -102,6 +108,56 @@ def check_links(files):
     return problems, count
 
 
+MERMAID = re.compile(r"^```mermaid[ \t]*\n(.*?)^```", re.MULTILINE | re.DOTALL)
+MERMAID_TYPES = ("flowchart", "graph", "sequenceDiagram", "stateDiagram", "stateDiagram-v2", "classDiagram",
+                 "erDiagram", "gantt", "pie", "mindmap", "timeline", "journey", "gitGraph", "quadrantChart",
+                 "requirementDiagram", "C4Context", "sankey-beta", "xychart-beta", "block-beta")
+MERMAID_PRIVATE = re.compile(r"/Users/[^/\s]+|s3://\S+|[\w.+-]+@[\w-]+\.[\w.]+|(?<!\d)\d{12}(?!\d)")
+
+
+def public_markdown():
+    skip = {"private", "archive", "node_modules", ".git"}
+    return sorted(p for p in REPO.rglob("*.md") if not skip & set(p.relative_to(REPO).parts))
+
+
+def check_mermaid(files):
+    """Return (problems, blocks_checked). Problems name the file and block number, never the match."""
+    problems, count = [], 0
+    for f in files:
+        rel = str(f.relative_to(REPO)) if REPO in f.parents else f.name
+        for n, block in enumerate(MERMAID.findall(f.read_text(encoding="utf-8")), 1):
+            count += 1
+            lines = [ln.strip() for ln in block.splitlines() if ln.strip() and not ln.strip().startswith("%%")]
+            kind = lines[0].split()[0] if lines else ""
+            if kind not in MERMAID_TYPES:
+                problems.append(f"mermaid: {rel} block {n}: unknown diagram type '{kind}'")
+            opened = sum(ln.startswith("subgraph ") or ln == "subgraph" for ln in lines)
+            closed = sum(ln == "end" for ln in lines)
+            if kind in ("flowchart", "graph") and opened != closed:
+                problems.append(f"mermaid: {rel} block {n}: {opened} subgraph vs {closed} end")
+            if MERMAID_PRIVATE.search(block):
+                problems.append(f"mermaid: {rel} block {n}: names a private specific "
+                                "(/Users/ path, s3:// URL, email or account id)")
+    return problems, count
+
+
+def self_test_mermaid():
+    with tempfile.TemporaryDirectory() as d:
+        f = Path(d, "m.md")
+        f.write_text(
+            "```mermaid\nflowchart LR\n  subgraph A\n    x --> y\n  end\n```\n"
+            "```mermaid\nflowchat LR\n  x --> y\n```\n"
+            "```mermaid\nflowchart TD\n  subgraph A\n    x --> y\n```\n"
+            "```mermaid\nflowchart TD\n  x[\"s3://some-bucket/key\"] --> y\n```\n",
+            encoding="utf-8",
+        )
+        problems, count = check_mermaid([f])
+    expected = {"mermaid: m.md block 2: unknown diagram type 'flowchat'",
+                "mermaid: m.md block 3: 1 subgraph vs 0 end",
+                "mermaid: m.md block 4: names a private specific (/Users/ path, s3:// URL, email or account id)"}
+    return set(problems) == expected and count == 4, problems
+
+
 def self_test():
     with tempfile.TemporaryDirectory() as d:
         a, b = Path(d, "a.md"), Path(d, "b.md")
@@ -157,6 +213,15 @@ def main(argv):
 
     ok, got = self_test()
     results.append((ok, "self-test: broken link and anchor in a fixture are reported", [] if ok else got))
+
+    ok, got = self_test_mermaid()
+    results.append((ok, "self-test: bad type, unbalanced subgraph and private specific in mermaid are reported",
+                    [] if ok else got))
+
+    md_files = public_markdown()
+    problems, count = check_mermaid(md_files)
+    results.append((not problems, f"mermaid: {count} diagrams in public markdown are well-formed and generic",
+                    problems))
 
     files = sorted(DOCS.rglob("*.md"))
     problems, count = check_links(files)

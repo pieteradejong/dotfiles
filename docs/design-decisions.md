@@ -1293,3 +1293,28 @@ that org repo as someone else's; that is the gate's scope, not this decision's.
 silent on gitignore-env` and `on no-license`. With the `20-policy.sh` change stashed, the same run
 reports `✗ FAIL: unlisted-fork -> should NOT report gitignore-env`, so the test guards the change Fixture
 `org-own` (an `own:` row, org remote) still FAILs `gitignore-env`.
+
+## D45 — Where things go, drawn twice: a generic public diagram, the named one private · 2026-10-26
+
+**Problem.** The rule "code to GitHub, media to object storage, security and privacy material
+never public" was spread over prose in several policy docs. Meanwhile the media backup gained a
+real bucket and real folder names. A diagram is the quickest way to show the rule, but a detailed
+diagram in a public doc publishes the bucket, the account and the file names.
+
+**Decision.** `backups.md` § Where things go holds the routing flowchart and
+`security-and-privacy.md` § Trust zones holds the zones. Both name roles only ("object storage",
+"private repo"). The named inventory stays in the private companion repo, and project diagrams
+stay in the project's private repo. `scripts/test-docs.py` gains a `mermaid` check: every mermaid
+block in public markdown must have a known diagram type and balanced `subgraph`/`end`, and must
+contain no `/Users/` path, `s3://` URL, email address or 12-digit account id. A self-test fixture
+proves the check fires.
+
+**Rejected.** *One detailed public diagram*: it leaks exactly what the policy protects. *Adding
+the bucket name to the gate's personal-patterns list*: the gate blocks personal values on pushes
+to private repos that are not on the personal-data list, so the media repo, whose scripts name
+the bucket, would be blocked. That choice is left open (TODO).
+
+**Verified.** `python3 scripts/test-docs.py` → `✓ PASS: self-test: bad type, unbalanced subgraph
+and private specific in mermaid are reported`, `✓ PASS: mermaid: 9 diagrams in public markdown
+are well-formed and generic`, `11 passed, 0 failed`; `ruff check scripts/test-docs.py` → `All
+checks passed!`.

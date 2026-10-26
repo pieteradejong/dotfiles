@@ -31,7 +31,8 @@
 #                                                the SessionStart and Stop hooks, the
 #                                                gate's log rules, the dotaudit ids)
 #   docs        scripts/test-docs.py            (policy doc links, anchors, index,
-#                                                workspace CLAUDE.md in sync)
+#                                                workspace CLAUDE.md in sync, mermaid
+#                                                diagrams well-formed and generic)
 #
 # Requires: git 2.54+, gitleaks, shellcheck, jq, ruff, python3. pre-commit is optional.
 

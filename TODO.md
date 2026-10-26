@@ -104,3 +104,9 @@ Planned additions, each with its reference doc. Nothing here is built yet. Sourc
       with both states` (`scripts/test-logs.sh:516`, the uncommitted `doc-dupes` work of D37). Seen while
       verifying D38; not caused by `pwd-gen`. Fix or confirm fixed before the D37 commit.
       → Resolved 2026-10-17 07:55 by the D37 commit `007a3a0`: `./test.sh logs` → 264 passed, 0 failed.
+
+## Open decisions
+
+- [ ] Add the media bucket name and AWS account id to `private/security/personal-patterns.conf`?
+      This only works if the media repo is also added to `personal-data-repos.conf`, otherwise its
+      pushes are blocked, 2026-10-26 — D45 Rejected

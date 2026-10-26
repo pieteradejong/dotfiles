@@ -5,6 +5,35 @@ source, is in the private companion repo (`../../private/registers/backup-state.
 
 ---
 
+## Where things go
+
+One question at a time decides the destination. Who can see each destination is in
+[security-and-privacy § Trust zones](security-and-privacy.md#trust-zones-who-can-see-what).
+
+```mermaid
+flowchart TD
+  F([New file or folder]) --> M{"Audio, video or<br/>large binary?"}
+  M -- yes --> OBJ[("Object storage<br/>private bucket, versioned,<br/>archive class, checksums + manifest")]
+  M -- no --> C{"Code, config<br/>or docs?"}
+  C -- no --> D{"Personal documents<br/>or exports?"}
+  D -- yes --> DRV[("Cloud drive<br/>nightly backup, versioned")]
+  D -- no --> LOC["Local only<br/>caches, rebuildable output"]
+  C -- yes --> S{"Security- or privacy-sensitive?<br/>findings, registers, names,<br/>personal paths"}
+  S -- yes --> PRIV["Private repo<br/>(private companion repo<br/>for security material)"]
+  S -- no --> PUB["Public repo"]
+  PRIV --> G{{"security gate<br/>on every commit and push"}}
+  PUB --> G
+  CR["Credentials"] --> PM["Password manager or<br/>encrypted archive, never git"]
+```
+
+- **Media never goes in git**, not even a private repo ([media](repo-standards.md#media-and-large-binaries)).
+  It goes to object storage with a checksum file and a manifest, which stay in a readable storage
+  class so a restore can be checked without a thaw.
+- **Back up, don't offload.** A copy in object storage does not make the local file deletable.
+  Deleting the local file is a separate decision, made per item.
+
+---
+
 ## Coverage
 
 - **3-2-1 as the target:** at least three copies, on two kinds of storage, one off the machine.
