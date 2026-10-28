@@ -1345,5 +1345,6 @@ Vercel until it is sourced*: Pieter chose gated hosting (2026-10-28).
 **Verified.** `./test.sh bin` → 121 passed, 0 failed. The new cases: `init --dry-run --protect
 all` PATCHes `"deploymentType":"all"`; `check --protect all` against a Standard project exits 1 with
 `✗ ssoProtection is 'all_except_custom_domains', want all`; an unknown `--protect` value exits 2
-before any `vercel` call. NOT YET: `init --protect all` against the real API (trump_docu,
-`~/dev/TODO.md`).
+before any `vercel` call. Live, 2026-10-28, on Hobby: `init --name trump-docu --protect all`
+applied `"deploymentType":"all"`, and `check --protect all` passes all eight lines. After the
+first push, `https://trump-docu.vercel.app/` → 302 to `vercel.com/sso-api`.
