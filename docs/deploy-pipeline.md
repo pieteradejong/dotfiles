@@ -74,6 +74,13 @@ A build that is held can be inspected with `vercel ls <project>` and promoted by
 (`vercel promote <url>`, or "Force Promote" in the dashboard) when the failing check is known to
 be unrelated.
 
+A held build stays reachable only through the protected deployment and branch URLs. This was tested
+on Hobby on 2026-10-28 (D42 § Verified).
+
+**Exception, the site must not be public yet.** `vercel-project init --protect all` (and
+`check --protect all`) puts production behind the Vercel login too. That site has no `live` job,
+because the poll cannot read a gated page. `trump_docu` works this way until it is sourced (D48).
+
 **Exception, the build can't run on Vercel.** If the build needs a tool Vercel's image lacks, or
 data too big to fetch on every build, GitHub Actions builds and deploys with
 `vercel deploy --prebuilt`. The token lives in a GitHub environment restricted to `main`.

@@ -1235,9 +1235,14 @@ added the three Deployment Checks and `check` passed all seven lines (that run p
 clean-up, which was added after it left `.gitignore` modified; the file was restored by hand).
 `actionlint` passes on `vercel-live-reusable.yml`. `vercel-project check --name patriot-package`,
 read-only against the real API, reported the three missing Deployment Checks and nothing else.
-NOT YET: that `blocks: deployment-alias` holds the `<project>.vercel.app` alias on Hobby (Vercel's
-docs say only "custom production domains"). The `games` pilot tests it with a deliberately red
-`tests` run (`~/dev/TODO.md`).
+Live, 2026-10-28, on Hobby: `blocks: deployment-alias` holds the `<project>.vercel.app` alias
+(Vercel's docs say only "custom production domains"). In `games` (`cnc-web-padj`), the first
+deploy `c2cc1bf` went live with `tests`, `security` and `live` green. A deliberately failing
+vitest, `a6dd8f9`, turned `tests` red; its build was `● Ready` with only the protected
+`-pieteradejongs-projects` and `-git-main-` aliases, and `https://cnc-web-padj.vercel.app` kept
+serving `build-commit` `c2cc1bf`. The revert, `886d77d`, moved production after about 45 s, with
+`live` green. Served headers: COOP `same-origin`, COEP `require-corp`. A deployment URL answers
+302 to `vercel.com/sso-api`.
 
 ## D43 — A verbatim non-MIT license names its holder in `NOTICE`; the gate accepts that · 2026-10-22
 
@@ -1318,3 +1323,27 @@ the bucket, would be blocked. That choice is left open (TODO).
 and private specific in mermaid are reported`, `✓ PASS: mermaid: 9 diagrams in public markdown
 are well-formed and generic`, `11 passed, 0 failed`; `ruff check scripts/test-docs.py` → `All
 checks passed!`.
+
+## D48 — `vercel-project --protect all` for a site that must not be public yet · 2026-10-28
+
+**Problem.** D42 gives every project Standard Protection: previews behind the Vercel login,
+production public. `trump_docu` is a draft whose claims are not sourced yet, and its ROADMAP wants
+it gated until they are. `vercel-project` hard-coded Standard Protection, so `init` would have
+made it public and `check` would have called the gated setting drift.
+
+**Decision.** `vercel-project init|check --protect all` sets and expects
+`ssoProtection.deploymentType = all`, so every URL needs the login, production included. The
+default stays `standard`. A gated site has no `live` job, because the poll cannot read the page
+without a credential. Vercel's docs say All Deployments with Vercel Authentication "is available
+on all plans", Hobby included.
+
+**Rejected.** *Run `init` and switch protection by hand in the dashboard*: `check` would then
+report drift forever, and the next `init` would silently make the site public. *A per-repo
+manifest*: D42 rejected that, and one flag is the whole difference. *Leave trump_docu off
+Vercel until it is sourced*: Pieter chose gated hosting (2026-10-28).
+
+**Verified.** `./test.sh bin` → 121 passed, 0 failed. The new cases: `init --dry-run --protect
+all` PATCHes `"deploymentType":"all"`; `check --protect all` against a Standard project exits 1 with
+`✗ ssoProtection is 'all_except_custom_domains', want all`; an unknown `--protect` value exits 2
+before any `vercel` call. NOT YET: `init --protect all` against the real API (trump_docu,
+`~/dev/TODO.md`).

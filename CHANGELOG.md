@@ -7,6 +7,7 @@ History before this file: `git log`.
 ## [Unreleased]
 
 ### Added
+- `bin/vercel-project --protect standard|all`: `all` puts production behind the Vercel login too (`ssoProtection: all`, available on Hobby), for a site that must not be public yet; `check --protect all` expects it. Default unchanged. Three new cases in `scripts/test-bin.sh` (D48).
 - `docs/policy/backups.md` § Where things go: a mermaid flowchart routing a file to object storage (media), a cloud drive, a private or public repo, or a password manager (credentials). `docs/policy/security-and-privacy.md` § Trust zones: public / private / never-leaves-the-machine. Both name roles, never real names (D45).
 - `scripts/test-docs.py` `mermaid` check, run by `./test.sh docs`: every mermaid block in public markdown has a known type, balanced `subgraph`/`end`, and no `/Users/` path, `s3://` URL, email or 12-digit account id. A self-test fixture proves it fires (D45).
 - `docs/policy/security-and-privacy.md` §6: turn on GitHub's *Keep my email addresses private* and *Block command line pushes that expose my email*. GitHub-written commits (PR test-merge refs, web edits, merges) otherwise carry the primary address; found when a recreated repo's first `refs/pull/1/merge` did. Includes the `gh api user/emails` check.

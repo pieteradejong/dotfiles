@@ -13,6 +13,9 @@
 #                           whose <name>.vercel.app already answers: someone else has it.
 #   --checks "<a>,<b>"      GitHub check names that must pass before production gets the
 #                           alias (default: "tests,security / gitleaks,security / gate")
+#   --protect standard|all  who may see what (default standard). all puts production behind
+#                           the Vercel login too, for a site that must not be public yet;
+#                           pass it to check as well. Available on Hobby.
 #   --dry-run               init only: print what would change, change nothing
 #
 # The settings:
@@ -20,7 +23,8 @@
 #   - gitProviderOptions.createDeployments = enabled, so GitHub receives deployment_status
 #     events and the live check (vercel-live-reusable.yml) runs.
 #   - ssoProtection = all_except_custom_domains (Standard Protection): previews need a
-#     Vercel login; production stays public (docs/policy/supply-chain.md §6).
+#     Vercel login; production stays public (docs/policy/supply-chain.md §6). With
+#     --protect all: ssoProtection = all, every URL needs the login (no live check then).
 #   - Node version from .nvmrc, only when package.json has no engines.node (which wins).
 #   - Deployment Checks: each --checks name is a GitHub check that blocks the production
 #     alias until it passes, so a red test or a red gate never reaches production.
@@ -34,7 +38,7 @@ set -u
 OWNER_EXPECTED="pieteradejong"
 DEFAULT_CHECKS="tests,security / gitleaks,security / gate"
 CHECK_TIMEOUT=1200          # seconds a check may take before Vercel gives up on it
-SSO_EXPECTED="all_except_custom_domains"
+SSO_STANDARD="all_except_custom_domains"
 
 usage() { awk 'NR < 3 { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' "$0"; }
 die() { echo "vercel-project: $*" >&2; exit 2; }
@@ -48,15 +52,22 @@ case "$CMD" in
   *) die "unknown command '$CMD' (init | check | -h)" ;;
 esac
 
-NAME=""; CHECKS="$DEFAULT_CHECKS"; DRY=0
+NAME=""; CHECKS="$DEFAULT_CHECKS"; DRY=0; PROTECT="standard"
 while [ $# -gt 0 ]; do
   case "$1" in
     --name) [ $# -ge 2 ] || die "--name needs a value"; NAME="$2"; shift 2 ;;
     --checks) [ $# -ge 2 ] || die "--checks needs a value"; CHECKS="$2"; shift 2 ;;
+    --protect) [ $# -ge 2 ] || die "--protect needs a value"; PROTECT="$2"; shift 2 ;;
     --dry-run) DRY=1; shift ;;
     *) die "unknown option '$1'" ;;
   esac
 done
+
+case "$PROTECT" in
+  standard) SSO_EXPECTED="$SSO_STANDARD"; SSO_OK="previews protected" ;;
+  all) SSO_EXPECTED="all"; SSO_OK="all deployments protected, production included" ;;
+  *) die "--protect is standard or all, not '$PROTECT'" ;;
+esac
 
 command -v vercel >/dev/null 2>&1 || die "the vercel CLI is not on PATH"
 command -v jq >/dev/null 2>&1 || die "jq is not on PATH"
@@ -106,7 +117,7 @@ run_check() {
   v="$(echo "$p" | jq -r '.gitProviderOptions.createDeployments // ""')"
   if [ "$v" = "enabled" ]; then say "✓ GitHub deployments enabled"; else say "✗ gitProviderOptions.createDeployments is '$v', want enabled (no deployment_status, no live check)"; drift=1; fi
   v="$(echo "$p" | jq -r '.ssoProtection.deploymentType // "none"')"
-  if [ "$v" = "$SSO_EXPECTED" ]; then say "✓ previews protected ($v)"; else say "✗ ssoProtection is '$v', want $SSO_EXPECTED"; drift=1; fi
+  if [ "$v" = "$SSO_EXPECTED" ]; then say "✓ $SSO_OK ($v)"; else say "✗ ssoProtection is '$v', want $SSO_EXPECTED"; drift=1; fi
   if [ -n "$NODE" ]; then
     v="$(echo "$p" | jq -r '.nodeVersion // ""')"
     if [ "$v" = "$NODE" ]; then say "✓ Node $v"; else say "✗ Node is '$v', repo asks for $NODE"; drift=1; fi

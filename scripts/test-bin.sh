@@ -724,6 +724,17 @@ vp init --dry-run; rc=$?
   && ! grep -qE -- '-X (PATCH|POST)|project create|git connect|^link' "$VCALLS" \
   && pass "init --dry-run reports and writes nothing" || fail "init --dry-run reports and writes nothing (rc=$rc)"
 
+# --protect all: production behind the login too (a site that must not be public yet).
+vp init --dry-run --protect all; rc=$?
+[ "$rc" = 0 ] && grep -q '"deploymentType":"all"}' "$OUT" \
+  && pass "init --protect all asks for every deployment to be protected" || fail "init --protect all (rc=$rc)"
+vp check --protect all; rc=$?
+[ "$rc" = 1 ] && grep -q "✗ ssoProtection is 'all_except_custom_domains', want all" "$OUT" \
+  && pass "check --protect all: Standard Protection is drift" || fail "check --protect all: Standard is drift (rc=$rc)"
+: > "$VCALLS"; vp check --protect public; rc=$?
+[ "$rc" = 2 ] && grep -q 'standard or all' "$OUT" && [ ! -s "$VCALLS" ] \
+  && pass "an unknown --protect value is refused before any vercel call" || fail "unknown --protect value (rc=$rc)"
+
 mkdir -p "$VDIR/.vercel" && printf '{"projectId":"prj_1","projectName":"cnc-web-padj"}\n' > "$VDIR/.vercel/project.json"
 : > "$VCALLS"; vp check
 grep -q 'api /v9/projects/cnc-web-padj ' "$VCALLS" && grep -q 'check: cnc-web-padj' "$OUT" \
