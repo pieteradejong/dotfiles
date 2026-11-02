@@ -362,7 +362,8 @@ fi
 ALLOWED_RM='(find "\$HOME/\.Trash" .*-ctime \+[0-9]+ -exec rm -rf \{\} \+'
 ALLOWED_RM="$ALLOWED_RM"'|rm -rf "\$HOME/Library/Caches/pip-tools"/\*\(N\)$'
 ALLOWED_RM="$ALLOWED_RM"'|rm -rf "\$HOME/Library/Developer/Xcode/DerivedData"/\*\(N\)$'
-ALLOWED_RM="$ALLOWED_RM"'|rm -rf "\$HOME/Library/Caches"/\*\.ShipIt\(N/m\+3\) "\$HOME/Library/Caches"/\*-updater\(N/m\+3\) "\$HOME/Library/Caches"/\*/org\.sparkle-project\.Sparkle/Installation/\*\(N/m\+3\)$)'
+ALLOWED_RM="$ALLOWED_RM"'|rm -rf "\$HOME/Library/Caches"/\*\.ShipIt\(N/m\+3\) "\$HOME/Library/Caches"/\*-updater\(N/m\+3\) "\$HOME/Library/Caches"/\*/org\.sparkle-project\.Sparkle/Installation/\*\(N/m\+3\)$'
+ALLOWED_RM="$ALLOWED_RM"'|\[\[ "\$nm" == "\$NM_ROOT"/\*/node_modules && ! -L "\$nm" \]\] && act rm -rf "\$nm"$)'
 : > "$OUT"
 grep -nE '^[^#]*rm -rf' "$CLEANUP" | grep -vE "$ALLOWED_RM" > "$OUT" 2>&1
 [ -s "$OUT" ] && fail "every live 'rm -rf' targets an allowlisted path" \
@@ -373,6 +374,16 @@ grep -qE '^[^#]*rm -rf .*\.ShipIt\(N/m\+3\)' "$CLEANUP" \
   && grep -qE '^[^#]*rm -rf .*Sparkle/Installation/\*\(N/m\+3\)' "$CLEANUP" \
   && pass "the updater sweep keeps its 3-day age guard" \
   || fail "the updater sweep keeps its 3-day age guard"
+# The node_modules sweep (D47) removes only after the lockfile and staleness
+# checks have both passed: each `continue`s the loop before the rm is reached.
+nm_lock_ln="$(grep -nE '^[^#]*if ! nm_has_lockfile .*continue; fi' "$CLEANUP" | head -1 | cut -d: -f1)"
+nm_stale_ln="$(grep -nE '^[^#]*if ! nm_is_stale .*continue; fi' "$CLEANUP" | head -1 | cut -d: -f1)"
+nm_rm_ln="$(grep -nE '^[^#]*act rm -rf "\$nm"' "$CLEANUP" | head -1 | cut -d: -f1)"
+[ -n "$nm_lock_ln" ] && [ -n "$nm_stale_ln" ] && [ -n "$nm_rm_ln" ] \
+  && [ "$nm_lock_ln" -lt "$nm_rm_ln" ] && [ "$nm_stale_ln" -lt "$nm_rm_ln" ] \
+  && grep -qE '^NM_STALE_DAYS="\$\{NM_STALE_DAYS:-60\}"' "$CLEANUP" \
+  && pass "the node_modules sweep keeps its lockfile and 60-day guards" \
+  || fail "the node_modules sweep keeps its lockfile and 60-day guards"
 # -ctime, not -mtime: mv into Trash keeps mtime, so an -mtime rule purges an
 # old file the moment it is trashed. ctime is set by the move itself.
 grep -qE '^[^#]*find "\$HOME/\.Trash".*-ctime \+[0-9]+ -exec' "$CLEANUP" \
@@ -397,6 +408,26 @@ touch "$DRY_HOME/Library/Caches/pip-tools/wheel" "$DRY_HOME/.Trash/old/f"
 touch -t 202001010000 "$DRY_HOME/Library/Caches/com.example.ShipIt" "$DRY_HOME/.Trash/old" \
       "$DRY_HOME/Library/Caches/com.example/org.sparkle-project.Sparkle/Installation/stale" \
       "$DRY_HOME/maintenance-20200101.log"
+# A fake ~/dev for the stale-node_modules step (D47): one project that must be
+# swept, and one for each guard that must keep a folder.
+#   stale   lockfile, everything old               → swept
+#   active  lockfile, one recently edited file     → kept (active)
+#   nolock  everything old, no lockfile            → kept (no lockfile)
+#   mono    git root with a fresh commit; its workspace apps/web is all old → kept,
+#           because staleness is judged at the git root
+#   linked  node_modules is a symlink to a real folder elsewhere → never found
+NMD="$DRY_HOME/dev"
+for p in stale active nolock; do mkdir -p "$NMD/$p/node_modules/pkg"; touch "$NMD/$p/package.json" "$NMD/$p/node_modules/pkg/index.js"; done
+touch "$NMD/stale/package-lock.json" "$NMD/active/package-lock.json"
+mkdir -p "$NMD/mono/apps/web/node_modules/pkg" "$NMD/linked" "$T/elsewhere-nm/pkg"
+touch "$NMD/mono/package-lock.json" "$NMD/mono/apps/web/package.json" "$NMD/mono/apps/web/node_modules/pkg/index.js" \
+      "$NMD/linked/package-lock.json"
+git -C "$NMD/mono" init -q
+git -C "$NMD/mono" -c core.hooksPath=/dev/null -c commit.gpgsign=false -c user.name=t -c user.email=t@example.invalid \
+  commit -q --allow-empty -m fresh
+ln -s "$T/elsewhere-nm" "$NMD/linked/node_modules"
+find "$NMD" -not -path '*/.git/*' -exec touch -h -t 202001010000 {} +
+touch "$NMD/active/package.json"
 : > "$OUT"
 HOME="$DRY_HOME" PATH="/usr/bin:/bin" zsh "$CLEANUP" --dry-run > "$OUT" 2>&1; rc=$?
 [ "$rc" = 0 ] && pass "--dry-run exits 0" || fail "--dry-run exits 0 (rc=$rc)"
@@ -406,6 +437,16 @@ grep -q 'would run: rm -rf .*com.example.ShipIt' "$OUT" \
   && pass "--dry-run reports a stale updater folder" || fail "--dry-run reports a stale updater folder"
 grep -q 'would run: rm -rf .*org.sparkle-project.Sparkle/Installation/stale' "$OUT" \
   && pass "--dry-run reports a stale Sparkle installation folder" || fail "--dry-run reports a stale Sparkle installation folder"
+grep -q "would run: rm -rf $NMD/stale/node_modules\$" "$OUT" \
+  && pass "--dry-run reports the stale project's node_modules" || fail "--dry-run reports the stale project's node_modules"
+grep -qE "would run: rm -rf $NMD/(active|nolock|mono|linked)" "$OUT" \
+  && fail "an active, lockfile-less, workspace or symlinked node_modules is never targeted" \
+  || pass "an active, lockfile-less, workspace or symlinked node_modules is never targeted"
+grep -q '^Stale: 1 · kept (active): 2 · kept (no lockfile): 1$' "$OUT" \
+  && pass "the node_modules summary counts each guard (1 stale, 2 active, 1 no lockfile)" \
+  || fail "the node_modules summary counts each guard: $(grep '^Stale: ' "$OUT")"
+[ -d "$NMD/stale/node_modules/pkg" ] && [ -d "$NMD/mono/apps/web/node_modules/pkg" ] && [ -d "$T/elsewhere-nm/pkg" ] \
+  && pass "--dry-run leaves every node_modules in place" || fail "--dry-run leaves every node_modules in place"
 n_left="$(find "$DRY_HOME" -mindepth 1 | wc -l | tr -d ' ')"
 if [ -e "$DRY_HOME/Library/Caches/pip-tools/wheel" ] && [ -e "$DRY_HOME/.Trash/old/f" ] \
    && [ -d "$DRY_HOME/Library/Caches/com.example.ShipIt" ] && [ -e "$DRY_HOME/maintenance-20200101.log" ] \

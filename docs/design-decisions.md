@@ -567,7 +567,8 @@ that path too (a 1.8G Codex zip from 2026-09-15 prompted it). Also:
 *Updater folders of any age*: a fresh one can be an update staged for the next relaunch, hence the
 3-day glob qualifier `(N/m+3)`. *HuggingFace models, Playwright browsers, Claude's `vm_bundles`,
 old nvm versions, project `node_modules`/`.venv`*: all regenerable, but each costs a multi-GB
-download or a broken run until it is fetched again. *Caches of apps usually open (Spotify,
+download or a broken run until it is fetched again. (Amended by D47: `node_modules` of a project
+untouched 60+ days with a lockfile is now live.) *Caches of apps usually open (Spotify,
 Chrome)*: deleting under a running app is not a no-effect operation. *Media, Downloads, iPhone
 backups, the local Drive mirror*: personal data, decided by hand.
 
@@ -1352,6 +1353,56 @@ clean. First real run on 2026-10-27, after Pieter's go-ahead: `media-backup --ex
 `caffeinate -i`, wrote its log, and ended `convos OK, video + audio FAILED`. Videos and convos
 verified OK. One audio file could not be read: macOS blocks access to it per app. The wrapper
 passed the failure through, as designed. Follow-up: `~/dev/projects/media/TODO.md`.
+
+## D47 — Stale project node_modules join the weekly cleanup, behind a 60-day and lockfile guard · 2026-10-27
+
+**Problem.** `~/dev` holds 43 `node_modules` folders, 8.5G, and nothing ever removes one. A project
+left alone keeps its dependency tree forever. D27 kept them out of the weekly cleanup because a
+deleted tree costs a reinstall the next time the project runs. Deduplicating `~/docs` the same day
+found the cost of that: a forgotten copy of one project held 170M, nearly all `node_modules`.
+Pieter asked for `node_modules` cleanup to be part of the shell maintenance. Backups never held
+these folders (D26 and the docs backup's filters), so the gain is disk space.
+
+**Decision.** A "Stale node_modules" step in `bin/weekly-disk-cleanup.sh`, before the pnpm prune
+so the store can then drop what the removed folders referenced. It finds each top-level
+`node_modules` under `~/dev` (`find -prune`, which never follows a symlink) and removes one only
+when both guards pass:
+1. **Lockfile.** `package-lock.json`, `npm-shrinkwrap.json`, `pnpm-lock.yaml`, `yarn.lock` or
+   `bun.lock`/`bun.lockb` in the folder's parent or an ancestor up to the project root, so a
+   reinstall rebuilds exactly what was there.
+2. **Untouched 60+ days** (`NM_STALE_DAYS`). No file outside `node_modules/` and `.git/`
+   (`.DS_Store` aside) modified, and no commit, in that time. Judged at the nearest ancestor with
+   `.git`, so a workspace such as `apps/web` is active when its repo is. Claude worktrees under
+   `.claude/worktrees/` have their own `.git` file and are judged on their own.
+
+The `rm -rf` sits behind a last pattern check: a real directory named `node_modules` under
+`~/dev`. Each removal is printed with its size, then one `Stale · kept (active) · kept (no
+lockfile)` line, so the mail shows what went. This is the same move as the 3-day guard on updater
+folders: an age guard turns a step with a cost into one whose cost only falls on a project nobody
+is working on, and only as one `npm ci`.
+
+**Rejected.** *Removing every `node_modules` regardless of age*: that breaks the project in use
+on Monday morning. *`.venv`/`venv` too*: Pieter kept them out, and a venv often has no lockfile, so
+a rebuild isn't exact. *`npkill` or another npm tool*: a new dependency for a `find` and an `rm`,
+against `docs/policy/supply-chain.md`. *Also scanning `~/docs` and `~/media`*: Pieter chose `~/dev`
+only, which is where projects live. *Judging staleness by the `node_modules` folder's own mtime*:
+an install touches it, but editing the project doesn't.
+
+**Cost.** A project picked up after two months starts with a reinstall. The step walks each
+project tree with `find … -print -quit`; a full `--dry-run` on this Mac takes about 45s, most of it
+`du` on the other caches. A project kept alive only by files under `node_modules/` (none known)
+would count as stale.
+
+**Verified: PARTIAL.** 2026-10-27: `./test.sh bin` → `bin: 133 passed, 0 failed, 0 skipped`,
+including the guard order check and a `--dry-run` against a fake `~/dev` (stale → targeted;
+active, lockfile-less, workspace-with-fresh-commit and symlinked → kept; summary `Stale: 1 · kept
+(active): 2 · kept (no lockfile): 1`; every folder still in place). Mutation check on copies of the
+script: without the lockfile check, without the staleness check, with an unguarded `rm -rf
+"$nm"`, or with a 1-day default, the suite fails each time. `weekly-disk-cleanup.sh --dry-run` on
+this Mac: `8.5G in 43 folders`, `Stale: 0 · kept (active): 43`, log mtime unchanged. With
+`NM_STALE_DAYS=7` it lists 23 projects; spot-checked ones were idle (`claude-agent-dag`, last
+touched 2026-10-14) and a project touched 6 days ago (`rnc`) was kept. NOT YET: a scheduled
+launchd run (TODO.md), and a real removal, which can't happen before 2026-12 at the earliest.
 
 ## D48 — `vercel-project --protect all` for a site that must not be public yet · 2026-10-28
 

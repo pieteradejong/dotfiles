@@ -22,6 +22,8 @@
 # no second copy to keep in sync.
 #
 # Env:  MAIL_REPORT_BIN  the sender (default: mail-report next to this script)
+#       NM_STALE_DAYS    days a ~/dev project must be untouched before its
+#                        node_modules is removed (default 60, D47)
 #
 # Exit: 0 done, 2 bad usage. A mail that cannot be sent is a WARN line, not a failure.
 
@@ -46,6 +48,8 @@ export NVM_DIR="$HOME/.nvm"
 
 LOG_FILE="$HOME/.weekly-disk-cleanup.log"
 MAIL_REPORT_BIN="${MAIL_REPORT_BIN:-${0:A:h}/mail-report}"
+NM_ROOT="$HOME/dev"
+NM_STALE_DAYS="${NM_STALE_DAYS:-60}"
 
 # act <cmd...> — every step that changes something goes through here, so
 # --dry-run is one switch rather than one per section.
@@ -60,6 +64,46 @@ size() {
 }
 
 has() { command -v "$1" >/dev/null 2>&1; }
+
+# nm_project_root <dir> — the nearest ancestor of <dir> (itself included) that
+# holds .git, stopping at $NM_ROOT; <dir> itself when there is none. Staleness
+# is judged there, so a workspace like apps/web is active when its repo is.
+nm_project_root() {
+  local d="$1"
+  while [ "$d" != "$NM_ROOT" ] && [ "$d" != "/" ]; do
+    [ -e "$d/.git" ] && { echo "$d"; return; }
+    d="${d:h}"
+  done
+  echo "$1"
+}
+
+# nm_has_lockfile <dir> <root> — a lockfile in <dir> or an ancestor up to
+# <root>, so a reinstall (npm ci, pnpm/yarn/bun install) rebuilds exactly what
+# was there.
+nm_has_lockfile() {
+  local d="$1" f
+  while :; do
+    for f in package-lock.json npm-shrinkwrap.json pnpm-lock.yaml yarn.lock bun.lock bun.lockb; do
+      [ -f "$d/$f" ] && return 0
+    done
+    { [ "$d" = "$2" ] || [ "$d" = "$NM_ROOT" ] || [ "$d" = "/" ]; } && return 1
+    d="${d:h}"
+  done
+}
+
+# nm_is_stale <root> — no file under <root> (outside node_modules/ and .git/,
+# .DS_Store aside) modified in NM_STALE_DAYS days, and no commit in that time.
+nm_is_stale() {
+  local root="$1" recent last
+  recent="$(find "$root" \( -name node_modules -o -name .git \) -prune -o \
+    -type f ! -name .DS_Store -mtime -"$NM_STALE_DAYS" -print -quit 2>/dev/null)"
+  [ -n "$recent" ] && return 1
+  if [ -e "$root/.git" ]; then
+    last="$(git -C "$root" log -1 --format=%ct 2>/dev/null)"
+    [ -n "$last" ] && [ $(( $(date +%s) - last )) -lt $(( NM_STALE_DAYS * 86400 )) ] && return 1
+  fi
+  return 0
+}
 
 # run_cleanup — the whole run, sections in order. Called once below: printed
 # as is for --dry-run, otherwise captured so the same text goes to the log and
@@ -135,6 +179,30 @@ if has brew; then
 else
   echo "brew not found on PATH, skipped"
 fi
+
+# --- Stale node_modules -----------------------------------------------------
+# Removes a ~/dev project's node_modules once the project has been untouched
+# for NM_STALE_DAYS (60) days and has a lockfile, so a reinstall rebuilds
+# exactly what was there (D47, amending D27). Untouched means no file outside
+# node_modules/ and .git/ modified and no commit, judged at the git root.
+# Top-level folders only (-prune); find never follows a symlink. Runs before
+# the pnpm prune, so the store can drop what these folders referenced.
+echo ""
+echo "--- Stale node_modules (~/dev projects untouched ${NM_STALE_DAYS}+ days) ---"
+nm_all=(${(f)"$(find "$NM_ROOT" -name node_modules -type d -prune 2>/dev/null)"})
+echo "Before: $(size $nm_all) in ${#nm_all} folders"
+nm_stale=0; nm_active=0; nm_nolock=0
+for nm in $nm_all; do
+  nm_dir="${nm:h}"; nm_root="$(nm_project_root "$nm_dir")"
+  if ! nm_has_lockfile "$nm_dir" "$nm_root"; then nm_nolock=$((nm_nolock + 1)); continue; fi
+  if ! nm_is_stale "$nm_root"; then nm_active=$((nm_active + 1)); continue; fi
+  echo "stale: $(size "$nm")  ${nm#$NM_ROOT/}"
+  nm_stale=$((nm_stale + 1))
+  # Last check before the rm: a real directory named node_modules under NM_ROOT.
+  [[ "$nm" == "$NM_ROOT"/*/node_modules && ! -L "$nm" ]] && act rm -rf "$nm"
+done
+echo "Stale: $nm_stale · kept (active): $nm_active · kept (no lockfile): $nm_nolock"
+$DRY_RUN || echo "After:  $(size ${^nm_all}(N))"
 
 # --- pnpm store -------------------------------------------------------------
 # Removes package versions no longer referenced by any known project. Its
@@ -263,7 +331,8 @@ fi
 # fetched again, so they stay manual: ~/.cache/huggingface (models),
 # ~/Library/Caches/ms-playwright (browsers; tests fail until
 # `npx playwright install`), Claude's vm_bundles, old ~/.nvm versions, and
-# node_modules/.venv in projects.
+# .venv in projects. (Project node_modules went live behind a 60-day and
+# lockfile guard: the "Stale node_modules" step above, D47.)
 
 # --- Messaging app caches — NOT SCRIPTABLE SAFELY ----------------------------
 # Messaging apps typically keep account/message state and cached media in the

@@ -127,9 +127,11 @@ The script is never executed for real by the test suite — it empties Trash and
 caches. `./test.sh bin` asserts it statically instead: that it parses, that every
 aggressive form in its `IDEAS` block is still commented out, that the live
 `docker system prune` has no `-a`/`--volumes`, and that every live `rm -rf` targets one
-of the allowlisted paths below, with the Trash sweep's age filter intact; then it runs
-`--dry-run` against a fake HOME (readable and unreadable Trash) and checks that nothing was
-removed and no log was written. `--dry-run` is the one mode that is safe to execute.
+of the allowlisted paths below, with the Trash sweep's age filter and the node_modules
+lockfile and 60-day guards intact; then it runs `--dry-run` against a fake HOME (readable and
+unreadable Trash, and a fake `~/dev` with a stale, an active, a lockfile-less, a workspace and
+a symlinked project) and checks that only the stale project is targeted, that nothing was
+removed and that no log was written. `--dry-run` is the one mode that is safe to execute.
 
 | Step | What it does | Why it is safe |
 |---|---|---|
@@ -140,6 +142,7 @@ removed and no log was written. `--dry-run` is the one mode that is safe to exec
 | pip-tools cache | `rm -rf ~/Library/Caches/pip-tools/*` | pip-compile's download cache; `pip3 cache purge` never touches it |
 | uv cache | `uv cache prune` (not `clean`) | drops only unreferenced entries |
 | Homebrew | `brew cleanup -s --prune=all` | old versions and downloads; `brew autoremove` stays an idea |
+| Stale node_modules | `rm -rf` of a `~/dev` project's top-level `node_modules` when the project has been untouched 60+ days (no file outside `node_modules/`/`.git/` modified and no commit, judged at the git root) **and** has a lockfile (`package-lock.json`, `npm-shrinkwrap.json`, `pnpm-lock.yaml`, `yarn.lock`, `bun.lock`/`bun.lockb`). Prints each one removed, then `Stale: N · kept (active): N · kept (no lockfile): N`. `NM_STALE_DAYS` overrides the 60 | a project left alone for two months gets back exactly what it had from `npm ci` (or the pnpm/yarn/bun equivalent); backups never held these folders (D26). Runs before the pnpm prune ([D47](design-decisions.md#d47--stale-project-node_modules-join-the-weekly-cleanup-behind-a-60-day-and-lockfile-guard--2026-10-27)) |
 | pnpm store | `pnpm store prune` | only packages no project references |
 | Xcode DerivedData | `rm -rf ~/Library/Developer/Xcode/DerivedData/*` | build cache |
 | App-updater leftovers | `rm -rf` of `~/Library/Caches/*.ShipIt`, `*-updater` and `*/org.sparkle-project.Sparkle/Installation/*` untouched 3+ days | installers kept after the app updated (Squirrel/Electron and Sparkle apps alike); the 3-day rule spares an update staged for the next relaunch |
@@ -171,8 +174,9 @@ job. Without it, run the script by hand in a terminal for the full effect.
 **Deliberately not automated:** `docker system prune -a`; `~/Downloads` and media folders;
 switching Google Drive from Mirror to Stream; old iPhone backups; unused `ollama` models;
 `brew autoremove`; HuggingFace models; Playwright browsers; caches of apps that are usually open;
-old nvm versions; project `node_modules`/`.venv`. Each is a judgement call or costs a large
-re-download, not a mechanical cleanup. Why: [D27](design-decisions.md#d27--the-weekly-cleanup-covers-every-cache-that-regenerates-for-free-and-nothing-else--2026-10-06).
+old nvm versions; project `.venv`; `node_modules` of projects active in the last 60 days or
+without a lockfile. Each is a judgement call or costs a large re-download, not a mechanical
+cleanup. Why: [D27](design-decisions.md#d27--the-weekly-cleanup-covers-every-cache-that-regenerates-for-free-and-nothing-else--2026-10-06), amended for stale `node_modules` by [D47](design-decisions.md#d47--stale-project-node_modules-join-the-weekly-cleanup-behind-a-60-day-and-lockfile-guard--2026-10-27).
 
 ---
 

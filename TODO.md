@@ -25,6 +25,10 @@ only; this file is public. Workspace-wide items: `~/dev/TODO.md`. Decisions: `do
       mail should arrive with subject `weekly-disk-cleanup on <host>: Reclaimed N MB` and the
       same text as `~/.weekly-disk-cleanup.log`; no Keychain prompt should have appeared, and
       the log must not end in `WARN: report not mailed`. Record in D31's `Verified:`.
+- [ ] Sun 2026-11-01 09:00 — first launchd run with the stale-node_modules step (D47).
+      `~/.weekly-disk-cleanup.log` should show `--- Stale node_modules …`, about 43 folders, and
+      `Stale: 0` (nothing is 60 days idle yet). Check that `git` and `find` worked under launchd's
+      PATH (no errors in that section). Record in D47's `Verified:`.
 
 ## Needs Pieter
 
