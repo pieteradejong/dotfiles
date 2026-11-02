@@ -13,6 +13,7 @@ Replaces the old `weekly-cleanup.md` and `mac-maintenance.md`.
 | [Dashboard](#dashboard) | `scripts/audit-dashboard.py` | after each audit | `scripts/audit-dashboard.py` | reads reports, writes one HTML file | `~/dev/audit-reports/dashboard.html` | `./test.sh tools`, `ruff` | — | D28 |
 | [Disk cleanup](#weekly-disk-cleanup) | `bin/weekly-disk-cleanup.sh` | Sundays 09:00 | `weekly-disk-cleanup.sh` | `--dry-run` | `~/.weekly-disk-cleanup.log` · [mailed](#email-reports) | `./test.sh bin` (static + `--dry-run`, never a real run) | `macos/com.pieterdejong.weeklycleanup.plist` | D18, D20, D27, D31 |
 | [Mac maintenance](#mac-maintenance-manual) | `scripts/mac-maintenance.sh` | by hand | `scripts/mac-maintenance.sh` | `--dry-run` | `~/maintenance-YYYYMMDD.log` · [mailed](#email-reports) | `./test.sh maint` (real run on a fake HOME, mail stubbed) | — | D29, D31 |
+| [X follower review](#weekly-x-follower-review) | `projects/twittertools/scripts/weekly_followers.sh` (outside this repo) | Mondays 09:00 · **not installed yet** | `scripts/weekly_followers.sh --no-mail` | none: every run is a paid API read (~$1.30) | `twittertools/logs/follower_watch.log` · [mailed](#email-reports) | twittertools `./test.sh followers` (fake API, stub mail); plist: `./test.sh bin` | `macos/com.pieterdejong.twitterfollowers.plist` | D53 |
 | [Email reports](#email-reports) | `bin/mail-report` | end of each run above | `mail-report --test` | `--dry-run` prints, sends nothing | your inbox | `./test.sh mail` (fake Keychain, nothing sent) | — | D31 |
 | [Docs backup](#daily-docs-backup) | `~/docs/.backup/backup_docs.py` (outside this repo; targets `~/docs`, `~/dev`, `~/media/convos`) | daily 03:00 | `python3 ~/docs/.backup/backup_docs.py --execute` | without `--execute` | `~/docs/.backup/logs/` | — | `macos/com.pieterdejong.docsbackup.plist` | [policy/backups.md](policy/backups.md) |
 | [Media backup](#media-backup-to-s3-manual) | `bin/media-backup` (wrapper; logic in the private media repo) | by hand | `media-backup --execute` | dry run by default; `--offline` | `~/.cache/media-video-backup/upload-<ts>.log` | `./test.sh bin` (stub media repo, nothing uploaded) | — | D46 |
@@ -213,6 +214,23 @@ whole lifecycle against a stub `launchctl` and a fake HOME; the real agent is ne
 
 ---
 
+## Weekly X follower review
+
+Every Monday at 09:00, `projects/twittertools/scripts/weekly_followers.sh` reads your X followers
+and following through the API and saves them as a JSON snapshot in that repo's
+`data/follower-snapshots/`. It then emails who followed you, who unfollowed you, and who you
+followed and unfollowed since last week. The code, its tests and the reasoning are in twittertools
+(`DECISIONS.md` 29, `README.md` § Weekly follower review); this repo only holds the schedule (D53).
+
+- **Install** (after the X credentials are in twittertools' `.env`, see its `TODO.md`):
+  `cp macos/com.pieterdejong.twitterfollowers.plist ~/Library/LaunchAgents/ && launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.pieterdejong.twitterfollowers.plist`
+- **Run now:** `launchctl kickstart gui/$(id -u)/com.pieterdejong.twitterfollowers`. Each run is
+  a paid API read.
+- **Exit codes** in the log and the mail subject: 0 ok · 1 API error · 3 no credentials ·
+  4 incomplete snapshot (kept, but left out of the comparison).
+- **Remove:** `launchctl bootout gui/$(id -u)/com.pieterdejong.twitterfollowers`, then delete
+  the copy in `~/Library/LaunchAgents/`.
+
 ## Daily docs backup
 
 `~/docs/.backup/backup_docs.py --execute`, scheduled by
@@ -355,6 +373,7 @@ the rejected alternatives and the `Verified:` line.
 - [D30](design-decisions.md#d30--the-audit-reports-what-changed-since-the-last-run-acceptance-stays-in-the-register--2026-10-10) — the audit reports what changed since the last run; acceptance stays in the register.
 - [D31](design-decisions.md#d31--job-results-are-mailed-through-gmail-smtp-with-keychain-credentials-a-missing-mailbox-never-fails-a-job--2026-10-12) — job results are mailed through Gmail SMTP with Keychain credentials; a missing mailbox never fails a job.
 - [D46](design-decisions.md#d46--media-backup-is-one-by-hand-command-in-bin-the-logic-stays-in-the-media-repo--2026-10-27) — media backup is one by-hand command in `bin/`; the logic stays in the media repo.
+- [D53](design-decisions.md#d53--the-weekly-x-follower-review-is-a-launchd-job-in-dotfiles-its-code-stays-in-twittertools--2026-10-29) — the weekly X follower review is a launchd job here; its code stays in twittertools.
 
 ## Open items
 

@@ -570,6 +570,33 @@ else
   skip "rcdev plist checks: plutil is macOS-only"
 fi
 
+# ── 5b'. twitterfollowers plist — checked as data, never loaded (D53) ────────
+# The job itself is tested in the twittertools repo (`./test.sh followers`).
+header "twitterfollowers launchd plist (data only)"
+TF_PLIST="$(dirname "$BIN_DIR")/macos/com.pieterdejong.twitterfollowers.plist"
+if command -v plutil >/dev/null 2>&1; then
+  : > "$OUT"
+  plutil -lint "$TF_PLIST" > "$OUT" 2>&1 && pass "twitterfollowers plist passes plutil -lint" \
+    || fail "twitterfollowers plist passes plutil -lint"
+  for kv in "Label:com.pieterdejong.twitterfollowers" "RunAtLoad:false" \
+            "StartCalendarInterval.Weekday:1" "StartCalendarInterval.Hour:9" \
+            "StartCalendarInterval.Minute:0"; do
+    : > "$OUT"
+    v="$(plutil -extract "${kv%%:*}" raw -o - "$TF_PLIST" 2>"$OUT")"
+    [ "$v" = "${kv#*:}" ] && pass "twitterfollowers plist ${kv%%:*} = ${kv#*:}" \
+      || fail "twitterfollowers plist ${kv%%:*} = ${kv#*:} (got '$v')"
+  done
+  : > "$OUT"
+  plutil -extract ProgramArguments.2 raw -o - "$TF_PLIST" 2>"$OUT" \
+    | grep -q 'exec "$HOME/dev/projects/twittertools/scripts/weekly_followers.sh"' \
+    && pass "twitterfollowers plist execs scripts/weekly_followers.sh via \$HOME" \
+    || fail "twitterfollowers plist execs scripts/weekly_followers.sh via \$HOME"
+  grep -q '/Users/' "$TF_PLIST" && fail "twitterfollowers plist publishes an absolute home path" \
+    || pass "twitterfollowers plist has no absolute home path"
+else
+  skip "twitterfollowers plist checks: plutil is macOS-only"
+fi
+
 # ── 5c. rcdev lifecycle — against a stub launchctl and a fake HOME ──────────
 # install / status / restart / uninstall / run, exercised for real but with
 # `launchctl` replaced by a stub that records its calls and keeps "loaded" state

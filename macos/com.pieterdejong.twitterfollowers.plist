@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Weekly X follower review: projects/twittertools/scripts/weekly_followers.sh, Mondays 09:00.
+  Pulls followers + following from the X API (paid: ~$0.001 per account), reports
+  who followed and unfollowed since last week, and mails it (bin/mail-report).
+  Install:   cp macos/com.pieterdejong.twitterfollowers.plist ~/Library/LaunchAgents/
+             launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.pieterdejong.twitterfollowers.plist
+  Run now:   launchctl kickstart gui/$(id -u)/com.pieterdejong.twitterfollowers
+  Remove:    launchctl bootout gui/$(id -u)/com.pieterdejong.twitterfollowers
+  If the Mac is asleep at 09:00, launchd runs the job once on wake.
+  The script path goes through $HOME so no absolute home path is published here.
+  Each run is logged by the script to projects/twittertools/logs/follower_watch.log;
+  this file only catches output from a script that failed to start.
+  Documented in docs/maintenance.md; decision D53.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.pieterdejong.twitterfollowers</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>-c</string>
+        <string>mkdir -p "$HOME/Library/Logs/twitter-followers" &amp;&amp; exec "$HOME/dev/projects/twittertools/scripts/weekly_followers.sh" &gt;&gt; "$HOME/Library/Logs/twitter-followers/launchd.out" 2&gt;&amp;1</string>
+    </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Weekday</key>
+        <integer>1</integer>
+        <key>Hour</key>
+        <integer>9</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+    <key>RunAtLoad</key>
+    <false/>
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>Nice</key>
+    <integer>10</integer>
+    <key>LowPriorityIO</key>
+    <true/>
+</dict>
+</plist>

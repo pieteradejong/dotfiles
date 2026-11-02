@@ -107,7 +107,8 @@ dotfiles/
 │   ├── com.googlecode.iterm2.plist
 │   ├── rectangle.plist
 │   ├── com.pieterdejong.weeklycleanup.plist   # LaunchAgent: weekly cache/trash cleanup
-│   └── com.pieterdejong.securityaudit.plist   # LaunchAgent: weekly security & privacy audit
+│   ├── com.pieterdejong.securityaudit.plist   # LaunchAgent: weekly security & privacy audit
+│   └── com.pieterdejong.twitterfollowers.plist # LaunchAgent: weekly X follower review (twittertools)
 ├── security/       # The commit/push security gate (runs in every repo on this machine)
 │   ├── gate.sh                     # pre-commit | pre-push | scan-tree | status
 │   ├── patterns.sh                 # what must never be published — shared with dotaudit
@@ -247,7 +248,7 @@ past findings is kept in the private companion repo, not here.
 ### macOS
 - iTerm2 preferences
 - Rectangle window manager settings
-- LaunchAgents: weekly disk cleanup, weekly security audit, daily docs backup, Remote Control (see [docs/maintenance.md](docs/maintenance.md))
+- LaunchAgents: weekly disk cleanup, weekly security audit, weekly X follower review, daily docs backup, Remote Control (see [docs/maintenance.md](docs/maintenance.md))
 
 ## 📝 Maintenance
 

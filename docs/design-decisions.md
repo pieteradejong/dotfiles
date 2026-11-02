@@ -1482,3 +1482,42 @@ the new file. Ancestor and subdirectory loading are Claude Code's documented beh
 re-tested here.
 
 
+## D53 — The weekly X follower review is a launchd job in dotfiles; its code stays in twittertools · 2026-10-29
+
+**Problem.** Pieter wants a weekly email saying who followed and unfollowed him on X. The code
+lives in `projects/twittertools`, a public repo (twittertools `DECISIONS.md` 29: X API snapshots,
+about $1.30 a week). Something has to run it every week and mail the result. The workspace already
+has a pattern for this: launchd plists in `macos/` and `bin/mail-report` (D31).
+
+**Decision.**
+- `macos/com.pieterdejong.twitterfollowers.plist` runs
+  `$HOME/dev/projects/twittertools/scripts/weekly_followers.sh` on Mondays at 09:00. It follows
+  the `securityaudit` shape: `/bin/bash -c` so that `$HOME` expands and no absolute home path is
+  published, plus a `PATH` with Homebrew, `Background` and `Nice 10`. Failures that stop the job
+  from starting go to `~/Library/Logs/twitter-followers/launchd.out`.
+- The wrapper lives in the twittertools repo, next to the code it runs, and is tested there
+  (`./test.sh followers`). dotfiles holds only the schedule. `scripts/test-bin.sh` checks the plist
+  as data: `plutil -lint`, label, weekday, hour and minute, the exec target, and no absolute home
+  path.
+- Mail goes through `bin/mail-report`. The wrapper finds it on `PATH` or at
+  `~/dev/dotfiles/bin/mail-report`, and a mail failure is only a warning (D31).
+
+**Rejected.**
+- *Putting the plist in the twittertools repo*: every other scheduled job on this Mac is in
+  `macos/`, and having one place to look is the point. The job is also machine setup (the "restore
+  this machine" test), not project code.
+- *A cron entry*: every scheduled job in `macos/` is a LaunchAgent, and launchd also runs a
+  missed calendar job on wake.
+- *Running Sundays with the other jobs*: Monday keeps the paid API call apart from the Sunday
+  cleanup and audit, so a failure email is easy to tell apart.
+
+**Cost.** One more LaunchAgent to install by hand. It isn't installed until the X credentials are
+rotated, because without them it would mail "no API credentials" every Monday.
+
+**Verified.** 2026-10-29: `plutil -lint` → OK. `bash scripts/test-bin.sh` →
+`bin: 141 passed, 0 failed, 0 skipped`, 8 of them for this plist. twittertools `./test.sh followers`
+→ `44 passed` and shellcheck clean. That suite runs the wrapper under `/bin/bash` 3.2 with a stub
+interpreter and a stub `mail-report`, and covers exit codes 0, 1, 3 and 4, mail failures 1 and 3,
+and `--no-mail`. NOT YET: the job installed, one real Monday run, and a received email. All three
+wait on the credentials (twittertools `TODO.md` 2026-10-29).
+
