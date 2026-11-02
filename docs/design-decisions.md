@@ -1324,6 +1324,35 @@ and private specific in mermaid are reported`, `✓ PASS: mermaid: 9 diagrams in
 are well-formed and generic`, `11 passed, 0 failed`; `ruff check scripts/test-docs.py` → `All
 checks passed!`.
 
+## D46 — Media backup is one by-hand command in `bin/`; the logic stays in the media repo · 2026-10-27
+
+**Problem.** Pieter asked for all media to be backed up to S3, with a separate script in the
+maintenance-scripts directory, run by hand for now. The backup scripts live in the private
+media repo, which names the bucket and the folders. dotfiles is public.
+
+**Decision.** `bin/media-backup` is a thin bash 3.2 wrapper. It runs the media repo's
+`backup-convos-to-s3.sh`, then `backup-media-to-s3.sh --kind all`, passes the mode through
+(dry run by default, `--offline`, `--execute`), and for `--execute` wraps the run in
+`caffeinate -i` and tees it to `~/.cache/media-video-backup/upload-<ts>.log`, where the media
+repo's live check reads it. A later step still runs after an earlier one fails, and the exit
+code is 1 if any step failed. The wrapper holds no bucket name, no folder list and no AWS call.
+It finds the repo through `MEDIA_REPO` (default `~/dev/projects/media`). It is not scheduled.
+
+**Rejected.** *A launchd job now*: Pieter chose by-hand runs for now, and an unattended job needs
+non-interactive AWS credentials, which is an open item in `~/dev/TODO.md`. *Copying the backup
+logic into dotfiles*: that would publish the bucket and the folder layout (D45) and give the
+logic two homes. *A symlink in `bin/` to the repo script*: the mode handling, the log and the
+combined exit code would then have no tested home.
+
+**Verified.** `./test.sh bin` → `bin: 128 passed, 0 failed, 0 skipped`, including the nine
+`media-backup` cases against a stub media repo and a stub `caffeinate` (help, bad argument,
+missing repo, dry run, `--offline`, `--execute` logged under `caffeinate -i`, a failing media
+step, a failing convos step, no delete); `shellcheck -x bin/media-backup scripts/test-bin.sh` →
+clean. First real run on 2026-10-27, after Pieter's go-ahead: `media-backup --execute` ran under
+`caffeinate -i`, wrote its log, and ended `convos OK, video + audio FAILED`. Videos and convos
+verified OK. One audio file could not be read: macOS blocks access to it per app. The wrapper
+passed the failure through, as designed. Follow-up: `~/dev/projects/media/TODO.md`.
+
 ## D48 — `vercel-project --protect all` for a site that must not be public yet · 2026-10-28
 
 **Problem.** D42 gives every project Standard Protection: previews behind the Vercel login,

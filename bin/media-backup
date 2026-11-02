@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+#
+# media-backup — back up all personal media to S3 in one command: the convo recordings, then every
+# video and non-convo audio file. A thin wrapper; the backup logic, bucket and roots live in the
+# media repo (backup-convos-to-s3.sh, backup-media-to-s3.sh) and its README runbook.
+#
+#   media-backup              dry run: inventory, cost, what would upload (no uploads)
+#   media-backup --offline    inventory and cost only, no AWS calls (convos step skipped)
+#   media-backup --execute    upload and verify, under `caffeinate -i`; output also goes to
+#                             $LOG_DIR/upload-<timestamp>.log (what the media repo's live check reads)
+#
+# Source files are only read; nothing local or in S3 is ever deleted. Runs by hand; not scheduled.
+# Env: MEDIA_REPO (default ~/dev/projects/media), LOG_DIR (default ~/.cache/media-video-backup).
+# Exit: 0 when every step ends OK, 1 when any step fails, 2 on bad usage.
+
+set -u
+set -o pipefail
+
+MEDIA_REPO="${MEDIA_REPO:-$HOME/dev/projects/media}"
+LOG_DIR="${LOG_DIR:-$HOME/.cache/media-video-backup}"
+
+MODE=dry
+case "${1:-}" in
+  "") ;;
+  --execute) MODE=execute ;;
+  --offline) MODE=offline ;;
+  -h|--help) sed -n '3,15p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  *) echo "usage: media-backup [--execute|--offline]" >&2; exit 2 ;;
+esac
+[ $# -le 1 ] || { echo "usage: media-backup [--execute|--offline]" >&2; exit 2; }
+
+for s in backup-convos-to-s3.sh backup-media-to-s3.sh; do
+  [ -x "$MEDIA_REPO/$s" ] || { echo "media-backup: $MEDIA_REPO/$s not found or not executable (set MEDIA_REPO)" >&2; exit 1; }
+done
+
+run_steps() {
+  local rc=0 convos=skipped media=FAILED flag=""
+  [ "$MODE" = dry ] || flag="--$MODE"
+  if [ "$MODE" = offline ]; then
+    echo "== convos: skipped (backup-convos-to-s3.sh has no offline mode)"
+  else
+    echo "== convos: backup-convos-to-s3.sh ${flag:-(dry run)}"
+    if "$MEDIA_REPO/backup-convos-to-s3.sh" ${flag:+"$flag"}; then convos=OK; else convos=FAILED; rc=1; fi
+  fi
+  echo
+  echo "== video + audio: backup-media-to-s3.sh --kind all ${flag:-(dry run)}"
+  if "$MEDIA_REPO/backup-media-to-s3.sh" --kind all ${flag:+"$flag"}; then media=OK; else rc=1; fi
+  echo
+  echo "== media-backup ($MODE): convos $convos, video + audio $media"
+  return $rc
+}
+
+if [ "$MODE" = execute ]; then
+  mkdir -p "$LOG_DIR"
+  log="$LOG_DIR/upload-$(date +%Y%m%d-%H%M%S).log"
+  echo "media-backup: logging to $log"
+  if command -v caffeinate >/dev/null 2>&1; then
+    export -f run_steps; export MODE MEDIA_REPO
+    caffeinate -i bash -c run_steps 2>&1 | tee "$log"
+  else
+    run_steps 2>&1 | tee "$log"
+  fi
+  exit $?
+fi
+run_steps

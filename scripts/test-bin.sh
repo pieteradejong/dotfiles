@@ -778,9 +778,56 @@ rm -f "$VDIR/.gitignore"
 vp init --dry-run; rc=$?
 [ "$rc" = 2 ] && grep -q 'not gitignored' "$OUT" && pass "init refuses when .vercel/ is not gitignored" || fail "init refuses when .vercel/ is not gitignored (rc=$rc)"
 
+header "media-backup (stub media repo and caffeinate; nothing uploaded)"
+
+MB="$BIN_DIR/media-backup"
+MREPO="$T/media-repo"; MCALLS="$T/media-calls"; MLOGS="$T/media-logs"; MSTUB="$T/media-stubbin"
+mkdir -p "$MREPO" "$MSTUB"
+for s in backup-convos-to-s3.sh backup-media-to-s3.sh; do
+  cat > "$MREPO/$s" <<EOF
+#!/usr/bin/env bash
+echo "$s \$*" >> "$MCALLS"
+case "$s" in backup-convos*) exit "\${FAKE_RC_CONVOS:-0}" ;; *) exit "\${FAKE_RC_MEDIA:-0}" ;; esac
+EOF
+  chmod +x "$MREPO/$s"
+done
+cat > "$MSTUB/caffeinate" <<EOF
+#!/usr/bin/env bash
+echo "caffeinate \$1" >> "$MCALLS"; shift; exec "\$@"
+EOF
+chmod +x "$MSTUB/caffeinate"
+mb() { : > "$MCALLS"; env PATH="$MSTUB:$PATH" MEDIA_REPO="$MREPO" LOG_DIR="$MLOGS" "$@" "$MB" ${MB_ARGS:-} > "$OUT" 2>&1; }
+
+MB_ARGS=--help mb env; rc=$?
+[ "$rc" = 0 ] && grep -q 'nothing local or in S3 is ever deleted' "$OUT" && pass "--help shows usage and the no-delete rule" || fail "--help (rc=$rc)"
+MB_ARGS=--delete mb env; rc=$?
+[ "$rc" = 2 ] && [ ! -s "$MCALLS" ] && pass "unknown argument exits 2 and runs nothing" || fail "unknown argument (rc=$rc)"
+: > "$MCALLS"; env MEDIA_REPO="$T/nowhere" "$MB" > "$OUT" 2>&1; rc=$?
+[ "$rc" = 1 ] && grep -q 'set MEDIA_REPO' "$OUT" && pass "missing media repo exits 1" || fail "missing media repo (rc=$rc)"
+
+MB_ARGS="" mb env; rc=$?
+[ "$rc" = 0 ] && [ "$(sed 's/ *$//' "$MCALLS" | tr '\n' '|')" = "backup-convos-to-s3.sh|backup-media-to-s3.sh --kind all|" ] && [ ! -d "$MLOGS" ] \
+  && pass "dry run: convos then media --kind all, no flags, no log" || fail "dry run (rc=$rc): $(tr '\n' '|' < "$MCALLS")"
+MB_ARGS=--offline mb env; rc=$?
+[ "$rc" = 0 ] && [ "$(cat "$MCALLS")" = "backup-media-to-s3.sh --kind all --offline" ] \
+  && pass "--offline skips convos and passes --offline" || fail "--offline (rc=$rc): $(tr '\n' '|' < "$MCALLS")"
+MB_ARGS=--execute mb env; rc=$?
+log="$(find "$MLOGS" -name 'upload-*.log' 2>/dev/null | head -1)"
+[ "$rc" = 0 ] && grep -qx 'caffeinate -i' "$MCALLS" && grep -qx 'backup-convos-to-s3.sh --execute' "$MCALLS" \
+  && grep -qx 'backup-media-to-s3.sh --kind all --execute' "$MCALLS" && [ -n "$log" ] \
+  && grep -q 'convos OK, video + audio OK' "$log" \
+  && pass "--execute: both steps under caffeinate -i, logged to LOG_DIR" || fail "--execute (rc=$rc): $(tr '\n' '|' < "$MCALLS")"
+MB_ARGS=--execute mb env FAKE_RC_MEDIA=1; rc=$?
+[ "$rc" = 1 ] && grep -q 'convos OK, video + audio FAILED' "$OUT" && pass "--execute: a failing media step exits 1" || fail "failing media step (rc=$rc)"
+MB_ARGS="" mb env FAKE_RC_CONVOS=1; rc=$?
+[ "$rc" = 1 ] && grep -q 'backup-media-to-s3.sh' "$MCALLS" && grep -q 'convos FAILED, video + audio OK' "$OUT" \
+  && pass "a failing convos step still runs media, then exits 1" || fail "failing convos step (rc=$rc)"
+: > "$OUT"; grep -nE '\brm\b|--delete|delete-object' "$MB" > "$OUT"
+[ -s "$OUT" ] && fail "media-backup has no delete" || pass "media-backup has no delete"
+
 header "publishability"
 
-for f in "$LLM" "$CLEANUP" "$RCDEV" "$RCDEV_PLIST" "$RCDEV_PROJ_PLIST" "$VP" "$BIN_DIR/README.md"; do
+for f in "$LLM" "$CLEANUP" "$RCDEV" "$RCDEV_PLIST" "$RCDEV_PROJ_PLIST" "$VP" "$MB" "$BIN_DIR/README.md"; do
   : > "$OUT"
   grep -nE '/Users/[a-z]' "$f" > "$OUT" 2>&1
   [ -s "$OUT" ] && fail "$(basename "$f") contains no absolute /Users/<name>/ path" \

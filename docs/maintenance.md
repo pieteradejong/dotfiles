@@ -15,6 +15,7 @@ Replaces the old `weekly-cleanup.md` and `mac-maintenance.md`.
 | [Mac maintenance](#mac-maintenance-manual) | `scripts/mac-maintenance.sh` | by hand | `scripts/mac-maintenance.sh` | `--dry-run` | `~/maintenance-YYYYMMDD.log` · [mailed](#email-reports) | `./test.sh maint` (real run on a fake HOME, mail stubbed) | — | D29, D31 |
 | [Email reports](#email-reports) | `bin/mail-report` | end of each run above | `mail-report --test` | `--dry-run` prints, sends nothing | your inbox | `./test.sh mail` (fake Keychain, nothing sent) | — | D31 |
 | [Docs backup](#daily-docs-backup) | `~/docs/.backup/backup_docs.py` (outside this repo; targets `~/docs`, `~/dev`, `~/media/convos`) | daily 03:00 | `python3 ~/docs/.backup/backup_docs.py --execute` | without `--execute` | `~/docs/.backup/logs/` | — | `macos/com.pieterdejong.docsbackup.plist` | [policy/backups.md](policy/backups.md) |
+| [Media backup](#media-backup-to-s3-manual) | `bin/media-backup` (wrapper; logic in the private media repo) | by hand | `media-backup --execute` | dry run by default; `--offline` | `~/.cache/media-video-backup/upload-<ts>.log` | `./test.sh bin` (stub media repo, nothing uploaded) | — | D46 |
 | [Remote Control](#remote-control-server-rcdev) | `bin/rcdev`, `bin/rc-projects` | always on (at login) | `rcdev status` | `RCDEV_DRY_RUN` | `~/Library/Logs/claude-remote-control/` | `./test.sh bin` | `macos/com.pieterdejong.rcdev*.plist` | D18 |
 | [Commit/push gate](policy/security-and-privacy.md#2-the-commitpush-gate) | `security/gate.sh` | every commit and push | `security/gate.sh scan-tree` | `status` and `scan-tree` are read-only | terminal | `./test.sh gate` | — | D24 |
 
@@ -223,6 +224,29 @@ this repo, so this page only schedules and points.
 
 ---
 
+## Media backup to S3 (manual)
+
+```zsh
+media-backup              # dry run: inventory, cost estimate, what would upload
+media-backup --offline    # inventory and cost only, no AWS calls
+media-backup --execute    # upload + verify under caffeinate -i; hours on a first run
+```
+
+Copies all personal media to a private, versioned S3 bucket in Glacier Deep Archive. It runs the
+convo recordings first, then every video and every non-convo audio file under the media folders
+of `~`, `~/My Drive` included. Photos are not in scope yet. `bin/media-backup` is only the entry
+point. The scripts, the bucket, the folder list, the runbook (resume, restore one file, prove
+originals untouched) and the coverage numbers live in the private media repo (`README.md` §
+Backing up all media, `ARCHITECTURE.md`) and its audit report, not here
+([D45](design-decisions.md#d45--where-things-go-drawn-twice-a-generic-public-diagram-the-named-one-private--2026-10-26)).
+Every step ends in an `OK` line per prefix, and the run exits 1 if any step fails. Re-running
+resumes. Originals are only read, and nothing local or in S3 is ever deleted. The media repo's
+tests check both statically and against a snapshot of a fake home. Not scheduled yet: a
+scheduled job needs non-interactive AWS credentials, which is an open item
+([D46](design-decisions.md#d46--media-backup-is-one-by-hand-command-in-bin-the-logic-stays-in-the-media-repo--2026-10-27)).
+
+---
+
 ## Mac maintenance (manual)
 
 ```zsh
@@ -298,7 +322,7 @@ other person's data. Env overrides: `MAIL_REPORT_SMTP` (`host:port`, default
 ```zsh
 cd ~/dev/dotfiles
 ./test.sh            # everything; CI runs exactly this
-./test.sh bin        # weekly-disk-cleanup.sh (static + --dry-run, mail stubbed), rcdev lifecycle, llm
+./test.sh bin        # weekly-disk-cleanup.sh (static + --dry-run, mail stubbed), rcdev lifecycle, llm, media-backup (stub repo)
 ./test.sh tools      # security-audit.sh on a fixture workspace (incl. the delta section), the dashboard, sweeps, sanitizers
 ./test.sh maint      # mac-maintenance.sh, real run on a fake HOME; the mail goes to a stub that records it
 ./test.sh mail       # bin/mail-report against a fake `security`; every send is a --dry-run
@@ -326,6 +350,7 @@ the rejected alternatives and the `Verified:` line.
 - [D29](design-decisions.md#d29--mac-maintenancesh-stays-at-the-cleanups-standard-and-under-test--2026-10-10) — `mac-maintenance.sh` stays, at the cleanup's standard and under test.
 - [D30](design-decisions.md#d30--the-audit-reports-what-changed-since-the-last-run-acceptance-stays-in-the-register--2026-10-10) — the audit reports what changed since the last run; acceptance stays in the register.
 - [D31](design-decisions.md#d31--job-results-are-mailed-through-gmail-smtp-with-keychain-credentials-a-missing-mailbox-never-fails-a-job--2026-10-12) — job results are mailed through Gmail SMTP with Keychain credentials; a missing mailbox never fails a job.
+- [D46](design-decisions.md#d46--media-backup-is-one-by-hand-command-in-bin-the-logic-stays-in-the-media-repo--2026-10-27) — media backup is one by-hand command in `bin/`; the logic stays in the media repo.
 
 ## Open items
 
