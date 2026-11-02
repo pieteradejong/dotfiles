@@ -83,6 +83,11 @@ Planned additions, each with its reference doc. Nothing here is built yet. Sourc
 
 ## Tooling
 
+- [ ] `stop-log-check` counted committed files and another session's uncommitted files as this session's changes: `vercel-live-reusable.yml` and `vercel-project` were committed under D42, and `media-backup` is D46. In the same turn it said no `CHANGELOG.md`, decision or `TODO.md` change was made, although D52's session had edited all three. Same family as the re-ask item in `~/dev/TODO.md`. Added 2026-10-29.
+- [ ] Schedule `scripts/claude-md-check.py`: in the weekly maintenance job (mailed with the rest), or in `whatsup` at `~/dev` (it adds about 2s of probes to every session start). Added 2026-10-29, D52.
+- [ ] D52 live check: a fresh Claude Code session under `~/dev/templates/` lists `templates/CLAUDE.md` among the loaded memory files. Then set D52 `Verified` to yes. Added 2026-10-29.
+- [ ] `stop-log-check`: `LOGS_OPEN_WORK_ERE` matches `TODO` anywhere, so a reply saying "no decision, changelog or TODO entry is needed" was blocked as naming open work (2026-10-29, the D52 session). Match `TODO` only as an item marker, or skip it in a negated clause, and add the sentence as a case in `scripts/test-logs.sh`. Added 2026-10-29.
+- [ ] A `bin/` command for the do-not-touch register's non-personal-remotes `find` loop, so the check is one word instead of a pasted snippet. The command goes here; the register (private) points to it. Added 2026-10-29, D52 review.
 - [ ] Spot-check D41 in the next session that looks up library docs: did it try `<domain>/llms.txt` first, and fall back silently on a 404? Then set D41 `Verified` to yes. Added 2026-10-20, `docs/design-decisions.md` D41.
 - [ ] `security-audit.sh`: callees should print the path they wrote instead of the composer
       rebuilding `findings-$STAMP.tsv` (`scripts/README.md`, audit item 3).
@@ -104,6 +109,46 @@ Planned additions, each with its reference doc. Nothing here is built yet. Sourc
       with both states` (`scripts/test-logs.sh:516`, the uncommitted `doc-dupes` work of D37). Seen while
       verifying D38; not caused by `pwd-gen`. Fix or confirm fixed before the D37 commit.
       → Resolved 2026-10-17 07:55 by the D37 commit `007a3a0`: `./test.sh logs` → 264 passed, 0 failed.
+
+## Privacy coverage of this repo (2026-10-29 review)
+
+This repo is public. Pieter asked whether anything checks that it holds no sensitive data. The
+gate, CI and the weekly audit do, but with the gaps below. They were mapped read-only on 2026-10-29.
+`gate.sh scan-tree` on that day's tree was clean. Specifics live in the private findings register
+and are cited here by ID only. Each fix earns its own decision entry when it is built.
+
+- [ ] Full-history personal-data scan of dotfiles itself. Nothing reads this repo's history for
+      personal data: `security-audit.sh` step 4 skips repos with a local clone (`:153`), dotaudit's
+      history pass reads file names only, and CI history is gitleaks (secrets) only. Run step 4's
+      `git log -p --all` scan of shapes and personal values on local public repos too, starting
+      with this one. It would have reported SA-2.2h and the 16 historical home-path lines (SA-2.5,
+      accepted under D11). Added 2026-10-29.
+- [ ] The gate never applies `CONTENT_RULES` or `SECRETISH_RE`; only dotaudit does, weekly. Either
+      wire them into `scan_added` in `security/gate.sh`, or correct the `security/patterns.sh`
+      header, which says the gate uses them. Added 2026-10-29.
+- [ ] Block binary plists in the gate (`bplist00` magic). Early `macos/*.plist` commits were binary,
+      which gitleaks and `scan_added` cannot read. HEAD is XML now, but nothing stops a binary one
+      coming back. Add a case to `scripts/test-security-gate.sh`. Added 2026-10-29.
+- [ ] The fixture exemption also skips the personal-values check: in `gate.sh:182-184` the
+      `EXAMPLE_PATH_ERE` filter runs before the personal-pattern check at `:215`. Fix this together
+      with GW-1, which narrows the match to path segments. Also: fixture emails on domains outside
+      the placeholder list (`company.io`, `npmjs-mail.io`) should move to `example.*`.
+      Added 2026-10-29.
+- [ ] New shape rules in `security/patterns.sh`, each with gate tests: private IPv4 ranges,
+      `.local`/`.internal` hostnames, AWS ARNs and S3 bucket URLs outside mermaid diagrams, and
+      SSH `Host`/`IdentityFile` lines. Street addresses (asked for by policy §5): decide whether a
+      regex is worth its false positives. Added 2026-10-29.
+- [ ] `scripts/sync-dotfiles.sh` copies these raw, with no sanitizer: `.zshrc`, `.zprofile`,
+      `.p10k.zsh`, `.gitignore_global`, `Brewfile` and `rectangle.plist`. The gitconfig sanitizer
+      strips home paths but not the email; the ssh config one keeps `Host` aliases and
+      `IdentityFile`. Run all of them through home-path and email sanitizing. Added 2026-10-29.
+- [ ] A private name denylist the gate reads, next to `private/security/personal-patterns.conf`:
+      private repo names, clients, family. Today nothing reads `docs/`, `CHANGELOG.md`, `TODO.md` or
+      the decision log for meaning, only for shapes. Decide whether this is worth its upkeep.
+      Added 2026-10-29.
+- [ ] Docs and code disagree: the `patterns.sh` header (`:5-11`) says the personal-patterns file is
+      loaded "only" by the gate, but `security-audit.sh` loads it too; and `audit/30-privacy.sh:35`
+      lists `PHONE_RE` but never calls it. Added 2026-10-29.
 
 ## Open decisions
 

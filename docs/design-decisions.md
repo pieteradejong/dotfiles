@@ -1348,3 +1348,57 @@ all` PATCHes `"deploymentType":"all"`; `check --protect all` against a Standard 
 before any `vercel` call. Live, 2026-10-28, on Hobby: `init --name trump-docu --protect all`
 applied `"deploymentType":"all"`, and `check --protect all` passes all eight lines. After the
 first push, `https://trump-docu.vercel.app/` → 302 to `vercel.com/sso-api`.
+
+## D52 — The CLAUDE.md files are fact-checked by a script; the workspace file sheds its copies · 2026-10-29
+
+**Problem.** Pieter asked for a review of the `CLAUDE.md` files, then for a script that does the
+review automatically. The global file (`claude/CLAUDE.md`, copied to `~/.claude/CLAUDE.md`) stated
+versions that had all drifted. It said macOS 26.4.1 (installed: 27.0.1), Node 22.16 (26.7), Python
+3.14 (3.15) and Homebrew 5.1.8 (7.0.11), and it listed cargo, Rust, pnpm, yarn and Terraform, none
+of which are installed. Every session read those versions as facts. `scripts/test-docs.py` already
+checks that each live copy matches its source, but nothing checked whether the sources are true.
+The workspace file was 238 lines and loaded every session. That included a 45-line Templates
+section that only matters when scaffolding, and a mermaid flowchart that repeated steps 1–6 while
+saying it was "not a second copy". The TODO and decision discipline was written out twice.
+
+**Decision.**
+- `scripts/claude-md-check.py`, a stdlib Python script, reads both sources. It compares every row
+  of a table headed "Version", plus a few known prose claims, with the installed tool's banner. It
+  warns on an "as of / checked / verified" date older than 90 days and on a file over 200 lines.
+  `--apply` rewrites drifted versions in the source at the precision the file states. It refuses
+  to write a live copy, and `test-docs.py` already tells you to copy the source over.
+- A stated version matches when its components are a prefix of the installed one. The global file
+  therefore now gives versions as major.minor, so weekly Homebrew patch upgrades no longer make it
+  wrong. A tool that is not installed reads "not installed", which keeps its usage rule.
+- In the workspace file, the Templates section moves to `claude/templates-CLAUDE.md`. It is copied
+  to `~/dev/templates/CLAUDE.md` as a fourth `synced` pair in `test-docs.py`, and the root keeps a
+  pointer. The flowchart is gone. The hard rule points to steps 3–6 instead of restating them.
+  Step 3 now names where workspace-level decisions go, matching what the hooks already say.
+- The model-routing section stays where it is, per D39.
+
+**Rejected.**
+- *Dropping the version tables*, which was the first suggestion: the versions do tell an assistant
+  something (Node 26 rather than 22, no Rust toolchain). Once a script keeps them true, keeping them
+  costs little.
+- *Folding the check into `test-docs.py`*: that suite runs in CI on Linux, where the Mac's tools
+  don't exist. This check is about this machine.
+- *Moving model selection to a policy doc*: that reverses D39, which kept it loaded on purpose.
+- *Writing `~/dev/templates/CLAUDE.md` only in place*: `templates/` is not a git repo, so the text
+  would have no history and no backup through git.
+
+**Cost.** The `PROBES` table has to know each tool's banner. A tool added to the file without a
+probe is a note, not a FAIL, and the `claudemd` smoke test fails if a version row has no probe.
+The check runs only when someone runs it; scheduling it is a TODO. Major.minor drops patch
+detail that nobody used.
+
+**Verified.** 2026-10-29: `./test.sh claudemd` → `claude-md-check: 36 passed, 0 failed`. Seven
+mutations of the script (substring instead of prefix matching, no fence handling, no probe timeout,
+an off-by-one age, no live-copy guard, no backtick-aware cells, future dates counted) each fail the
+suite. `./test.sh docs` → `12 passed, 0 failed`, with the new templates pair included.
+`./test.sh ruff` and `./test.sh shellcheck` are clean. On this Mac, before the fix:
+`claude-md-check: 22 FAIL, 1 WARN`; after `--apply` and the hand edits: `0 FAIL, 0 WARN`.
+`wc -l claude/dev-CLAUDE.md` → 173 (was 238). NOT YET: a fresh session under `templates/` loading
+the new file. Ancestor and subdirectory loading are Claude Code's documented behaviour, not
+re-tested here.
+
+

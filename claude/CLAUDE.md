@@ -1,10 +1,12 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Global guidance for Claude Code on this Mac: the machine, its tools, and conventions that hold in every
+project. Workspace rules are in `~/dev/CLAUDE.md`. Versions are major.minor on purpose, and
+`~/dev/dotfiles/scripts/claude-md-check.py` checks them against what is installed (`--apply` updates them).
 
 ## System
 
-- **OS**: macOS 26.4.1 (Darwin 25.4.0), Apple Silicon ARM64 (M1 Pro, T6000)
+- **OS**: macOS 27.0 (Darwin 27.0), Apple Silicon ARM64 (M1 Pro, T6000)
 - **Hardware**: 10 CPU cores, 32 GB RAM
 - All binaries should be ARM64-native unless a specific x86 tool is required. Avoid suggesting Rosetta workarounds unless necessary.
 
@@ -21,13 +23,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 | Manager | Version | Use for |
 |---------|---------|---------|
-| Homebrew | 5.1.8 | macOS system packages |
-| npm | 11.7.0 | Node.js packages (default) |
-| pnpm | 10.26.1 | Node.js (prefer when already in use in a project) |
-| yarn | 1.22.22 | Node.js (use only if project already uses it) |
-| pip / pip3 | 26.1 | Python packages |
-| cargo | 1.72.0 | Rust crates |
-| gem | 3.0.3.1 | Ruby gems |
+| Homebrew | 7.0 | macOS system packages |
+| npm | 11.19 | Node.js packages (default) |
+| pnpm | not installed | Node.js (prefer when already in use in a project) |
+| yarn | not installed | Node.js (use only if project already uses it) |
+| pip / pip3 | 26.2 | Python packages |
+| cargo | not installed | Rust crates |
+| gem | 3.0 | Ruby gems |
 
 Prefer `brew` for system-level installs. For Node projects, default to `npm` unless the project already uses `pnpm` or `yarn`. Never mix package managers within a single project.
 
@@ -35,32 +37,32 @@ Prefer `brew` for system-level installs. For Node projects, default to `npm` unl
 
 | Language | Version | Path |
 |----------|---------|------|
-| Node.js | 22.16.0 | managed via nvm 0.40.3 |
-| Python | 3.14.4 | `/opt/homebrew/bin/python3` |
-| Go | 1.20.3 | system |
-| Rust | 1.72.0 | via cargo |
-| Swift | 6.2.1 | Xcode toolchain |
-| Ruby | 2.6.10 | system (macOS built-in) |
-| Java | OpenJDK 17.0.1 | system |
-| PHP | 8.5.5 | Homebrew |
+| Node.js | 26.7 | managed via nvm 0.40.3 |
+| Python | 3.15 | `/opt/homebrew/bin/python3` |
+| Go | 1.20 | system |
+| Rust | not installed | via cargo |
+| Swift | 6.4 | Xcode toolchain |
+| Ruby | 2.6 | system (macOS built-in) |
+| Java | OpenJDK 17.0 | system |
+| PHP | 8.5 | Homebrew |
 
-Node versions are managed with **nvm** — when suggesting Node version changes or `.nvmrc` files, use nvm commands. Python is Homebrew-managed (3.14); always use `python3`, never `python`. Ruby 2.6 is the system fallback — for new projects, check if a newer Homebrew Ruby is needed.
+Node versions are managed with **nvm** — when suggesting Node version changes or `.nvmrc` files, use nvm commands. Python is Homebrew-managed (3.15); always use `python3`, never `python`. Ruby 2.6 is the system fallback — for new projects, check if a newer Homebrew Ruby is needed.
 
 ## Key Dev Tools
 
 | Tool | Version |
 |------|---------|
-| git | 2.54.0 |
-| gh (GitHub CLI) | 2.92.0 |
-| Docker CLI (Homebrew) | 29.8.1 |
-| Docker Compose plugin | 5.5.1 |
-| Colima | 0.10.3 |
-| kubectl | v1.37.0 |
-| Terraform | v1.14.9 |
-| Supabase CLI | 2.117.0 |
-| jq | 1.8.1 |
-| curl | 8.7.1 |
-| wget | 1.25.0 |
+| git | 2.56 |
+| gh (GitHub CLI) | 2.103 |
+| Docker CLI (Homebrew) | 29.9 |
+| Docker Compose plugin | 5.6 |
+| Colima | 0.10 |
+| kubectl | v1.37 |
+| Terraform | not installed |
+| Supabase CLI | 2.122 |
+| jq | 1.8 |
+| curl | 8.7 |
+| wget | 1.25 |
 
 Docker Desktop is **not** installed. Containers run on **Colima**, started on demand (`colima start`, then `colima stop` when done); nothing container-related starts at login. Prefer `docker compose` (plugin, no hyphen) over the legacy `docker-compose`. Local Postgres for non-Supabase projects is native Homebrew `postgresql@17` + `postgis`, not a container. Details: `~/dev/dotfiles/docs/containers.md`. The GitHub CLI (`gh`) is available for PR/issue operations.
 

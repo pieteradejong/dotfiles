@@ -5,7 +5,7 @@
 #   ./test.sh                 all suites
 #   ./test.sh gate            one suite: shellcheck | zsh-syntax | ruff | bin | gate |
 #                                        tools | dotaudit | containers | maint | mail | pwdgen |
-#                                        logs | docs
+#                                        logs | docs | claudemd
 #   ./test.sh --verbose       pass --verbose through to each suite
 #
 # Suites:
@@ -33,6 +33,8 @@
 #   docs        scripts/test-docs.py            (policy doc links, anchors, index,
 #                                                workspace CLAUDE.md in sync, mermaid
 #                                                diagrams well-formed and generic)
+#   claudemd    scripts/test-claude-md-check.py (the CLAUDE.md fact check against stub
+#                                                tools; never probes this Mac)
 #
 # Requires: git 2.54+, gitleaks, shellcheck, jq, ruff, python3. pre-commit is optional.
 
@@ -44,8 +46,8 @@ ONLY=""
 for a in "$@"; do
   case "$a" in
     --verbose) VERBOSE="--verbose" ;;
-    shellcheck|zsh-syntax|ruff|bin|gate|tools|dotaudit|containers|maint|mail|pwdgen|logs|docs) ONLY="$a" ;;
-    -h|--help) sed -n '3,25p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    shellcheck|zsh-syntax|ruff|bin|gate|tools|dotaudit|containers|maint|mail|pwdgen|logs|docs|claudemd) ONLY="$a" ;;
+    -h|--help) sed -n '3,39p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown argument: $a" >&2; exit 2 ;;
   esac
 done
@@ -98,6 +100,8 @@ PYTHON_FILES="
 bin/mail-report
 bin/pwd-gen
 scripts/audit-dashboard.py
+scripts/claude-md-check.py
+scripts/test-claude-md-check.py
 scripts/test-docs.py
 scripts/test-mail-report.py
 scripts/test-pwd-gen.py
@@ -151,6 +155,7 @@ run_suite mail     python3 scripts/test-mail-report.py $VERBOSE
 run_suite pwdgen   python3 scripts/test-pwd-gen.py $VERBOSE
 run_suite logs     bash scripts/test-logs.sh $VERBOSE
 run_suite docs     python3 scripts/test-docs.py $VERBOSE
+run_suite claudemd python3 scripts/test-claude-md-check.py $VERBOSE
 
 printf '\n\033[1m════ test.sh summary ════\033[0m%b\n' "$RESULTS"
 exit "$FAILED"

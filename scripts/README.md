@@ -64,6 +64,7 @@ scripts/
 | [`sync-dotfiles.sh`](sync-dotfiles.sh) (`dotfiles`) | bash | copy configs between `~` and this repo (`backup`, `restore`, `status`, `extensions`, `push`) | mutating, `--dry-run` | partly, `test-security-tools.sh` (sanitizers) |
 | [`mac-maintenance.sh`](mac-maintenance.sh) | bash | uptime, memory and disk report; moves `~/Library/Caches/*` (except pip, pip-tools, Homebrew) into one dated Trash folder; logs and mails the run (`bin/mail-report`) | mutating, `--dry-run`, `--no-mail` | `test-mac-maintenance.sh` |
 | [`dothelp.sh`](dothelp.sh) (`dothelp`) | bash | print a hand-written cheat sheet of the `dot*` commands | read-only | none |
+| [`claude-md-check.py`](claude-md-check.py) | python | check that the versions, dated claims and size of `claude/CLAUDE.md` and `claude/dev-CLAUDE.md` are still true of this Mac; `--apply` rewrites drifted versions at the stated precision | read-only · `--list` · `--apply [--dry-run]` | `test-claude-md-check.py` |
 
 Scheduling and output locations: [`docs/maintenance.md`](../docs/maintenance.md).
 
@@ -79,6 +80,7 @@ Scheduling and output locations: [`docs/maintenance.md`](../docs/maintenance.md)
 | `test-mail-report.py` | [`bin/mail-report`](../bin/mail-report) against a fake `security`; every send is a `--dry-run` | yes (`mail`) |
 | `test-logs.sh` | decision log + changelog coverage end to end: `security/lib/logs.sh`, [`bin/whatsup`](../bin/whatsup), the `SessionStart` and `Stop` hooks, the gate's log rules (through real commits in a sandbox), the two dotaudit ids, registration and docs | yes (`logs`) |
 | `test-pwd-gen.py` | [`bin/pwd-gen`](../bin/pwd-gen): lengths, character classes, counts, the exact entropy line, wordlist resolution and exit codes; `--copy` against a fake `pbcopy` | yes (`pwdgen`) |
+| `test-claude-md-check.py` | `claude-md-check.py` against fixture files and stub tool banners; never probes this Mac; a `--list` smoke run over the real sources | yes (`claudemd`) |
 | `test-docs.py` | policy doc links and anchors, index coverage, workspace `CLAUDE.md` sync | yes (`docs`) |
 | `test-dotfiles-setup.sh` (`dottest`) | checks that this machine's live configs are in place | **no** |
 | `test/assertions.sh` | a restore into a clean Debian container ends up in the expected state | **no** (manual `docker run`) |
