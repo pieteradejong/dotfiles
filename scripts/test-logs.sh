@@ -435,6 +435,40 @@ run_stop st15; blocks "an item that is also in ~/dev/TODO.md blocks"
 reason_has 'todo-cross-file — same as .*/dev/TODO.md:3 \(open here, done there\)' "reason names the other file and the state mismatch"
 rm -f "$DEV_ROOT/TODO.md"
 
+# Logs written through the shell: no Edit/Write in the transcript (D54).
+mk_repo shellws; printf '# TODO\n\n- [ ] older item\n' > "$DEV_ROOT/TODO.md"; run_start st20
+[ -f "$T/state/st20.sums" ] && [ "$(stat -f %Lp "$T/state/st20.sums")" = 600 ] && pass "session start records the log sums (mode 600)" || fail "no sums file"
+printf -- '- [ ] Push the fix — 2026-10-30\n' >> "$DEV_ROOT/TODO.md"
+transcript "$T/t20.jsonl" 'Done. The push is still open.'
+run_stop st20 "$T/t20.jsonl"; out_empty "~/dev/TODO.md appended through the shell counts as touched"
+mk_repo shelldirty; printf '# TODO\n\n- [ ] old\n' > TODO.md; run_start st21
+printf -- '- [ ] Tag the release — 2026-10-30\n' >> TODO.md
+transcript "$T/t21.jsonl" 'Done. The push is still open.'
+run_stop st21 "$T/t21.jsonl"; out_empty "a repo TODO.md dirty at start, then appended through the shell, counts as touched"
+run_start st21; printf -- '- [ ] another\n' >> TODO.md
+grep -c '' "$T/state/st21.sums" | grep -qx 4 && pass "a second session start keeps the first sums (no duplicate rows)" || fail "sums rows: $(grep -c '' "$T/state/st21.sums")"
+rm -f "$DEV_ROOT/TODO.md"
+
+# The same change set with new open-work wording: only the TODO question returns.
+mk_repo reword; run_start st22; echo 'echo more' >> run.sh
+transcript "$T/t22.jsonl" 'Changed run.sh.'
+run_stop st22 "$T/t22.jsonl"; blocks "uncovered change blocks"
+transcript "$T/t22b.jsonl" 'No entry owed; the deploy is still open.'
+run_stop st22 "$T/t22b.jsonl"; blocks "new open work on the same change set blocks"
+reason_has 'names open work' "with the TODO reason"
+out_lacks 'No entry added|no CHANGELOG.md change' "but not the file reasons again"
+transcript "$T/t22c.jsonl" 'Pushed nothing; follow-up: the DNS check.'
+run_stop st22 "$T/t22c.jsonl"; out_lacks 'No entry added|no CHANGELOG.md change' "nor on a third wording"
+printf '# TODO\n\n- [ ] DNS check — 2026-10-30\n' > TODO.md
+run_stop st22 "$T/t22c.jsonl"; out_empty "writing TODO.md does not bring the file reasons back"
+
+# One session, two repos: each keeps its own ack.
+mk_repo hopa; a="$d"; run_start st23; echo x >> run.sh
+mk_repo hopb; b="$d"; echo y >> run.sh
+cd "$a" || exit 1; run_stop st23; blocks "repo A asks"
+cd "$b" || exit 1; run_stop st23; blocks "repo B asks"
+cd "$a" || exit 1; run_stop st23; out_empty "back in repo A: still acknowledged"
+
 # The workspace root: not a repo, measured through the transcript only.
 cd "$DEV_ROOT" || exit 1
 printf '# TODO\n\n- [ ] Review the sweep\n- [ ] Review the sweep\n' > TODO.md
@@ -448,6 +482,9 @@ run_stop st17 "$T/t17.jsonl"; blocks "at ~/dev, open work named with no TODO wri
 reason_has 'in ~/dev/TODO.md' "reason points at the workspace TODO"
 expect 0 "at ~/dev with nothing changed and nothing open: exit 0" run_stop st18
 out_empty "and silent"
+printf '# TODO\n\n- [ ] Review the sweep\n' > TODO.md; run_start st24; [ -f "$T/state/st24.sums" ] && pass "at ~/dev, session start records the workspace TODO sum" || fail "no root sums"
+printf -- '- [ ] Push — 2026-10-30\n' >> TODO.md
+run_stop st24 "$T/t17.jsonl"; out_empty "at ~/dev, a TODO.md written through the shell counts as touched"
 rm -f TODO.md
 mkdir -p "$DEV_ROOT/projects/scratch/notes"; cd "$DEV_ROOT/projects/scratch/notes" || exit 1
 printf '{"name":"Write","input":{"file_path":"%s/x.md"}}\n' "$PWD" > "$T/t19.jsonl"; printf 'a\na\n' > x.md
@@ -485,7 +522,7 @@ printf 'garbage' | "$STOP" > "$OUT" 2>&1 && pass "malformed stdin: exit 0" || fa
 out_empty "malformed stdin: no output"
 expect 0 "outside a repo: exit 0" run_stop st11
 out_empty "outside a repo: silent"
-[ "$(stat -f %Lp "$T/state/st1.ack")" = 600 ] && pass "ack file is mode 600" || fail "ack mode"
+for ack in "$T"/state/st1.*.ack; do break; done; [ "$(stat -f %Lp "$ack")" = 600 ] && pass "ack file is mode 600" || fail "ack mode"
 
 # ================================================================================
 header "6. bin/doc-dupes — duplicate and near-duplicate entries"

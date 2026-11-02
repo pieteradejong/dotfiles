@@ -1521,3 +1521,45 @@ interpreter and a stub `mail-report`, and covers exit codes 0, 1, 3 and 4, mail 
 and `--no-mail`. NOT YET: the job installed, one real Monday run, and a received email. All three
 wait on the credentials (twittertools `TODO.md` 2026-10-29).
 
+## D54 — stop-log-check detects log writes by checksum and acks each question on its own · 2026-10-30
+
+**Problem.** Two false nags from the Stop hook (`~/dev/TODO.md` items of 2026-10-28 and
+2026-10-29). (1) It decided whether `TODO.md` was touched from git and from the Edit/Write calls in
+the transcript. `~/dev/TODO.md` is in no repo, and `logs_changed_paths` leaves out a log that was
+already dirty at session start. So an item written with a heredoc or `python3` was invisible, and
+the hook said "no TODO.md was touched" (seen in the tpusa_ops session). (2) The ack key was the
+changed paths *plus* the open-work lines of the latest reply. Any new wording ("still open",
+"follow-up") made a new key, and the block came back with every reason, the decision-log one
+included, though no file had changed (seen 4× in LOTR). There was also one ack per session, so a
+session working in two repos overwrote its own ack.
+
+**Decision.**
+- `session-start.sh` writes `<state>/<session>.sums`: the `cksum` of `~/dev/TODO.md` and, in a
+  repo, of its `TODO.md`, `CHANGELOG.md` and decision log (`MISSING` when absent). At the
+  workspace root it records `~/dev/TODO.md` only. A path already recorded keeps its first sum, so
+  a resume or compaction doesn't move the baseline. The Stop hook adds every recorded file whose
+  contents differ to the changed set, and counts `~/dev/TODO.md` as touched when it differs. No
+  sums file means the old behaviour.
+- The reasons are acked in two kinds. The file reasons are keyed on their own text, which names
+  the uncovered files and their count. The open-work reason is keyed on the matched lines, or for
+  a NOT YET entry on the changed paths. A newly named open item reopens only the TODO question.
+  Writing `TODO.md` doesn't bring the decision-log question back. A new behaviour file still
+  reopens it. Acks are `<session>.<cksum of repo top>.ack`, one per repo.
+
+**Rejected.**
+- *mtime against the session start*: another session or an editor touching the file looks like a
+  write, and root mode has no start time on disk to compare with. Contents are what matter.
+- *Parsing Bash commands for redirects to `TODO.md`*: heredocs, `python3 -c`, `sed -i` and
+  `tee` would each need a pattern, and it would still miss a script that writes the file.
+- *Checksumming the whole dirty tree*: only the log files are asked about, and the short list
+  stays cheap in big dirty repos.
+- *Keying the file reasons on the changed paths*: writing `TODO.md` adds a path, so the
+  decision-log question came back the very turn it was answered.
+
+**Verified.** 2026-10-30: `bash scripts/test-logs.sh` → `279 passed, 0 failed`, 15 of them new
+(the sums file and its mode, shell-written `~/dev/TODO.md` in repo and root mode, a dirty repo
+`TODO.md`, re-worded open work keeping only the TODO reason, a TODO write not reopening the file
+reasons, two repos in one session). The same new suite against the old hook (a worktree at
+`de88915`) → `268 passed, 11 failed`, the failures being exactly the new cases. `./test.sh` → all
+14 suites ✓, shellcheck included. NOT YET: one real session confirming that a heredoc-written
+`~/dev/TODO.md` ends the turn without a block (`~/dev/TODO.md` 2026-10-30).

@@ -44,16 +44,27 @@ HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WHATSUP="$HOOK_DIR/../../bin/whatsup"
 STATE_DIR="${CLAUDE_LOGS_STATE_DIR:-$HOME/.local/state/claude-logs}"
 
+DEV_ROOT="${DEV_ROOT:-$HOME/dev}"
+DEV_ROOT="$(cd "$DEV_ROOT" 2>/dev/null && pwd -P || printf '%s' "$DEV_ROOT")"
+
 input="$(cat 2>/dev/null || true)"
 
-if top="$(git --no-optional-locks rev-parse --show-toplevel 2>/dev/null)" && [ -n "$top" ]; then
-  sid=""
-  command -v jq >/dev/null 2>&1 && sid="$(printf '%s' "$input" | jq -r '.session_id // empty' 2>/dev/null)"
-  if [ -n "$sid" ]; then
-    # shellcheck source=security/lib/logs.sh
-    if . "$HOOK_DIR/../../security/lib/logs.sh" 2>/dev/null && ! logs_exempt "$top" >/dev/null; then
+sid=""
+command -v jq >/dev/null 2>&1 && sid="$(printf '%s' "$input" | jq -r '.session_id // empty' 2>/dev/null)"
+# shellcheck source=security/lib/logs.sh
+if [ -n "$sid" ] && . "$HOOK_DIR/../../security/lib/logs.sh" 2>/dev/null; then
+  if top="$(git --no-optional-locks rev-parse --show-toplevel 2>/dev/null)" && [ -n "$top" ]; then
+    if ! logs_exempt "$top" >/dev/null; then
       logs_write_baseline "$top" "$STATE_DIR" "$sid" || true
+      dec="$(logs_decisions_file "$top" || true)"
+      logs_write_sums "$STATE_DIR" "$sid" "$DEV_ROOT/TODO.md" "$top/TODO.md" "$top/CHANGELOG.md" \
+        ${dec:+"$top/$dec"} || true
     fi
+  else
+    # The workspace root, or a directory under it that is in no repo.
+    case "$(pwd -P)/" in
+      "$DEV_ROOT"/*) logs_exempt "$(pwd -P)" >/dev/null || logs_write_sums "$STATE_DIR" "$sid" "$DEV_ROOT/TODO.md" || true ;;
+    esac
   fi
 fi
 

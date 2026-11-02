@@ -31,14 +31,18 @@
 # shows the reason to the assistant. Exit 0 with no output lets it end.
 #
 # Never loops: stop_hook_active is true when the assistant is already continuing
-# because of this hook, and then it always lets the turn end. Never nags: one
-# block per change set (the changed paths plus the open-work lines that matched),
-# remembered in <state>/<session_id>.ack. Never wedges: any failure (no jq, no
+# because of this hook, and then it always lets the turn end. Never nags: the
+# reasons come in two kinds, each asked once — the file reasons per set of
+# changed paths, the open-work reason per set of open-work lines — remembered in
+# <state>/<session_id>.<repo cksum>.ack, so new wording in a reply does not bring
+# the decision-log question back (D54). Never wedges: any failure (no jq, no
 # git, no repo, malformed input) exits 0 silently.
 #
 # "What changed" is measured against the baseline the SessionStart hook wrote
 # (<state>/<session_id>.base), or against HEAD when there is none, plus every
-# file the transcript shows an Edit/Write call on. Shared logic:
+# file the transcript shows an Edit/Write call on, plus every log file whose
+# contents differ from the sum recorded at session start (<session_id>.sums —
+# catches ~/dev/TODO.md and logs written through the shell). Shared logic:
 # security/lib/logs.sh. Exempt repos (scratch, forks, the skip list) are skipped.
 #
 # Env:  CLAUDE_LOGS_STATE_DIR   (default ~/.local/state/claude-logs)
@@ -90,6 +94,15 @@ if [ "$root_mode" = 0 ]; then
   changed="$( { logs_changed_paths "$top" "$base"; logs_transcript_paths "$top" "$transcript"; } | awk 'NF' | LC_ALL=C sort -u)"
 else
   changed="$(logs_transcript_paths "$top" "$transcript" | logs_outside_repos "$top" | awk 'NF' | LC_ALL=C sort -u)"
+fi
+# Log files whose contents changed since session start, however they were written.
+sum_changed=""
+[ -n "$sid" ] && sum_changed="$(logs_changed_since_sums "$STATE_DIR/$sid.sums")"
+under() { awk -v top="$1/" 'index($0, top) == 1 { print substr($0, length(top) + 1) }'; }
+if [ -n "$sum_changed" ]; then
+  if [ "$root_mode" = 0 ]; then extra="$(printf '%s\n' "$sum_changed" | under "$top")"
+  else extra="$(printf '%s\n' "$sum_changed" | under "$top" | logs_outside_repos "$top")"; fi
+  changed="$(printf '%s\n%s\n' "$changed" "$extra" | awk 'NF' | LC_ALL=C sort -u)"
 fi
 
 # The closing summary: does it name work left open?
@@ -148,6 +161,8 @@ fi
 todo_touched=0
 touched TODO.md && todo_touched=1
 [ "$root_mode" = 0 ] && logs_transcript_paths "$DEV_ROOT" "$transcript" | grep -qx TODO.md && todo_touched=1
+printf '%s\n' "$sum_changed" | grep -qxF -- "$DEV_ROOT/TODO.md" && todo_touched=1
+open_reason=""
 if [ "$todo_touched" = 0 ] && { [ -n "$open_lines" ] || [ "$new_not_yet" = 1 ]; }; then
   # shellcheck disable=SC2088 # a path to show, not to expand
   if [ "$root_mode" = 1 ]; then where="~/dev/TODO.md"
@@ -155,7 +170,7 @@ if [ "$todo_touched" = 0 ] && { [ -n "$open_lines" ] || [ "$new_not_yet" = 1 ]; 
   else where="TODO.md — create it at the repo root (or use ~/dev/TODO.md for a workspace-level item)"; fi
   if [ "$new_not_yet" = 1 ] && [ -z "$open_lines" ]; then why="A decision entry added this session is Verified: NOT YET"
   else why="Your reply names open work ($(first3 "$(printf '%s\n' "$open_lines" | cut -c1-80)"))"; fi
-  add "$why, and no TODO.md was touched. Put each open item in $where as '- [ ] <item> — <date>, <the decision or report it points to>', or say in one line that no item is owed."
+  open_reason="- $why, and no TODO.md was touched. Put each open item in $where as '- [ ] <item> — <date>, <the decision or report it points to>', or say in one line that no item is owed."$'\n'
 fi
 
 # Redundancy: the logs this session touched must not now hold duplicates.
@@ -174,20 +189,33 @@ if [ -x "$DOC_DUPES" ]; then
   done
 fi
 
-[ -n "$reasons" ] || exit 0
+[ -n "$reasons" ] || [ -n "$open_reason" ] || exit 0
 
-# One nudge per change set. The ack is keyed on the set of changed paths plus
-# the open-work lines that matched, so a new file or a newly named open item
-# reopens the question and a reply that says "no entry owed" closes it.
-key="$(printf '%s\n%s\n' "$changed" "$open_lines" | cksum | cut -d' ' -f1)"
+# One nudge per question. The file reasons are keyed on their own text (which
+# names the uncovered files and their count), the open-work reason on the
+# open-work lines (or, for a NOT YET entry, on the changed paths). So a new
+# behaviour file reopens the file reasons, a newly named open item reopens only
+# the TODO reason, writing TODO.md does not bring back the decision-log question,
+# and a reply that says "no entry owed" closes both. One ack per session and
+# repo, so moving between repos keeps each one's.
+fkey="$(printf '%s' "$reasons" | cksum | cut -d' ' -f1)"
+if [ -n "$open_lines" ]; then okey="$(printf '%s\n' "$open_lines" | cksum | cut -d' ' -f1)"
+else okey="notyet-$(printf '%s\n' "$changed" | cksum | cut -d' ' -f1)"; fi
 if [ -n "$sid" ]; then
-  ack="$STATE_DIR/$sid.ack"
-  [ -f "$ack" ] && [ "$(cat "$ack" 2>/dev/null)" = "$key" ] && exit 0
-  mkdir -p "$STATE_DIR" 2>/dev/null && printf '%s\n' "$key" > "$ack" 2>/dev/null && chmod 600 "$ack" 2>/dev/null
+  ack="$STATE_DIR/$sid.$(printf '%s' "$top" | cksum | cut -d' ' -f1).ack"
+  old_f="$(sed -n 's/^files //p' "$ack" 2>/dev/null)"
+  old_o="$(sed -n 's/^open //p' "$ack" 2>/dev/null)"
+  [ "$old_f" = "$fkey" ] && reasons=""
+  [ "$old_o" = "$okey" ] && open_reason=""
+  [ -n "$reasons" ] || [ -n "$open_reason" ] || exit 0
+  [ -n "$reasons" ] && old_f="$fkey"
+  [ -n "$open_reason" ] && old_o="$okey"
+  mkdir -p "$STATE_DIR" 2>/dev/null && printf 'files %s\nopen %s\n' "$old_f" "$old_o" > "$ack" 2>/dev/null && chmod 600 "$ack" 2>/dev/null
 fi
+reasons="${reasons}${open_reason}"
 
 where_name="$(basename "$top")"; [ "$root_mode" = 1 ] && where_name="the workspace (~/dev)"
 reason="stop-log-check (~/dev/CLAUDE.md § Session workflow, steps 3–6): before finishing, cover this session's changes in $where_name:
-${reasons}Compare any entry you added against the existing ones for the same subject — doc-dupes catches repeated wording, not repeated meaning. If an item is not owed (formatting, typo, pure refactor, no alternative closed off, nothing left open), say so in one line in your reply and finish; this check will not ask again for the same set of changed files."
+${reasons}Compare any entry you added against the existing ones for the same subject — doc-dupes catches repeated wording, not repeated meaning. If an item is not owed (formatting, typo, pure refactor, no alternative closed off, nothing left open), say so in one line in your reply and finish; this check will not ask the same question again."
 jq -cn --arg r "$reason" '{decision: "block", reason: $r}'
 exit 0

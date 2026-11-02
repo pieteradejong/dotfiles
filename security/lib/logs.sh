@@ -221,7 +221,46 @@ logs_write_baseline() {
   } > "$f" 2>/dev/null || return 1
   chmod 600 "$f" 2>/dev/null
   # Baselines older than 7 days belong to sessions that are long gone.
-  find "$dir" -maxdepth 1 -type f \( -name '*.base' -o -name '*.ack' \) -mtime +7 -delete 2>/dev/null
+  find "$dir" -maxdepth 1 -type f \( -name '*.base' -o -name '*.ack' -o -name '*.sums' \) -mtime +7 -delete 2>/dev/null
+  return 0
+}
+
+# The SessionStart hook also writes <state>/<session_id>.sums — "<cksum>\t<path>"
+# for the log files the Stop hook asks about (~/dev/TODO.md, and a repo's
+# TODO.md, CHANGELOG.md and decision log). A file written through the shell
+# never shows up as an Edit/Write call, ~/dev/TODO.md is in no repo, and a log
+# that was already dirty is left out of logs_changed_paths; comparing contents
+# catches all three (design-decisions.md D54).
+
+# logs_file_sum <file> — its cksum, or MISSING.
+logs_file_sum() { if [ -f "$1" ]; then cksum < "$1" 2>/dev/null | awk '{ print $1 "-" $2 }'; else printf 'MISSING\n'; fi; }
+
+# logs_write_sums <state-dir> <session-id> <absolute-path>... — record the files'
+# sums. A path already recorded keeps its first sum, so a resumed or compacted
+# session keeps measuring from where it opened.
+logs_write_sums() {
+  local dir="$1" sid="$2" f p; shift 2
+  case "$sid" in *[!A-Za-z0-9_.-]*|'') return 1 ;; esac
+  mkdir -p "$dir" 2>/dev/null || return 1
+  chmod 700 "$dir" 2>/dev/null
+  f="$dir/$sid.sums"
+  for p in "$@"; do
+    [ -n "$p" ] || continue
+    [ -f "$f" ] && cut -f2- "$f" 2>/dev/null | grep -qxF -- "$p" && continue
+    printf '%s\t%s\n' "$(logs_file_sum "$p")" "$p" >> "$f" 2>/dev/null || return 1
+  done
+  chmod 600 "$f" 2>/dev/null
+  return 0
+}
+
+# logs_changed_since_sums <sums-file> — the absolute paths whose contents differ
+# from the recorded sum. No file → nothing.
+logs_changed_since_sums() {
+  local sum p
+  [ -f "$1" ] || return 0
+  while IFS=$'\t' read -r sum p; do
+    [ -n "$p" ] && [ "$(logs_file_sum "$p")" != "$sum" ] && printf '%s\n' "$p"
+  done < "$1"
   return 0
 }
 

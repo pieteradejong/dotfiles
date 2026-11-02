@@ -68,6 +68,8 @@ History before this file: `git log`.
 - `docs/maintenance.md` rewritten as the README for every maintenance job: at-a-glance table (script, schedule, safe mode, output, tests, plist, decisions), testing, decisions and open-items sections.
 
 ### Fixed
+- `claude/hooks/stop-log-check.sh` saw a `TODO.md` written through the shell (heredoc, `python3`) as untouched, and said "no TODO.md was touched". This covered `~/dev/TODO.md` always and a repo log that was already dirty at session start. `session-start.sh` now records a checksum of `~/dev/TODO.md` and the repo's `TODO.md`, `CHANGELOG.md` and decision log in `<session>.sums` (also at the workspace root), and the Stop hook counts any whose contents changed. New in `security/lib/logs.sh`: `logs_write_sums`, `logs_changed_since_sums`, `logs_file_sum` (D54).
+- `claude/hooks/stop-log-check.sh` asked for a decision entry again on every turn when only the reply's open-work wording changed. The file reasons and the open-work reason are now acknowledged separately: the file reasons on their own text, the TODO reason on the open-work lines. The ack is kept per session and repo (`<session>.<repo cksum>.ack`) (D54).
 - `bin/llm`: a model name containing `coding` now classifies as coder (D32).
 - `scripts/test-bin.sh` closes stdin. Under any non-terminal harness, every `llm` call had blocked in `cat` forever.
 - `docs/maintenance.md` said the `rm -rf` allowlist test was pending; it has been in `scripts/test-bin.sh` since D27.
