@@ -19,9 +19,12 @@
 #   6. loose      credential-shaped files outside any repo, or untracked and
 #                 unignored inside one (one `git add -A` from publication)
 #   7. account    SSH keys on the GitHub account, token scopes
+#   8. templates  dependency drift in the curated templates (template-versions.py
+#                 --summary; check only, never --apply)
 #
-# Usage: security-audit.sh [--quick] [--history] [--no-notify] [--out DIR]
-#   --quick      skip steps 2 and 4 (the slow ones)
+# Usage: security-audit.sh [--quick] [--templates] [--history] [--no-notify] [--out DIR]
+#   --quick      skip steps 2, 4 and 8 (the slow ones)
+#   --templates  run step 8 even under --quick
 #   --history    force dotaudit's full-history scan
 #   --no-notify  no macOS notification
 #
@@ -52,15 +55,17 @@ MIRROR_MAX_MB=1000
 SKIPLIST_FILE="${SKIPLIST_FILE:-$DOTFILES_DIR/private/audit/skiplist.conf}"
 PERSONAL_PATTERNS_FILE="$DOTFILES_DIR/private/security/personal-patterns.conf"
 BYPASS_LOG="${SECURITY_GATE_BYPASS_LOG:-$HOME/.local/state/security-gate/bypass.log}"
-QUICK=0; FORCE_HISTORY=0; NOTIFY=1
+QUICK=0; FORCE_HISTORY=0; NOTIFY=1; TEMPLATES=0
+TEMPLATE_VERSIONS="${TEMPLATE_VERSIONS:-$SCRIPT_DIR/template-versions.py}"
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --quick)     QUICK=1; shift ;;
     --history)   FORCE_HISTORY=1; shift ;;
+    --templates) TEMPLATES=1; shift ;;
     --no-notify) NOTIFY=0; shift ;;
     --out)       OUT_DIR="${2:-}"; shift 2 ;;
-    -h|--help)   sed -n '3,27p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help)   sed -n '3,30p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
 done
@@ -260,6 +265,27 @@ else
   fail_ "gh is not authenticated — GitHub steps could not run"
 fi
 
+# --- 8. templates --------------------------------------------------------------------
+section "8. Template dependency drift"
+if [ "$QUICK" = 1 ] && [ "$TEMPLATES" = 0 ]; then
+  info_ "skipped (--quick)"
+else
+  "$TEMPLATE_VERSIONS" --summary --out "$OUT_DIR" > "$WORK/templates" 2> "$WORK/templates.err"
+  trc=$?
+  while IFS="$(printf '\t')" read -r level text; do
+    case "$level" in
+      FAIL) fail_ "$text" ;;
+      WARN) warn_ "$text" ;;
+      INFO) info_ "$text" ;;
+    esac
+  done < "$WORK/templates"
+  if [ "$trc" -ge 2 ]; then
+    warn_ "template-versions.py exit $trc — the check is incomplete: $(head -1 "$WORK/templates.err")"
+  fi
+  # shellcheck disable=SC2016 # the backticks are markdown code spans, not expansions
+  info_ "full table: \`template-versions-$STAMP.md\` in this directory; bump with \`template-versions.py --apply\`"
+fi
+
 # --- since last run ---------------------------------------------------------------------------------
 # FAIL/WARN lines of this run against the newest *full* report in OUT_DIR (a
 # --quick report skips sections 2 and 4, so it is never the baseline; a --quick
@@ -281,6 +307,7 @@ while IFS= read -r f; do
   if ! head -5 "$f" | grep -q '(--quick)'; then PREV="$f"; break; fi
 done < <(find "$OUT_DIR" -maxdepth 1 -name 'security-audit-*.md' 2>/dev/null | sort -r)
 SKIP_SECTIONS=""; [ "$QUICK" = 1 ] && SKIP_SECTIONS="2 4"
+[ "$QUICK" = 1 ] && [ "$TEMPLATES" = 0 ] && SKIP_SECTIONS="2 4 8"
 # shellcheck disable=SC2016 # the backticks are markdown code spans, not expansions
 if [ -z "$PREV" ]; then
   printf '## Since last run\n\n- first full report in `%s` — nothing to compare against\n' "$OUT_DIR" > "$DELTA"
@@ -293,7 +320,7 @@ else
   {
     printf '## Since last run (%s)\n\n' "$(basename "$PREV" .md | sed 's/^security-audit-//')"
     printf -- '- **%d new** · %d resolved · %d unchanged%s\n' "$N_NEW" "$N_RESOLVED" "$N_SAME" \
-      "$([ "$QUICK" = 1 ] && echo ' (sections 2 and 4 not compared: --quick)')"
+      "$([ "$QUICK" = 1 ] && echo " (sections $(echo "$SKIP_SECTIONS" | sed 's/ 8$/ and 8/; s/^2 4$/2 and 4/; s/^2 4 /2, 4 /') not compared: --quick)")"
     # Listed without the **FAIL** marker so the dashboard does not count them twice.
     if [ -s "$WORK/new" ]; then printf '\nNew:\n\n'; sed -E 's/^- \*\*(FAIL|WARN)\*\* /- \1: /' "$WORK/new"; fi
     if [ -s "$WORK/resolved" ]; then printf '\nResolved:\n\n'; sed -E 's/^- \*\*(FAIL|WARN)\*\* /- \1: /' "$WORK/resolved"; fi

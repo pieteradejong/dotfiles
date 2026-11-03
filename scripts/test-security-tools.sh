@@ -267,6 +267,16 @@ EOF2
 # A newer --quick report must not be picked as the baseline.
 printf '# Weekly security & privacy audit — 2020-02-02\n\n**0 FAIL · 0 WARN · 0 info** · generated 2020-02-02 (--quick)\n\n## 1. Commit/push gate\n\n- ok\n' > "$A/out/security-audit-2020-02-02.md"
 chmod +x "$A/bin/gh"
+# Stub template-versions.py: one template with drift, one current, a fetch that failed (exit 2).
+cat > "$A/bin/template-versions" <<'EOF2'
+#!/bin/bash
+[ "$1" = --summary ] && [ "$2" = --out ] || exit 9
+printf 'WARN\tweb: 1 major · 2 minor · 0 patch to take (1 held) — template-versions.py --apply --template web\n'
+printf 'INFO\tpy: packages current (0 held)\n'
+echo "fetch failed: example" >&2
+exit 2
+EOF2
+chmod +x "$A/bin/template-versions"
 printf 'recovery\n' > "$A/dev/github-recovery-codes.txt"
 git init -q "$A/dev/projects/app"
 printf 'x\n' > "$A/dev/projects/app/deploy.key"
@@ -287,7 +297,8 @@ cat > "$A/home/.gitconfig" <<EOF
 EOF
 HOME="$A/home" GIT_CONFIG_GLOBAL="$A/home/.gitconfig" GIT_CONFIG_NOSYSTEM=1 DEV_ROOT="$A/dev" \
   SKIPLIST_FILE="$S/skiplist.conf" SECURITY_GATE_BYPASS_LOG="$A/bypass.log" PATH="$A/bin:$REAL_PATH" \
-  "$DOTFILES_DIR/scripts/security-audit.sh" --quick --no-notify --out "$A/out" > "$OUT" 2>&1
+  TEMPLATE_VERSIONS="$A/bin/template-versions" \
+  "$DOTFILES_DIR/scripts/security-audit.sh" --quick --templates --no-notify --out "$A/out" > "$OUT" 2>&1
 rc=$?
 report="$(find "$A/out" -name 'security-audit-*.md' -newer "$A/out/security-audit-2020-02-02.md" | head -1)"
 [ -n "$report" ] && pass "report written" || fail "no report written"
@@ -319,8 +330,20 @@ grep -q 'FAIL\*\* outside any repo.*templates/loose/.env' "$report" 2>/dev/null 
 grep -q '## 3. GitHub repo settings' "$report" 2>/dev/null && pass "report has the GitHub settings section" || fail "GitHub section missing"
 grep -q 'skipped (--quick)' "$report" 2>/dev/null && pass "--quick skips the slow steps and says so" || fail "--quick not reflected"
 grep -q 'SSH keys on the account: 2' "$report" 2>/dev/null && pass "account section lists SSH key count" || fail "account section missing SSH keys"
+grep -q '^## 8. Template dependency drift$' "$report" 2>/dev/null && pass "report has the template drift section (--templates under --quick)" || fail "section 8 missing"
+grep -q '^- \*\*WARN\*\* web: 1 major · 2 minor' "$report" 2>/dev/null && pass "a template with drift is a WARN" || fail "template drift WARN missing"
+grep -q '^- py: packages current (0 held)$' "$report" 2>/dev/null && pass "a current template is info" || fail "current template not info"
+grep -q 'WARN\*\* template-versions.py exit 2 — the check is incomplete: fetch failed: example' "$report" 2>/dev/null \
+  && pass "a failed fetch makes the section say it is incomplete" || fail "incomplete check not reported"
 perm="$(stat -f %Lp "$report" 2>/dev/null || stat -c %a "$report" 2>/dev/null)"
 [ "$perm" = 600 ] && pass "report is mode 600" || fail "report mode $perm"
+mkdir -p "$A/plain"; cp "$A/out/security-audit-2020-01-01.md" "$A/plain/"
+HOME="$A/home" DEV_ROOT="$A/dev" PATH="$A/bin:$REAL_PATH" TEMPLATE_VERSIONS=/nonexistent \
+  "$DOTFILES_DIR/scripts/security-audit.sh" --quick --no-notify --out "$A/plain" > "$OUT" 2>&1
+plain="$(find "$A/plain" -name 'security-audit-*.md' ! -name '*2020-01-01*' | head -1)"
+grep -A2 '^## 8. Template dependency drift$' "$plain" 2>/dev/null | grep -q 'skipped (--quick)' \
+  && grep -q 'sections 2, 4 and 8 not compared: --quick' "$plain" \
+  && pass "plain --quick skips section 8 and leaves it out of the delta" || fail "section 8 not skipped under plain --quick"
 mkdir -p "$A/first"
 HOME="$A/home" DEV_ROOT="$A/dev" PATH="$A/bin:$REAL_PATH" "$DOTFILES_DIR/scripts/security-audit.sh" --quick --no-notify --out "$A/first" > "$OUT" 2>&1
 grep -q 'first full report in' "$(first "$A"/first/security-audit-*.md)" 2>/dev/null \

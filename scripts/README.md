@@ -59,11 +59,12 @@ scripts/
 | [`audit/`](audit/) | bash | `dev-audit.sh`'s modules (`10-`…`50-*.sh`), shared `lib.sh`, and `render-report.sh` (TSV → markdown) | sourced / read-only | via `test-dev-audit.sh` |
 | [`github-security-sweep.sh`](github-security-sweep.sh) | bash | GitHub-side protection on every owned repo | dry run · `--check` · `--apply` | `test-security-tools.sh` |
 | [`containers-doctor.sh`](containers-doctor.sh) | bash | check that containers run the way [`docs/containers.md`](../docs/containers.md) says | read-only | `test-containers-doctor.sh` |
-| [`security-audit.sh`](security-audit.sh) | bash | **composer**: the weekly audit — calls the gate, `dev-audit.sh`, `github-security-sweep.sh`, then adds its own checks | read-only | `test-security-tools.sh` |
+| [`security-audit.sh`](security-audit.sh) | bash | **composer**: the weekly audit — calls the gate, `dev-audit.sh`, `github-security-sweep.sh`, `template-versions.py --summary`, then adds its own checks | read-only | `test-security-tools.sh` |
 | [`audit-dashboard.py`](audit-dashboard.py) | python | render one local HTML dashboard from the audit reports, findings TSVs and the cleanup log; `security-audit.sh` calls it last | writes only `audit-reports/dashboard.html` | `test-security-tools.sh` |
 | [`sync-dotfiles.sh`](sync-dotfiles.sh) (`dotfiles`) | bash | copy configs between `~` and this repo (`backup`, `restore`, `status`, `extensions`, `push`) | mutating, `--dry-run` | partly, `test-security-tools.sh` (sanitizers) |
 | [`mac-maintenance.sh`](mac-maintenance.sh) | bash | uptime, memory and disk report; moves `~/Library/Caches/*` (except pip, pip-tools, Homebrew) into one dated Trash folder; logs and mails the run (`bin/mail-report`) | mutating, `--dry-run`, `--no-mail` | `test-mac-maintenance.sh` |
 | [`dothelp.sh`](dothelp.sh) (`dothelp`) | bash | print a hand-written cheat sheet of the `dot*` commands | read-only | none |
+| [`template-versions.py`](template-versions.py) | python | every pin in the eight curated templates against the latest stable release, with holds (`templates/VERSION_HOLDS.tsv`); `security-audit.sh` runs it check-only; `--apply` bumps, runs the template's `init.sh` + `test.sh --ci`, restores on failure | read-only · `--summary` · `--out` · `--apply [--dry-run]` | `test-template-versions.py` |
 | [`claude-md-check.py`](claude-md-check.py) | python | check that the versions, dated claims and size of `claude/CLAUDE.md` and `claude/dev-CLAUDE.md` are still true of this Mac; `--apply` rewrites drifted versions at the stated precision | read-only · `--list` · `--apply [--dry-run]` | `test-claude-md-check.py` |
 
 Scheduling and output locations: [`docs/maintenance.md`](../docs/maintenance.md).
@@ -81,6 +82,7 @@ Scheduling and output locations: [`docs/maintenance.md`](../docs/maintenance.md)
 | `test-logs.sh` | decision log + changelog coverage end to end: `security/lib/logs.sh`, [`bin/whatsup`](../bin/whatsup), the `SessionStart` and `Stop` hooks, the gate's log rules (through real commits in a sandbox), the two dotaudit ids, registration and docs | yes (`logs`) |
 | `test-pwd-gen.py` | [`bin/pwd-gen`](../bin/pwd-gen): lengths, character classes, counts, the exact entropy line, wordlist resolution and exit codes; `--copy` against a fake `pbcopy` | yes (`pwdgen`) |
 | `test-claude-md-check.py` | `claude-md-check.py` against fixture files and stub tool banners; never probes this Mac; a `--list` smoke run over the real sources | yes (`claudemd`) |
+| `test-template-versions.py` | `template-versions.py` against fixture templates and file:// registry answers (offline); `--apply` with stub `init.sh` / `test.sh` / `npm` | yes (`templates`) |
 | `test-docs.py` | policy doc links and anchors, index coverage, workspace `CLAUDE.md` sync | yes (`docs`) |
 | `test-dotfiles-setup.sh` (`dottest`) | checks that this machine's live configs are in place | **no** |
 | `test/assertions.sh` | a restore into a clean Debian container ends up in the expected state | **no** (manual `docker run`) |

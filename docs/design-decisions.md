@@ -1563,3 +1563,53 @@ reasons, two repos in one session). The same new suite against the old hook (a w
 `de88915`) → `268 passed, 11 failed`, the failures being exactly the new cases. `./test.sh` → all
 14 suites ✓, shellcheck included. NOT YET: one real session confirming that a heredoc-written
 `~/dev/TODO.md` ends the turn without a block (`~/dev/TODO.md` 2026-10-30).
+
+## D55 — Template dependency drift is a script, run check-only by the weekly audit; `--apply` tries majors behind a restore · 2026-11-03
+
+**Problem.** The eight curated templates were put on latest stable by hand on 2026-10-17
+(`templates/VERSION_REVIEW_2026-10-17.md`). By 2026-11-03 every one had drifted again: 10 majors,
+44 minors and 32 patches, plus Node 26 reaching LTS. Nothing in the maintenance jobs would have
+noticed. The templates are not repos (seven of them), so Dependabot cannot watch them.
+
+**Decision.**
+- `scripts/template-versions.py` (stdlib Python) reads the curated templates only, never the
+  Tier 2 own-repo bases. It compares every npm and PyPI pin, `.nvmrc`, the CI Python matrix and
+  Dockerfile tag, and every SHA-pinned action with npm, PyPI, endoflife.date and GitHub releases,
+  then classes each row `current | patch | minor | major | held`. An unpinned action is a FAIL.
+- Versions that cannot be taken live in `templates/VERSION_HOLDS.tsv` (bound, reason, decision
+  ref), so the check reports them as `held` and stops proposing them. Two rules are built in:
+  `@types/node` follows `.nvmrc`, and an Expo template follows its SDK's
+  `bundledNativeModules.json`.
+- The weekly audit runs it check-only as section 8 (one WARN per template with drift, one per
+  by-hand row). It is skipped under `--quick` unless `--templates` is given.
+- `--apply` writes every bump, majors included (Pieter's choice), then runs the template's own
+  `./init.sh` and `./test.sh --ci`. On failure it restores the snapshot and retries with
+  patch/minor only. It puts `LICENSE` back after every run, because `init.sh` fills its
+  placeholders. In an own-repo template it also reverts any tracked file changed outside the
+  manifests. It never commits. A major that sticks still gets its entry in the template's
+  decision log.
+
+**Rejected.**
+- *Check-only*: drift came back within two and a half weeks, and doing the bump by hand is the
+  slow part.
+- *Patch/minor only in `--apply`*: Pieter chose majors. The restore plus the patch/minor retry
+  keep a failed major from costing the safe bumps.
+- *Its own launchd job and mail*: the Sunday audit already reports weekly, with a delta and a
+  dashboard.
+- *Holds as comments in the manifests*: `package.json` has no comments, and the script could not
+  read them anyway.
+- *Running the template's plain `./test.sh` in `--apply`*: its gate step blocks any uncommitted
+  bump for want of a CHANGELOG line. The gate runs on the commit instead.
+
+**Verified.** 2026-11-03: `./test.sh` → all 15 suites ✓. `templates` is
+`scripts/test-template-versions.py`, 13 cases, offline: classes, holds, the two rules,
+unpinned-action FAIL, `--out` mode 600, `--summary`, and `--apply` pass / major-rejected /
+restore byte-identical with LICENSE reset / own-repo stray revert / refusal of a dirty repo.
+`tools` covers section 8 with `--templates` and a stub, and plain `--quick` skipping it.
+Real run: before, `template-versions.py --quiet` → `10 major · 44 minor · 32 patch · 15 held`.
+`--apply` → `APPLIED all` for seven templates on Node 26.13.0. rn-supabase failed on its audit
+step (new advisories) and its ESLint 10 major, and was finished by hand (its decision 20).
+After: `0 major · 7 minor · 0 patch · 12 held · 210 current · 0 FAIL`, where the 7 minor rows are
+`ubuntu-latest` runners (templates TODO 12). The first real run found that `init.sh`
+personalises `LICENSE` in the template; that fix and its test came from it. Not yet: section 8
+in a scheduled audit (first one 2026-11-08) — Verified: NOT YET (`~/dev/TODO.md`).

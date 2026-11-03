@@ -5,7 +5,7 @@
 #   ./test.sh                 all suites
 #   ./test.sh gate            one suite: shellcheck | zsh-syntax | ruff | bin | gate |
 #                                        tools | dotaudit | containers | maint | mail | pwdgen |
-#                                        logs | docs | claudemd
+#                                        logs | docs | claudemd | templates
 #   ./test.sh --verbose       pass --verbose through to each suite
 #
 # Suites:
@@ -35,6 +35,9 @@
 #                                                diagrams well-formed and generic)
 #   claudemd    scripts/test-claude-md-check.py (the CLAUDE.md fact check against stub
 #                                                tools; never probes this Mac)
+#   templates   scripts/test-template-versions.py (template dependency drift against
+#                                                fixture registries; offline, stub
+#                                                init.sh/test.sh/npm for --apply)
 #
 # Requires: git 2.54+, gitleaks, shellcheck, jq, ruff, python3. pre-commit is optional.
 
@@ -46,8 +49,8 @@ ONLY=""
 for a in "$@"; do
   case "$a" in
     --verbose) VERBOSE="--verbose" ;;
-    shellcheck|zsh-syntax|ruff|bin|gate|tools|dotaudit|containers|maint|mail|pwdgen|logs|docs|claudemd) ONLY="$a" ;;
-    -h|--help) sed -n '3,39p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    shellcheck|zsh-syntax|ruff|bin|gate|tools|dotaudit|containers|maint|mail|pwdgen|logs|docs|claudemd|templates) ONLY="$a" ;;
+    -h|--help) sed -n '3,42p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown argument: $a" >&2; exit 2 ;;
   esac
 done
@@ -106,6 +109,8 @@ scripts/test-claude-md-check.py
 scripts/test-docs.py
 scripts/test-mail-report.py
 scripts/test-pwd-gen.py
+scripts/template-versions.py
+scripts/test-template-versions.py
 "
 
 RESULTS=""
@@ -157,6 +162,7 @@ run_suite pwdgen   python3 scripts/test-pwd-gen.py $VERBOSE
 run_suite logs     bash scripts/test-logs.sh $VERBOSE
 run_suite docs     python3 scripts/test-docs.py $VERBOSE
 run_suite claudemd python3 scripts/test-claude-md-check.py $VERBOSE
+run_suite templates python3 scripts/test-template-versions.py $VERBOSE
 
 printf '\n\033[1m════ test.sh summary ════\033[0m%b\n' "$RESULTS"
 exit "$FAILED"

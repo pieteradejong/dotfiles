@@ -9,7 +9,8 @@ Replaces the old `weekly-cleanup.md` and `mac-maintenance.md`.
 
 | Job | Script | When | By hand | Safe mode | Output | Tests | launchd plist (repo copy) | Decisions |
 |---|---|---|---|---|---|---|---|---|
-| [Security & privacy audit](#weekly-security--privacy-audit) | `scripts/security-audit.sh` | Sundays 10:00 | `scripts/security-audit.sh --quick --no-notify` | read-only always; `--quick` skips the slow steps | `~/dev/audit-reports/security-audit-YYYY-MM-DD.md` · `~/Library/Logs/security-audit/` | `./test.sh tools` | `macos/com.pieterdejong.securityaudit.plist` | D15, D28, D30 |
+| [Security & privacy audit](#weekly-security--privacy-audit) | `scripts/security-audit.sh` | Sundays 10:00 | `scripts/security-audit.sh --quick --no-notify` | read-only always; `--quick` skips the slow steps (`--templates` keeps step 8) | `~/dev/audit-reports/security-audit-YYYY-MM-DD.md` · `~/Library/Logs/security-audit/` | `./test.sh tools` | `macos/com.pieterdejong.securityaudit.plist` | D15, D28, D30, D55 |
+| [Template drift](#template-dependency-drift) | `scripts/template-versions.py` | section 8 of each audit (check only) | `scripts/template-versions.py --quiet` | read-only; `--apply` bumps, needs the Node of the template's `.nvmrc` | `~/dev/audit-reports/template-versions-YYYY-MM-DD.{md,tsv}` | `./test.sh templates`, `ruff` | — | D55 |
 | [Dashboard](#dashboard) | `scripts/audit-dashboard.py` | after each audit | `scripts/audit-dashboard.py` | reads reports, writes one HTML file | `~/dev/audit-reports/dashboard.html` | `./test.sh tools`, `ruff` | — | D28 |
 | [Disk cleanup](#weekly-disk-cleanup) | `bin/weekly-disk-cleanup.sh` | Sundays 09:00 | `weekly-disk-cleanup.sh` | `--dry-run` | `~/.weekly-disk-cleanup.log` · [mailed](#email-reports) | `./test.sh bin` (static + `--dry-run`, never a real run) | `macos/com.pieterdejong.weeklycleanup.plist` | D18, D20, D27, D31 |
 | [Mac maintenance](#mac-maintenance-manual) | `scripts/mac-maintenance.sh` | by hand | `scripts/mac-maintenance.sh` | `--dry-run` | `~/maintenance-YYYYMMDD.log` · [mailed](#email-reports) | `./test.sh maint` (real run on a fake HOME, mail stubbed) | — | D29, D31 |
@@ -54,6 +55,7 @@ Read-only toward every repo. Why it is built this way: [design decisions D15](de
 | 5 | Bypasses | `SECURITY_GATE_BYPASS` uses in the last 7 days, with reasons | confirm each reason still holds |
 | 6 | Loose files | credential-shaped files (`*.pem`, `*.key`, `.env*`, recovery codes, …) outside any repo (FAIL), or untracked and not ignored inside one (WARN). A file outside any repo that a `.gitignore` in its directory or an ancestor already ignores — generated env files in `templates/`, say — is listed as info | move it to the password manager, or add it to `.gitignore` |
 | 7 | Account | SSH keys on the GitHub account, `gh` token scopes | remove any key you cannot place |
+| 8 | Templates | `template-versions.py --summary --out <report dir>` over the eight curated templates; skipped under `--quick` unless `--templates` | a template has bumps to take, or a runner/action to update by hand — see [Template dependency drift](#template-dependency-drift) |
 
 The report lands in `~/dev/audit-reports/` (mode 600, never inside a git repo) with the
 dotaudit and sweep reports from the same run beside it. A notification shows counts only:
@@ -68,6 +70,26 @@ the same finding on a new day is "unchanged"; only bullets under a numbered sect
 report's own delta list is never compared. The first report in a directory says there is nothing
 to compare against. Acceptance of a known finding lives in the private findings register, not in
 the script: the exit code and the counts stay honest.
+
+### Template dependency drift
+
+Section 8 runs [`scripts/template-versions.py`](../scripts/template-versions.py) check-only and leaves its full table
+beside the report as `template-versions-YYYY-MM-DD.md`. A WARN means a curated template is behind. To act on it:
+
+```zsh
+export PATH="$HOME/.nvm/versions/node/v26.13.0/bin:$PATH"   # the .nvmrc major; ~/.local/bin/node shadows nvm
+~/dev/dotfiles/scripts/template-versions.py --quiet                     # what is behind
+~/dev/dotfiles/scripts/template-versions.py --apply --dry-run           # what would run
+~/dev/dotfiles/scripts/template-versions.py --apply --template ts-web/minimal-mvp
+```
+
+`--apply` tries every bump, majors included, behind the template's own `./init.sh` + `./test.sh --ci`. If that
+fails, it restores and retries patch/minor only. A rejected major prints its error lines. Write the blocker
+in the template's decision log and add a row to `~/dev/templates/VERSION_HOLDS.tsv` so the check reports it as
+`held`; delete the row when the blocker goes. Every bump that sticks needs a line in the template's
+`CHANGELOG.md`. rn-supabase is its own repo: `--apply` refuses it with a dirty tree, and it is committed through
+the gate like any repo. Runner, action and `.nvmrc` rows are never applied; they are by-hand work. Why:
+[D55](design-decisions.md#d55--template-dependency-drift-is-a-script-run-check-only-by-the-weekly-audit---apply-tries-majors-behind-a-restore--2026-11-03).
 
 ### Install / operate
 
