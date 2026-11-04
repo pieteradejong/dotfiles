@@ -3,6 +3,7 @@
 #
 #   security       full-history gitleaks + the gate in ci mode over what was pushed
 #                  (the same reusable workflow every other repo calls)
+#   security-prev  the same, under the previous tip's rules (D56)
 #   private-guard  private/ must never be tracked, nor any submodule/gitlink
 #   tests          ./test.sh — gate, guard hook, sweep, audit, dotaudit, shellcheck, ruff, docs
 
@@ -23,6 +24,16 @@ jobs:
     uses: ./.github/workflows/security-reusable.yml
     with:
       policy-ref: ${{ github.sha }}
+
+  # The same check under the PREVIOUS rules, so a commit that weakens gate.sh,
+  # patterns.sh or gitleaks.toml is still judged by the rules it replaces (D56).
+  # Previous = the PR base, else the pre-push tip, else main (new branch,
+  # schedule, dispatch). It cannot cover an edit to this file or to the
+  # reusable workflow itself; only a required status check on main does.
+  security-prev:
+    uses: ./.github/workflows/security-reusable.yml
+    with:
+      policy-ref: ${{ github.event.pull_request.base.sha || (github.event.before != '0000000000000000000000000000000000000000' && github.event.before) || 'main' }}
 
   private-guard:
     runs-on: ubuntu-latest

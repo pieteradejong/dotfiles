@@ -1613,3 +1613,51 @@ After: `0 major · 7 minor · 0 patch · 12 held · 210 current · 0 FAIL`, wher
 `ubuntu-latest` runners (templates TODO 12). The first real run found that `init.sh`
 personalises `LICENSE` in the template; that fix and its test came from it. Not yet: section 8
 in a scheduled audit (first one 2026-11-08) — Verified: NOT YET (`~/dev/TODO.md`).
+
+## D56 — CI runs the security check twice: under the new rules and under the previous ones · 2026-11-04
+
+**Problem.** `ci.yml` passed `policy-ref: ${{ github.sha }}`, so the gate that judged a push was
+the one in that push. A commit that loosened `gate.sh`, `patterns.sh` or `gitleaks.toml` and
+added the content those rules would have caught passed CI. The risk is a bad edit by an agent
+or from a compromised machine (2026-11-02 review, `TODO.md`).
+
+**Decision.** A second job, `security-prev`, calls `security-reusable.yml` with `policy-ref` set to
+the previous rules: `github.event.pull_request.base.sha`, else `github.event.before` when it is
+not all zeros, else `main` (new branch, schedule, dispatch). Both jobs must pass.
+
+**Known limit.** Both jobs run the workflow files from the new commit, so a commit that edits
+`ci.yml` or `security-reusable.yml` can still remove the check. Only a required status check on
+`main` closes that, and it is part of the GitHub ruleset still waiting on Pieter (`TODO.md`).
+
+**Rejected.**
+- *`policy-ref: main` for the second job*: on a push to `main`, `main` already is the new commit.
+- *Calling the reusable workflow `@main` from another repo's copy*: `uses:` takes no expressions,
+  and `@main` has the same problem.
+
+**Verified.** 2026-11-04: `actionlint .github/workflows/ci.yml` reports only the `SC2155`
+warning in the `tests` job, which the committed version has too. The job itself only runs on
+GitHub, after a push: Verified: NOT YET (`TODO.md`).
+
+## D57 — The gate reads merge commits as remerge diffs · 2026-11-04
+
+**Problem.** `scan_range` read history with `--no-merges` for the content scan, and plain
+`git log` (no merge diff) for the names. A side branch's commits are in the range and scanned
+one by one. What a merge commit adds itself, a conflict resolution or an evil merge, was never
+seen: not by the personal-data rules, the private values list or the filename rules. gitleaks
+still scanned it for secrets.
+
+**Decision.** Both reads use `--diff-merges=remerge` (git 2.36+). That shows only how the merge
+differs from the automatic merge of its parents, in the ordinary patch format `diff_to_added`
+already parses. A probe at the top of `scan_range` fails closed with `git-too-old`. Otherwise an
+old git would error into `2>/dev/null` and every content check would see nothing.
+
+**Rejected.**
+- *`--cc`*: combined diffs use two prefix columns (`++`, ` +`), which `diff_to_added` would
+  misread.
+- *`--diff-merges=first-parent`*: scans everything merged in a second time, where those commits
+  were already scanned on their own.
+
+**Verified.** 2026-11-04: `scripts/test-security-gate.sh` → 196 passed, 0 failed. The new
+merge case (a home path added only in the merge commit, pushed to a PUBLIC remote) blocks with
+`home-path: … merged.py`. With `security/` stashed back to the committed version, that case and
+the 11 others added this session fail (184 passed, 12 failed).

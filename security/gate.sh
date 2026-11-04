@@ -589,7 +589,16 @@ cmd_pre_commit() {
 scan_range() {
   local label="$1" base="$2" tip="$3" url="$4" vis="$5" names="$TMPD/push-names"
   shift 5
-  git log --format= --name-only --no-renames --diff-filter=ACMR "$@" 2>/dev/null | LC_ALL=C sort -u | grep -v '^$' > "$names"
+  # Fail closed: a git without remerge diffs (< 2.36) would error below, into
+  # 2>/dev/null, and every content scan would silently see nothing.
+  if ! git log -1 --format= --diff-merges=remerge "$@" >/dev/null 2>&1; then
+    block git-too-old "git $(git version 2>/dev/null | awk '{print $3}') cannot produce remerge diffs (need 2.36+); $label was not scanned"
+    return 0
+  fi
+  # --diff-merges=remerge: a merge contributes only what it adds beyond the
+  # automatic merge (conflict resolutions, evil merges); its parents' commits are
+  # in the range and scanned on their own.
+  git log --format= --name-only --diff-merges=remerge --no-renames --diff-filter=ACMR "$@" 2>/dev/null | LC_ALL=C sort -u | grep -v '^$' > "$names"
   check_names "$names"
   check_private_dir "$names"
 
@@ -603,7 +612,7 @@ scan_range() {
     run_gitleaks "$label" --log-opts="$*"
   fi
 
-  git log -p -U0 --no-color --no-ext-diff --no-merges --no-renames --diff-filter=ACMR --format= "$@" 2>/dev/null \
+  git log -p -U0 --no-color --no-ext-diff --diff-merges=remerge --no-renames --diff-filter=ACMR --format= "$@" 2>/dev/null \
     | diff_to_added > "$TMPD/added"
   command -v gitleaks >/dev/null 2>&1 && scan_lockfile_secrets "$TMPD/added"
   scan_added "$TMPD/added"

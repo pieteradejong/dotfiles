@@ -145,7 +145,9 @@ newrepo files
 # .env.test, tests/… and fixture/… paths: a path containing "test" must not exempt a real
 # key or env file from the file-name rules (a blind spot until 2026-09-14).
 for f in .env config/.env.production id_rsa certs/server.pem keys/app.key .deploy-env .netrc home/.pypirc \
-         .env.test tests/fixtures/id_rsa config/test/.env spec/keys/deploy.key; do
+         .env.test tests/fixtures/id_rsa config/test/.env spec/keys/deploy.key \
+         .git-credentials home/.git-credentials infra/prod.tfstate infra/prod.tfstate.backup \
+         vault.kdbx login.keychain-db .docker/config.json home/.docker/config.json office.ovpn; do
   mkdir -p "$(dirname "$f")"; echo x > "$f"; git add -f "$f"
   expect 1 "$f is blocked" git commit -qm "add $f"
   unstage_all
@@ -181,6 +183,15 @@ out_lacks 'real\.person' "warning does not echo the address"
 printf 'maintainer: user@example.com, git@github.com:org/repo.git, 1856262+x@users.noreply.github.com\n' > ok.md; git add ok.md
 expect 0 "placeholder emails commit" git commit -qm placeholders
 out_lacks 'email' "placeholder, clone-URL and noreply addresses are not flagged"
+
+# The placeholder prefix rule covers the bare local part only: "name@" is a
+# convention, "name.surname@" is a person.
+printf 'reach me at name.surname@company.io\n' > named.md; git add named.md
+expect 0 "name.surname@ address: commit proceeds" git commit -qm named
+out_has 'WARN +email: .*named\.md' "name.surname@<real domain> is not a placeholder"
+printf 'mail name@company.io or your.name@company.io\n' > bare.md; git add bare.md
+expect 0 "bare placeholder local parts commit" git commit -qm bare
+out_lacks 'email' "name@ and your.name@ stay placeholders"
 
 printf 'call +31612345678 or (415) 555-2671\n' > phone.txt; git add phone.txt
 expect 0 "phone number: commit proceeds" git commit -qm phone
@@ -434,6 +445,19 @@ git reset -q --hard HEAD~1
 echo z > z.txt; git add z.txt; git commit -qm z >/dev/null 2>&1
 expect 0 "push by URL instead of remote name" git push -q "$T/remotes/github.com/test/scope.git" main
 
+# A merge commit's own content (a conflict resolution, an "evil merge") is in no
+# parent commit, so only a remerge diff of the merge itself shows it.
+git checkout -q -b side; echo s > s.txt; git add s.txt; git commit -qm s >/dev/null 2>&1
+git checkout -q main; echo m > m.txt; git add m.txt; git commit -qm m >/dev/null 2>&1
+git merge -q --no-ff --no-commit side >/dev/null 2>&1
+printf 'path = "/Users/somebody/x"\n' > merged.py; git add merged.py; git commit -n -qm "merge side" >/dev/null 2>&1
+answer PUBLIC
+git remote add pub2 "$(bare github.com/test/scope-pub2.git)"
+expect 1 "content added by a merge commit itself is scanned" git push -q pub2 main
+out_has 'BLOCK home-path: .*merged\.py' "home path from the merge commit is named"
+answer PRIVATE
+git reset -q --hard HEAD~1
+
 newrepo dotfiles-push
 answer PUBLIC
 git remote add origin "$(bare github.com/pieteradejong/dotfiles.git)"
@@ -589,6 +613,26 @@ echo ok > ok.txt; git add ok.txt; git commit -qm ok >/dev/null 2>&1
 expect 0 "ci: a clean range passes" env SECURITY_GATE_VISIBILITY=PUBLIC "$GATE" ci "$BASE"
 out_has 'scanning 1 commit' "ci scans only base..HEAD"
 expect 0 "ci: an all-zero base (new branch) scans all of HEAD" env SECURITY_GATE_VISIBILITY=PUBLIC "$GATE" ci 0000000000000000000000000000000000000000
+
+# ================================================================================
+header "private personal-values list (fixture copy of security/)"
+# The gate finds the list at <its own dir>/../private/security/, with no env
+# override (one would let anyone point it at /dev/null). So the test runs a copy
+# of security/ next to its own fixture private/ list.
+DF="$T/df"; mkdir -p "$DF/private/security"; cp -R "$DOTFILES_DIR/security" "$DF/security"
+printf '# fixture\nzq-fixture-value-7731\n' > "$DF/private/security/personal-patterns.conf"
+newrepo pvalues
+BASE="$(git rev-parse HEAD)"
+printf 'note: zq-fixture-value-7731\n' > notes.md; git add notes.md; git commit -n -qm value >/dev/null 2>&1
+expect 1 "a listed personal value blocks in ci" env SECURITY_GATE_VISIBILITY=PUBLIC "$DF/security/gate.sh" ci "$BASE"
+out_has 'BLOCK personal-value: 1 line' "personal-value finding names the line count"
+out_lacks 'zq-fixture' "the listed value is never echoed"
+git reset -q --hard HEAD~1
+printf 'note: nothing listed here\n' > notes.md; git add notes.md; git commit -n -qm clean >/dev/null 2>&1
+expect 0 "a line without a listed value passes" env SECURITY_GATE_VISIBILITY=PUBLIC "$DF/security/gate.sh" ci "$BASE"
+rm "$DF/private/security/personal-patterns.conf"
+"$DF/security/gate.sh" status > "$OUT" 2>&1
+out_has 'FAIL +private personal-patterns list missing' "status reports a missing list"
 
 # ================================================================================
 header "pre-push: visibility cache"

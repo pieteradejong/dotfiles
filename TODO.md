@@ -154,6 +154,35 @@ and are cited here by ID only. Each fix earns its own decision entry when it is 
       loaded "only" by the gate, but `security-audit.sh` loads it too; and `audit/30-privacy.sh:35`
       lists `PHONE_RE` but never calls it. Added 2026-10-29.
 
+Found in the 2026-11-02 review (plan `~/.claude/plans/velvety-brewing-robin.md`). Not built that
+day because Claude Code's auto-mode classifier refused edits to `security/gate.sh` as "Security
+Weaken". Built on 2026-11-04 (the edits went through), except the GitHub settings.
+
+- [x] The gate judges itself. `ci.yml` passes `policy-ref: ${{ github.sha }}`, so a commit that
+      weakens `gate.sh` or `gitleaks.toml` is checked by the weakened rules. Add a second
+      `security-reusable.yml` job pinned to the previous tip (PR base, or `github.event.before`,
+      with `main` as the fallback). Added 2026-11-02. Done 2026-11-04: `security-prev` job (D56).
+- [ ] D56 `Verified: NOT YET`: after the next push, check that both `security` and
+      `security-prev` ran and passed, and that `security-prev`'s policy checkout is the previous
+      tip's SHA. Added 2026-11-04.
+- [ ] GitHub side of `main`: no branch protection and no ruleset (404 and empty, 2026-11-02).
+      Non-provider patterns, validity checks and Dependabot are off. Proposal: a ruleset that
+      blocks deletion and non-owner force-push, and the two scanning settings turned on. This is
+      outward-facing, so it needs Pieter's yes. Added 2026-11-02.
+- [x] Filename rules missing from `GATE_FILE_RULES`: `.git-credentials`, `*.tfstate*`, `*.kdbx`,
+      `*.keychain-db`, `.docker/config.json`, `*.ovpn`. Added 2026-11-02. Done 2026-11-04 (`CHANGELOG.md`).
+- [x] Two regex holes. `EMAIL_PLACEHOLDER_RE`'s `^(user|…|name|you|your)[-_.@]` exempts real
+      addresses such as `name.surname@<real domain>`. `scan_range` reads diffs with `--no-merges`,
+      so lines a merge commit adds are never scanned for personal data. Added 2026-11-02.
+      Done 2026-11-04: prefix rule is bare-local-part only; merges read as remerge diffs (D57).
+- [x] Tests for the personal-values list need a fixture list. Don't add an env override for its
+      path (the classifier flagged that as a weakening, and rightly so: anyone could point it at
+      `/dev/null`). Copy `security/` into the test sandbox with its own `private/` instead.
+      Added 2026-11-02. Done 2026-11-04: fixture copy in `scripts/test-security-gate.sh`.
+- [ ] `./test.sh pwdgen` (`scripts/test-pwd-gen.py`) is flaky: it failed once in a full
+      `./test.sh` run on 2026-11-04, then passed three runs in a row and on the committed tree. It
+      is probably a randomness-dependent assertion. Find it and make it deterministic. Added 2026-11-04.
+
 ## Open decisions
 
 - [ ] Add the media bucket name and AWS account id to `private/security/personal-patterns.conf`?

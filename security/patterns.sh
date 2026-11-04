@@ -51,6 +51,15 @@ package-auth|.pypirc
 package-auth|*/.pypirc
 netrc|.netrc
 netrc|*/.netrc
+git-credentials|.git-credentials
+git-credentials|*/.git-credentials
+terraform-state|*.tfstate
+terraform-state|*.tfstate.*
+password-db|*.kdbx
+keychain|*.keychain-db
+docker-auth|.docker/config.json
+docker-auth|*/.docker/config.json
+vpn-config|*.ovpn
 '
 
 # Secret-shaped content. Matched with grep -l (filenames only), never -o.
@@ -86,7 +95,7 @@ NOREPLY_RE='users\.noreply\.github\.com$|^noreply@github\.com$'
 
 # Addresses that are conventions, not contacts: the noreply form, clone URLs,
 # and the fake domains fixtures use. Matched against ONE extracted address.
-EMAIL_PLACEHOLDER_RE='users\.noreply\.github\.com|^git@(github|gitlab|bitbucket)\.|(example|acme|domain|other|different|personal|invalid|test)\.(com|org|net)|^(user|username|email|name|you|your)[-_.@]|@(localhost|host|hostname|server|remote-server|work-server|domain)|@[xy]\.com|your[-_.]'
+EMAIL_PLACEHOLDER_RE='users\.noreply\.github\.com|^git@(github|gitlab|bitbucket)\.|(example|acme|domain|other|different|personal|invalid|test)\.(com|org|net)|^(user|username|email|name|you|your)@|@(localhost|host|hostname|server|remote-server|work-server|domain)|@[xy]\.com|your[-_.]'
 
 # Files that legitimately contain these shapes: templates, examples, fixtures.
 # A test file is *supposed* to contain john.doe@example.com.
