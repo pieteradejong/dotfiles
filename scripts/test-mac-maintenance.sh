@@ -128,6 +128,7 @@ dest="$(find "$H/.Trash" -mindepth 1 -maxdepth 1 -name 'mac-maintenance-caches-*
   && pass "pip, pip-tools and Homebrew caches are left in place" || fail "a cleanup-owned cache was moved"
 [ ! -e "$dest/pip" ] && pass "pip was not quarantined" || fail "pip was quarantined"
 grep -q '^Moved: 2 item(s) to ' "$OUT" && pass "report counts 2 moved" || fail "moved count"
+
 log="$(find "$H" -maxdepth 1 -name 'maintenance-*.log' | head -1)"
 [ -n "$log" ] && grep -q 'macOS Maintenance Report' "$log" && grep -q '^Moved: 2' "$log" \
   && pass "log written to ~/maintenance-YYYYMMDD.log with the same report" || fail "log missing or incomplete"
@@ -196,6 +197,29 @@ H="$T/empty"; mkdir -p "$H/.Trash" "$H/Library/Caches"
 HOME="$H" "$MAINT" > "$OUT" 2>&1; rc=$?
 [ "$rc" = 0 ] && grep -q '^Moved: 0 item(s)' "$OUT" && [ -z "$(find "$H/.Trash" -mindepth 1)" ] \
   && pass "empty ~/Library/Caches: nothing moved, no folder created" || fail "empty caches rc=$rc"
+
+# ── 6. caches an app holds open (lsof) ──────────────────────────────────────
+header "in-use caches (lsof)"
+# An app cache that a running process holds a file open in stays put, even
+# though `mv` would succeed on APFS. Sorted first ("aaa…"), so the folder in
+# Trash must still be created for the entries after it.
+H="$T/busy"; fresh_home "$H"
+mkdir -p "$H/Library/Caches/aaa.busy.app"; printf 'z\n' > "$H/Library/Caches/aaa.busy.app/open"
+bash -c 'exec 3<"$1"; sleep 30; :' _ "$H/Library/Caches/aaa.busy.app/open" & busy_pid=$!
+sleep 0.3
+: > "$OUT"; reset_mail
+HOME="$H" "$MAINT" --no-mail > "$OUT" 2>&1; rc=$?
+kill "$busy_pid" 2>/dev/null; wait "$busy_pid" 2>/dev/null
+[ "$rc" = 0 ] && [ -e "$H/Library/Caches/aaa.busy.app/open" ] && grep -q 'in use, left in place: aaa.busy.app' "$OUT" \
+  && pass "a cache an app holds open is left in place and listed" || fail "busy cache handling (rc=$rc)"
+grep -q '^Moved: 2 item(s) to ' "$OUT" && grep -q ', 1 in use$' "$OUT" \
+  && [ -e "$(find "$H/.Trash" -mindepth 1 -maxdepth 1 -name 'mac-maintenance-caches-*' | head -1)/com.example.app/data" ] \
+  && pass "the caches after a busy one are still moved (2 moved, 1 in use)" || fail "moves after a busy cache: $(grep -E '^(Moved|Left)' "$OUT")"
+H="$T/nolsof"; fresh_home "$H"
+: > "$OUT"
+LSOF=/nonexistent HOME="$H" "$MAINT" --dry-run > "$OUT" 2>&1; rc=$?
+[ "$rc" = 0 ] && grep -q 'would run: mv .*com.example.app' "$OUT" \
+  && pass "with no lsof the run still works (mv fallback only)" || fail "no-lsof run (rc=$rc)"
 
 echo ""
 if [ "$FAIL_COUNT" -eq 0 ]; then

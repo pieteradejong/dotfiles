@@ -356,18 +356,25 @@ header "weekly-disk-cleanup.sh (static, plus --dry-run on a fake HOME)"
 # the test that catches an accidental uncomment of `docker system prune -a
 # --volumes`, which would delete images and volumes on an unattended Sunday run.
 : > "$OUT"
-# The one allowed live `-delete` is the 30-day maintenance-*.log sweep.
+# The allowed live `-delete`s are the 30-day maintenance-*.log sweep and the
+# 30-day Library-caches file sweep (D27 addendum 2026-11-09).
 grep -nE '(prune -a|--volumes|simctl delete|autoremove|-delete)' "$CLEANUP" | grep -vE ':[[:space:]]*#' \
-  | grep -vE -e "-name 'maintenance-\*\.log' -mtime \+[0-9]+ -delete" > "$OUT" 2>&1
+  | grep -vE -e "-name 'maintenance-\*\.log' -mtime \+[0-9]+ -delete" \
+            -e '^[0-9]+:  act find "\$entry" -xdev -type f -mtime \+30 -delete 2>/dev/null$' \
+            -e '^[0-9]+:  act docker (image|builder) prune -a -f$' > "$OUT" 2>&1
 [ -s "$OUT" ] && fail "every aggressive cleanup form is commented out" \
               || pass "every aggressive cleanup form is commented out"
 
-# The live Docker prune must stay the conservative form the comment promises.
-if grep -qE '^[^#]*docker system prune -f[[:space:]]*$' "$CLEANUP" \
-   && ! grep -qE '^[^#]*docker system prune.*(-a|--volumes)' "$CLEANUP"; then
-  pass "the live docker prune is the conservative form (no -a, no --volumes)"
+# The live Docker prune (D27 addendum 2026-11-09) takes unused images, build
+# cache and networks, never containers or volumes, and stops a Colima it started.
+if grep -qE '^  act docker image prune -a -f$' "$CLEANUP" \
+   && grep -qE '^  act docker builder prune -a -f$' "$CLEANUP" \
+   && ! grep -qE '^[^#]*docker (system|container|volume) prune' "$CLEANUP" \
+   && ! grep -qE '^[^#]*docker .*--volumes' "$CLEANUP" \
+   && grep -qE '^  if \$colima_started; then act colima stop;' "$CLEANUP"; then
+  pass "the live docker prune spares containers and volumes, and stops a Colima it started"
 else
-  fail "the live docker prune is the conservative form (no -a, no --volumes)"
+  fail "the live docker prune spares containers and volumes, and stops a Colima it started"
 fi
 
 # Every live `rm -rf` must hit an allowlisted target (D27): Trash with its age
@@ -378,6 +385,8 @@ ALLOWED_RM='(find "\$HOME/\.Trash" .*-ctime \+[0-9]+ -exec rm -rf \{\} \+'
 ALLOWED_RM="$ALLOWED_RM"'|rm -rf "\$HOME/Library/Caches/pip-tools"/\*\(N\)$'
 ALLOWED_RM="$ALLOWED_RM"'|rm -rf "\$HOME/Library/Developer/Xcode/DerivedData"/\*\(N\)$'
 ALLOWED_RM="$ALLOWED_RM"'|rm -rf "\$HOME/Library/Caches"/\*\.ShipIt\(N/m\+3\) "\$HOME/Library/Caches"/\*-updater\(N/m\+3\) "\$HOME/Library/Caches"/\*/org\.sparkle-project\.Sparkle/Installation/\*\(N/m\+3\)$'
+ALLOWED_RM="$ALLOWED_RM"'|^[0-9]+:\(\( \$\{#npx_old\} \)\) && act rm -rf \$npx_old$'
+ALLOWED_RM="$ALLOWED_RM"'|^[0-9]+:  \(\( \$\{#hc_old\} \)\) && act rm -rf \$hc_old$'
 ALLOWED_RM="$ALLOWED_RM"'|\[\[ "\$nm" == "\$NM_ROOT"/\*/node_modules && ! -L "\$nm" \]\] && act rm -rf "\$nm"$)'
 : > "$OUT"
 grep -nE '^[^#]*rm -rf' "$CLEANUP" | grep -vE "$ALLOWED_RM" > "$OUT" 2>&1
@@ -389,6 +398,18 @@ grep -qE '^[^#]*rm -rf .*\.ShipIt\(N/m\+3\)' "$CLEANUP" \
   && grep -qE '^[^#]*rm -rf .*Sparkle/Installation/\*\(N/m\+3\)' "$CLEANUP" \
   && pass "the updater sweep keeps its 3-day age guard" \
   || fail "the updater sweep keeps its 3-day age guard"
+# The npx sweep (D27 addendum 2026-11-08) collects only entries untouched 7+
+# days and skips one named on a running process's command line.
+grep -qE '^for d in "\$HOME/\.npm/_npx"/\*\(N/m\+7\); do$' "$CLEANUP" \
+  && grep -qE '^  if \[\[ "\$npx_procs" == \*"\$d"\* \]\]; then .*continue; fi$' "$CLEANUP" \
+  && pass "the npx sweep keeps its 7-day and in-use guards" \
+  || fail "the npx sweep keeps its 7-day and in-use guards"
+# The headless-Chrome sweep (D27 addendum 2026-11-08) takes only scoped_dir*
+# folders untouched 3+ days, and skips the step while a --headless process runs.
+grep -qE '^hc_old=\("\$HOME/Library/Caches/Google/Chrome-headless"/scoped_dir\*\(N/m\+3\)\)$' "$CLEANUP" \
+  && grep -qE '^if \[\[ "\$\(ps -axo command= 2>/dev/null\)" == \*--headless\* \]\]; then$' "$CLEANUP" \
+  && pass "the headless-Chrome sweep keeps its 3-day and running-headless guards" \
+  || fail "the headless-Chrome sweep keeps its 3-day and running-headless guards"
 # The node_modules sweep (D47) removes only after the lockfile and staleness
 # checks have both passed: each `continue`s the loop before the rm is reached.
 nm_lock_ln="$(grep -nE '^[^#]*if ! nm_has_lockfile .*continue; fi' "$CLEANUP" | head -1 | cut -d: -f1)"
@@ -443,8 +464,69 @@ git -C "$NMD/mono" -c core.hooksPath=/dev/null -c commit.gpgsign=false -c user.n
 ln -s "$T/elsewhere-nm" "$NMD/linked/node_modules"
 find "$NMD" -not -path '*/.git/*' -exec touch -h -t 202001010000 {} +
 touch "$NMD/active/package.json"
+# The npx cache: one old entry (swept), one fresh (kept: under 7 days), one old
+# but named on a running process's command line (kept: in use).
+NPXD="$DRY_HOME/.npm/_npx"
+mkdir -p "$NPXD/oldhash/node_modules" "$NPXD/freshhash" "$NPXD/busyhash"
+touch -t 202001010000 "$NPXD/oldhash" "$NPXD/busyhash"
+# Two commands, so zsh does not exec sleep and its argv (with the path) stays visible to ps.
+zsh -c 'sleep 30; :' "$NPXD/busyhash" & npx_busy_pid=$!
+# Headless Chrome leftovers: one old profile (swept), one fresh (kept). These
+# cases assume no real headless Chrome is running on the test machine.
+HCD="$DRY_HOME/Library/Caches/Google/Chrome-headless"
+mkdir -p "$HCD/scoped_dirOLD/Default" "$HCD/scoped_dirNEW"
+touch -t 202001010000 "$HCD/scoped_dirOLD"
+# Library caches 30-day sweep: an app folder with an old file (swept), one with
+# only a fresh file (left), and one with an old file a process holds open
+# (skipped whole, as in use).
+LCD="$DRY_HOME/Library/Caches"
+mkdir -p "$LCD/app.old" "$LCD/app.new" "$LCD/app.busy"
+touch -t 202001010000 "$LCD/app.old/blob" "$LCD/app.busy/blob"; touch "$LCD/app.new/blob"
+zsh -c 'exec 3<"$1"; sleep 30; :' _ "$LCD/app.busy/blob" & lc_busy_pid=$!
+sleep 0.3
 : > "$OUT"
 HOME="$DRY_HOME" PATH="/usr/bin:/bin" zsh "$CLEANUP" --dry-run > "$OUT" 2>&1; rc=$?
+kill "$npx_busy_pid" "$lc_busy_pid" 2>/dev/null; wait "$npx_busy_pid" "$lc_busy_pid" 2>/dev/null
+# Docker: the script puts /opt/homebrew/bin first on PATH, so this dry run sees
+# the machine's real docker and colima (only `docker info` runs; the rest is
+# echoed). Assert whichever branch this machine is in.
+docker_sec="$(sed -n '/^--- Docker (unused images/,/^--- /p' "$OUT")"
+if printf '%s\n' "$docker_sec" | grep -q 'would run: colima start$'; then
+  printf '%s\n' "$docker_sec" | grep 'would run:' | sed 's/^  would run: //' | tr '\n' '|' \
+    | grep -qxF 'colima start|docker image prune -a -f|docker builder prune -a -f|docker network prune -f|colima ssh -- sudo fstrim -a|colima stop|' \
+    && pass "Colima stopped: --dry-run plans start, prune images/cache/networks, trim, stop — in that order" \
+    || fail "Colima stopped: dry-run Docker plan: $(printf '%s' "$docker_sec" | grep 'would run:' | tr '\n' ';')"
+elif printf '%s\n' "$docker_sec" | grep -q 'would run: docker image prune -a -f$'; then
+  ! printf '%s\n' "$docker_sec" | grep -q 'would run: colima stop' \
+    && pass "Docker already running: --dry-run prunes and leaves it running" \
+    || fail "Docker already running: dry run would stop a Colima it did not start"
+else
+  skip "no docker/colima on this machine: Docker dry-run plan not exercised"
+fi
+grep -q "would run: find $LCD/app.old -xdev -type f -mtime +30 -delete\$" "$OUT" \
+  && ! grep -qE "would run: find $LCD/app\.(new|busy) " "$OUT" \
+  && pass "--dry-run sweeps old cache files only, outside folders in use" \
+  || fail "--dry-run sweeps old cache files only, outside folders in use: $(grep 'would run: find .*Caches' "$OUT")"
+grep -q '^in use, kept: app.busy$' "$OUT" \
+  && pass "a cache folder a process holds open is reported as in use" \
+  || fail "a cache folder a process holds open is reported as in use"
+grep -q "would run: rm -rf $NPXD/oldhash\$" "$OUT" \
+  && pass "--dry-run reports the stale npx entry, and only that one" \
+  || fail "--dry-run reports the stale npx entry, and only that one: $(grep 'rm -rf .*_npx' "$OUT")"
+grep -q '^in use, kept: busyhash$' "$OUT" && ! grep -qE "rm -rf .*_npx/(fresh|busy)hash" "$OUT" \
+  && pass "a fresh or in-use npx entry is never targeted" \
+  || fail "a fresh or in-use npx entry is never targeted"
+grep -q "would run: rm -rf $HCD/scoped_dirOLD\$" "$OUT" \
+  && pass "--dry-run reports the stale headless-Chrome profile, and only that one" \
+  || fail "--dry-run reports the stale headless-Chrome profile, and only that one: $(grep 'rm -rf .*Chrome-headless' "$OUT")"
+# A second dry run with a --headless process alive: the step must skip entirely.
+zsh -c 'sleep 30; :' --headless & hc_busy_pid=$!
+HOME="$DRY_HOME" PATH="/usr/bin:/bin" zsh "$CLEANUP" --dry-run > "$T/dry-headless.out" 2>&1
+kill "$hc_busy_pid" 2>/dev/null; wait "$hc_busy_pid" 2>/dev/null
+grep -q '^a --headless process is running — skipped$' "$T/dry-headless.out" \
+  && ! grep -q 'rm -rf .*Chrome-headless' "$T/dry-headless.out" \
+  && pass "the headless-Chrome step is skipped while a --headless process runs" \
+  || fail "the headless-Chrome step is skipped while a --headless process runs"
 [ "$rc" = 0 ] && pass "--dry-run exits 0" || fail "--dry-run exits 0 (rc=$rc)"
 grep -q 'would run: rm -rf .*pip-tools/wheel' "$OUT" \
   && pass "--dry-run reports the pip-tools sweep" || fail "--dry-run reports the pip-tools sweep"
@@ -466,7 +548,7 @@ n_left="$(find "$DRY_HOME" -mindepth 1 | wc -l | tr -d ' ')"
 if [ -e "$DRY_HOME/Library/Caches/pip-tools/wheel" ] && [ -e "$DRY_HOME/.Trash/old/f" ] \
    && [ -d "$DRY_HOME/Library/Caches/com.example.ShipIt" ] && [ -e "$DRY_HOME/maintenance-20200101.log" ] \
    && [ -d "$DRY_HOME/Library/Caches/com.example/org.sparkle-project.Sparkle/Installation/stale" ] \
-   && [ -d "$DRY_HOME/Library/Developer/Xcode/DerivedData/x" ]; then
+   && [ -d "$DRY_HOME/Library/Developer/Xcode/DerivedData/x" ] && [ -d "$NPXD/oldhash/node_modules" ] && [ -d "$HCD/scoped_dirOLD/Default" ] && [ -e "$LCD/app.old/blob" ]; then
   pass "--dry-run removed nothing ($n_left paths intact)"
 else
   fail "--dry-run removed nothing"

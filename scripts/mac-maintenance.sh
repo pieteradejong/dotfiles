@@ -15,8 +15,9 @@
 # Moving instead of deleting gives a restore window: weekly-disk-cleanup.sh
 # purges Trash items older than 7 days, so a cache an app still wanted can be
 # put back for a week. Caches the weekly cleanup already empties in place (pip,
-# pip-tools, Homebrew) are left to it. Entries an app holds open fail to move
-# and are listed, not forced. Not scheduled: run it when the Mac feels slow or
+# pip-tools, Homebrew) are left to it. An entry in which a process holds a file
+# open (lsof) is listed and left in place, as is one that fails to move; quit
+# an app first to have its cache cleared. Not scheduled: run it when the Mac feels slow or
 # the disk is full (docs/maintenance.md).
 #
 # Env:  MAIL_REPORT_BIN  the sender (default: ../bin/mail-report)
@@ -51,6 +52,19 @@ act() {
 }
 
 size() { du -sh "$1" 2>/dev/null | cut -f1; }
+
+# caches_in_use — one name per line: the ~/Library/Caches entries in which a
+# process of this user holds a file open. On APFS `mv` renames a folder an app
+# holds open without error, so a failed move is no in-use signal; this is.
+# lsof reports resolved paths (/private/var/…), hence `cd -P`. LSOF overrides
+# the binary; when it is missing the list is empty and the mv fallback remains.
+LSOF="${LSOF:-/usr/sbin/lsof}"
+caches_in_use() {
+  local real
+  real="$(cd -P "$CACHES" 2>/dev/null && pwd)" || return 0
+  [ -x "$LSOF" ] || return 0
+  "$LSOF" -w -u "$(id -u)" -Fn 2>/dev/null | sed -n "s#^n$real/\([^/]*\).*#\1#p" | sort -u
+}
 
 # run_report — the whole run. Called once below: printed as is for --dry-run,
 # otherwise captured so the same text goes to the log and into the mail.
@@ -90,13 +104,17 @@ else
   echo "Before: $(size "$CACHES")"
   dest="$TRASH/mac-maintenance-caches-$(date +%Y%m%d-%H%M%S)"
   moved=0; kept=0; busy=0
+  busy_names="$(caches_in_use)"
   for entry in "$CACHES"/*; do
     [ -e "$entry" ] || continue
     name="$(basename "$entry")"
     case "$SKIP_NAMES" in
       *" $name "*) kept=$((kept + 1)); continue ;;
     esac
-    [ "$moved" = 0 ] && [ "$busy" = 0 ] && act mkdir -p "$dest"
+    if printf '%s\n' "$busy_names" | grep -qxF -- "$name"; then
+      busy=$((busy + 1)); echo "  in use, left in place: $name"; continue
+    fi
+    [ "$moved" = 0 ] && act mkdir -p "$dest"
     if act mv "$entry" "$dest/" 2>/dev/null; then
       moved=$((moved + 1))
     else

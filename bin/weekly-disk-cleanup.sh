@@ -131,6 +131,26 @@ else
   echo "npm not found on PATH, skipped"
 fi
 
+# --- npx cache ------------------------------------------------------------
+# npx installs every package it runs into ~/.npm/_npx/<hash>/, and
+# `npm cache clean` above does not touch that folder (1.5G on 2026-11-08).
+# Entries untouched 7+ days (the m+7 glob qualifier) are removed, except one
+# whose path is on a running process's command line, such as an MCP server
+# started with npx. Worst case, the next `npx` run downloads the package again.
+# Needs no npm on PATH, so it runs even when the npm step is skipped.
+echo ""
+echo "--- npx cache (untouched 7+ days, not in use) ---"
+echo "Before: $(size "$HOME/.npm/_npx")"
+npx_old=()
+npx_procs="$(ps -axo command= 2>/dev/null)"
+for d in "$HOME/.npm/_npx"/*(N/m+7); do
+  if [[ "$npx_procs" == *"$d"* ]]; then echo "in use, kept: ${d:t}"; continue; fi
+  npx_old+=("$d")
+done
+echo "Stale: ${#npx_old}"
+(( ${#npx_old} )) && act rm -rf $npx_old
+$DRY_RUN || echo "After:  $(size "$HOME/.npm/_npx")"
+
 # --- pip cache --------------------------------------------------------------
 # Wipes pip's downloaded wheel/sdist cache. Fully safe: pip re-downloads
 # on the next install.
@@ -238,6 +258,52 @@ updaters=("$HOME/Library/Caches"/*.ShipIt(N/m+3) "$HOME/Library/Caches"/*-update
 echo "Before: $(size $updaters)"
 [ -n "$updaters" ] && act rm -rf "$HOME/Library/Caches"/*.ShipIt(N/m+3) "$HOME/Library/Caches"/*-updater(N/m+3) "$HOME/Library/Caches"/*/org.sparkle-project.Sparkle/Installation/*(N/m+3)
 
+# --- Headless Chrome leftover profiles ----------------------------------------
+# Each headless Chrome run makes a throwaway profile at
+# ~/Library/Caches/Google/Chrome-headless/scoped_dir<random>/ and deletes it on
+# a clean exit. Killed runs leave it behind: 2372 of them (1.6G) had piled up by
+# 2026-11-08. Folders untouched for 3+ days are removed. The whole step is
+# skipped while any process with --headless on its command line is running, so
+# a live session's profile is never removed from under it.
+echo ""
+echo "--- Headless Chrome leftover profiles (untouched 3+ days) ---"
+hc_old=("$HOME/Library/Caches/Google/Chrome-headless"/scoped_dir*(N/m+3))
+if [[ "$(ps -axo command= 2>/dev/null)" == *--headless* ]]; then
+  echo "a --headless process is running — skipped"
+else
+  echo "Before: $(size $hc_old) in ${#hc_old} folders"
+  (( ${#hc_old} )) && act rm -rf $hc_old
+fi
+
+# --- Library caches: files untouched 30+ days ---------------------------------
+# Every folder in ~/Library/Caches, not only the ones named above: files not
+# modified for 30+ days are deleted, nothing newer. A folder in which a process
+# of this user holds a file open (lsof, so a running Spotify or browser) is
+# skipped whole, since deleting under a running app can break it until it
+# restarts. mac-maintenance.sh clears whole folders by hand, to Trash.
+# lsof reports resolved paths (/private/var/…), hence `cd -P`.
+echo ""
+echo "--- Library caches: files untouched 30+ days (folders in use skipped) ---"
+LSOF="${LSOF:-/usr/sbin/lsof}"
+lib_caches="$HOME/Library/Caches"
+echo "Before: $(size "$lib_caches")"
+caches_real="$(cd -P "$lib_caches" 2>/dev/null && pwd)"
+caches_busy=""
+[[ -n "$caches_real" && -x "$LSOF" ]] && \
+  caches_busy="$("$LSOF" -w -u "$(id -u)" -Fn 2>/dev/null | sed -n "s#^n$caches_real/\([^/]*\).*#\1#p" | sort -u)"
+lc_files=0; lc_busy=0
+for entry in "$lib_caches"/*(N/); do
+  if print -r -- "$caches_busy" | grep -qxF -- "${entry:t}"; then
+    lc_busy=$((lc_busy + 1)); echo "in use, kept: ${entry:t}"; continue
+  fi
+  n="$(find "$entry" -xdev -type f -mtime +30 2>/dev/null | wc -l | tr -d ' ')"
+  (( n )) || continue
+  lc_files=$((lc_files + n))
+  act find "$entry" -xdev -type f -mtime +30 -delete 2>/dev/null
+done
+echo "Old files: $lc_files · folders in use: $lc_busy"
+$DRY_RUN || echo "After:  $(size "$lib_caches")"
+
 # --- Old mac-maintenance.sh logs ---------------------------------------------
 # mac-maintenance.sh writes a new ~/maintenance-YYYYMMDD.log every run and
 # nothing else prunes them.
@@ -247,16 +313,38 @@ echo "Files:  $(find "$HOME" -maxdepth 1 -name 'maintenance-*.log' -mtime +30 2>
 act find "$HOME" -maxdepth 1 -name 'maintenance-*.log' -mtime +30 -delete
 
 # --- Docker ------------------------------------------------------------------
-# Removes stopped containers, unused networks, dangling images, and build
-# cache. Deliberately NOT `-a` (which would also remove any image not
-# currently backing a container) — that's left as a manual, deliberate step
-# so a locally-built image you plan to reuse isn't silently deleted.
-# Skipped entirely if no Docker daemon is running (Colima is started on
-# demand, so most weeks this is skipped).
+# Removes every image no container uses (running or stopped), all build cache
+# and unused networks, then trims the Colima VM disk so macOS gets the space
+# back; without the trim the disk image never shrinks. Containers and volumes
+# are never pruned: a stopped container keeps its image, a volume holds data.
+# Colima is started on demand, so it is usually stopped at 09:00 (13 of 15 runs
+# skipped this step before 2026-11-09). If it is stopped, the step starts it,
+# prunes, and stops it again. Starting it also restarts containers that have a
+# restart policy (a local Supabase stack) until the stop. A Colima that was
+# already running is left running.
 echo ""
-echo "--- Docker ---"
+echo "--- Docker (unused images, build cache) ---"
+colima_started=false
+docker_up=false
 if has docker && docker info >/dev/null 2>&1; then
-  act docker system prune -f
+  docker_up=true
+elif has docker && has colima; then
+  if $DRY_RUN; then
+    echo "  would run: colima start"; docker_up=true; colima_started=true
+  elif colima start >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+    echo "Colima was stopped: started for the prune"; docker_up=true; colima_started=true
+  else
+    echo "colima start failed, skipped"
+  fi
+fi
+if $docker_up; then
+  $DRY_RUN || echo "Before: $(docker system df --format '{{.Type}} {{.Size}}' 2>/dev/null | tr '\n' ' ')"
+  act docker image prune -a -f
+  act docker builder prune -a -f
+  act docker network prune -f
+  has colima && act colima ssh -- sudo fstrim -a
+  $DRY_RUN || echo "After:  $(docker system df --format '{{.Type}} {{.Size}}' 2>/dev/null | tr '\n' ' ')"
+  if $colima_started; then act colima stop; $DRY_RUN || echo "Colima stopped again"; fi
 else
   echo "Docker daemon not running, skipped"
 fi
@@ -315,13 +403,11 @@ fi
 # find "$HOME" -size +1G -mtime +90 -not -path "*/Library/*" 2>/dev/null
 
 # --- Aggressive Docker prune (DESTRUCTIVE — more than the live prune above) --
-# The live Docker section above uses a conservative `docker system prune -f`
-# (no -a, no --volumes) on purpose, so a locally-built image you still want
-# isn't silently deleted. This is the aggressive version used for a one-off
-# manual cleanup in August 2026: -a removes every image not backing a
-# container (running or stopped), --volumes also removes unused volumes
-# (which may hold database data etc). Only run this deliberately, not on
-# an unattended weekly schedule.
+# The live Docker section above prunes unused images and build cache but never
+# containers or volumes. This is the aggressive version used for a one-off
+# manual cleanup in August 2026: it also removes stopped containers, and
+# --volumes removes unused volumes (which may hold database data etc). Only
+# run this deliberately, not on an unattended weekly schedule.
 # if has docker && docker info >/dev/null 2>&1; then
 #   act docker system prune -a --volumes -f
 # fi

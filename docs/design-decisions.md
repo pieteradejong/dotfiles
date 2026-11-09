@@ -588,6 +588,65 @@ where launchd's Xcode pip had removed 1 file a week), uv 28M → 288K. Brew had 
 Trash was skipped as designed ("no Full Disk Access to ~/.Trash (launchd)"). NOT YET: a real
 terminal run that exercises the Trash `-ctime` sweep on real items.
 
+**Addendum 2026-11-08: the npx cache.** `npm cache clean` empties `~/.npm/_cacache` but never
+`~/.npm/_npx`, where npx installs each package it runs. That folder had grown to 1.5G (disk
+survey 2026-11-08). It is now live: `_npx/<hash>` entries untouched for 7+ days (`(N/m+7)`) are
+removed, unless the entry's path appears on a running process's command line. MCP servers are
+often started with `npx` and run from there, and deleting under a running server breaks it.
+*Rejected:* wiping the whole folder like `_cacache`, because it takes the files out from under
+running servers; and a 3-day guard like the updaters', because npx entries are reused across weeks
+and a longer guard re-downloads less. **Verified: PARTIAL.** 2026-11-08: `./test.sh bin` → 150
+passed, 0 failed. New cases: the allowlist entry, a static check of both guards, and a dry-run
+fixture with an old, a fresh and an in-use entry, where only the old one is targeted. The first
+fixture run failed because `zsh -c 'sleep 30'` execs `sleep` and drops the path from argv, so
+the case does exercise the guard. `--dry-run` on this Mac prints the step (`Stale: 0`, since
+`_npx` had just been cleared by hand) and leaves the log untouched. NOT YET: a scheduled real run
+with stale entries present.
+
+**Addendum 2026-11-08: headless Chrome leftover profiles.** Each headless Chrome run makes a
+throwaway profile, `~/Library/Caches/Google/Chrome-headless/scoped_dir<random>/`, and removes it
+on a clean exit. Killed runs leave it behind: 2372 folders (1.6G) had accumulated from
+2026-09-04 to 2026-10-22. The folder was moved to Trash by hand that day. It is now live:
+`scoped_dir*` folders untouched for 3+ days are removed, and the whole step is skipped while any
+process has `--headless` on its command line. *Rejected:* a per-folder in-use check like the npx
+one, because Chrome creates these folders itself and does not put their path on its command line;
+and removing the whole `Chrome-headless` folder, because that would also catch a live session
+older than 3 days. **Verified: PARTIAL.** 2026-11-08: `./test.sh bin` → 153 passed, 0 failed.
+New cases: the allowlist entry, a static check of both guards, a dry-run fixture where only the
+old profile is targeted, and a second dry run with a `--headless` process alive, where the step
+skips. `--dry-run` on this Mac prints `Before: 0B in 0 folders` and leaves the log untouched. NOT
+YET: a scheduled real run with leftovers present.
+
+**Addendum 2026-11-09: all of `~/Library/Caches`, and unused Docker images.** Pieter asked for the
+maintenance scripts to cover every cache folder and to prune unused Docker images. Two parts of
+the original *Rejected* list are reopened, each behind a guard:
+1. *Caches of apps usually open.* The weekly run now deletes files untouched for 30+ days in every
+   `~/Library/Caches` folder, and skips whole any folder in which a process of this user holds a
+   file open (`lsof -u`). `mac-maintenance.sh` still moves whole folders to Trash by hand, now
+   behind the same `lsof` check. Its old guard, a failed `mv`, never fired: APFS renames a folder
+   an app holds open without error. *Rejected:* removing whole folders weekly, which costs a
+   running app its cache every Sunday. *Rejected:* a fixed list of apps to spare, which goes stale
+   as apps come and go. First dry run on this Mac: 10,160 old files, 35 folders in use (Spotify,
+   Chrome, Firefox, iTerm and others).
+2. *`docker … prune -a`.* The step is now `docker image prune -a -f`, `docker builder prune -a -f`
+   and `docker network prune -f`, then `fstrim` inside the Colima VM. Without the trim the disk
+   image never shrinks. Containers and volumes are never pruned, so a stopped container keeps its
+   image. The old `docker system prune -f` also removed stopped containers, and it ran in only 2
+   of 15 weekly runs because Colima is usually stopped. A stopped Colima is now started for the
+   step and stopped after. *Cost:* the start briefly restarts containers with a restart policy
+   (the local Supabase stack). *Rejected:* skipping the step when Colima is stopped, which is
+   what let the disk image reach 35G.
+
+**Verified: PARTIAL.** 2026-11-09: done by hand first, with `docker image prune -a -f` (images
+33.9 → 7.95 GB, 12 in use kept), `docker builder prune -a -f` (6.0 GB) and `colima ssh -- sudo
+fstrim -av`: `~/.colima` 35 → 10 G, free space 23 → 47 Gi. `./test.sh bin` → 156 passed, 0
+failed. New cases: a static Docker-form check, the stopped-Colima dry-run plan in order (start,
+three prunes, trim, stop), and a Library-caches fixture where only the old file outside the
+folder a process holds open is targeted. `./test.sh maint` → 55 passed: a cache held open stays
+in place, and the caches after it still move. This also fixed the Trash folder being skipped
+after a busy entry. `shellcheck` and `zsh -n` are clean. NOT YET: a scheduled real run of both
+steps, including `colima start` under launchd.
+
 ## D28 — The maintenance dashboard is a local file built from the reports · 2026-10-07
 
 **Problem.** The weekly audit, dotaudit and the disk cleanup each write their own output

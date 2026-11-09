@@ -110,8 +110,9 @@ Which repo falls in which row is per-repo state, so it lives in the private comp
 - **Volumes never move between runtimes.** Before replacing or deleting a runtime, dump each database
   (`docker exec <container> pg_dump -Fc …`), then restore into the new one and compare row counts.
   Dumps go outside any git repo, mode 600.
-- The weekly disk cleanup's `docker system prune -f` only runs when a daemon answers, so it is
-  normally skipped. See [maintenance.md](maintenance.md#weekly-disk-cleanup).
+- The weekly disk cleanup prunes unused images, build cache and networks (never containers or
+  volumes) and trims the VM disk. If Colima is stopped it starts it for the prune and stops it
+  again, which briefly restarts containers with a restart policy. See [maintenance.md](maintenance.md#weekly-disk-cleanup).
 
 ## Checking the setup
 

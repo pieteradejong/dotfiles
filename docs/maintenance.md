@@ -149,9 +149,9 @@ backups, not directly loadable files.
 The script is never executed for real by the test suite — it empties Trash and prunes
 caches. `./test.sh bin` asserts it statically instead: that it parses, that every
 aggressive form in its `IDEAS` block is still commented out, that the live
-`docker system prune` has no `-a`/`--volumes`, and that every live `rm -rf` targets one
+Docker prune spares containers and volumes and stops a Colima it started, that every live `rm -rf` targets one
 of the allowlisted paths below, with the Trash sweep's age filter and the node_modules
-lockfile and 60-day guards intact; then it runs `--dry-run` against a fake HOME (readable and
+lockfile and 60-day guards the npx sweep's 7-day and in-use guards, and the headless-Chrome sweep's 3-day and running-headless guards intact; then it runs `--dry-run` against a fake HOME (readable and
 unreadable Trash, and a fake `~/dev` with a stale, an active, a lockfile-less, a workspace and
 a symlinked project) and checks that only the stale project is targeted, that nothing was
 removed and that no log was written. `--dry-run` is the one mode that is safe to execute.
@@ -159,8 +159,9 @@ removed and that no log was written. `--dry-run` is the one mode that is safe to
 | Step | What it does | Why it is safe |
 |---|---|---|
 | npm cache | `npm cache verify`, then `npm cache clean --force` | re-downloaded on the next install |
+| npx cache | `rm -rf` of `~/.npm/_npx/<hash>` entries untouched 7+ days, skipping any whose path is on a running process's command line (an MCP server started with `npx`). Prints `in use, kept: <hash>` and `Stale: N` | `npm cache clean` leaves this folder alone; the next `npx` run re-downloads the package. The in-use check spares a server that is running when the job starts (D27, 2026-11-08) |
 | pip cache | `pip3 cache purge` | same |
-| Docker | `docker system prune -f` (not `-a`); skipped if no Docker daemon is running — Colima is started on demand, so usually skipped ([containers.md](containers.md)) | removes only stopped containers, unused networks, dangling images, build cache |
+| Docker | `docker image prune -a -f`, `docker builder prune -a -f`, `docker network prune -f`, then `colima ssh -- sudo fstrim -a`. If Colima is stopped, the step starts it first and stops it after; a Colima already running is left running ([containers.md](containers.md)) | removes only images no container uses (running or stopped), build cache and unused networks; never containers or volumes. The trim lets the VM disk image shrink on macOS (35 → 10 G on 2026-11-09). Starting Colima briefly restarts containers with a restart policy (D27, 2026-11-09) |
 | Trash | deletes items that have been in `~/.Trash` 7+ days (`-ctime`; `-mtime` would purge an old file the moment it is trashed) | this week's deletions keep a recovery window |
 | pip-tools cache | `rm -rf ~/Library/Caches/pip-tools/*` | pip-compile's download cache; `pip3 cache purge` never touches it |
 | uv cache | `uv cache prune` (not `clean`) | drops only unreferenced entries |
@@ -169,6 +170,8 @@ removed and that no log was written. `--dry-run` is the one mode that is safe to
 | pnpm store | `pnpm store prune` | only packages no project references |
 | Xcode DerivedData | `rm -rf ~/Library/Developer/Xcode/DerivedData/*` | build cache |
 | App-updater leftovers | `rm -rf` of `~/Library/Caches/*.ShipIt`, `*-updater` and `*/org.sparkle-project.Sparkle/Installation/*` untouched 3+ days | installers kept after the app updated (Squirrel/Electron and Sparkle apps alike); the 3-day rule spares an update staged for the next relaunch |
+| Headless Chrome leftover profiles | `rm -rf` of `~/Library/Caches/Google/Chrome-headless/scoped_dir*` untouched 3+ days. The step is skipped when any process has `--headless` on its command line | throwaway per-run profiles that a killed headless Chrome run leaves behind; a new run makes a fresh one (D27, 2026-11-08) |
+| Library caches, old files | `find <folder> -xdev -type f -mtime +30 -delete` for every folder in `~/Library/Caches`, except a folder in which a process of this user holds a file open (`lsof`): that one is skipped whole and printed as `in use, kept: <name>`. Ends with `Old files: N · folders in use: N` | only files nobody modified for a month, and never under a running app such as Spotify or a browser. `mac-maintenance.sh` clears whole folders by hand (D27, 2026-11-09) |
 | Old maintenance logs | `find ~ -maxdepth 1 -name 'maintenance-*.log' -mtime +30 -delete` | logs only |
 
 Each step runs independently; one failing does not stop the rest. The run ends with
@@ -194,9 +197,9 @@ moves on; it used to print empty sizes, which the dashboard read as zero reclaim
 Disk Access to `/bin/zsh` fixes it but applies to *every* zsh script — a broader grant than this
 job. Without it, run the script by hand in a terminal for the full effect.
 
-**Deliberately not automated:** `docker system prune -a`; `~/Downloads` and media folders;
+**Deliberately not automated:** pruning Docker containers or volumes (`docker system prune -a --volumes`); `~/Downloads` and media folders;
 switching Google Drive from Mirror to Stream; old iPhone backups; unused `ollama` models;
-`brew autoremove`; HuggingFace models; Playwright browsers; caches of apps that are usually open;
+`brew autoremove`; HuggingFace models; Playwright browsers; caches that an app holds open;
 old nvm versions; project `.venv`; `node_modules` of projects active in the last 60 days or
 without a lockfile. Each is a judgement call or costs a large re-download, not a mechanical
 cleanup. Why: [D27](design-decisions.md#d27--the-weekly-cleanup-covers-every-cache-that-regenerates-for-free-and-nothing-else--2026-10-06), amended for stale `node_modules` by [D47](design-decisions.md#d47--stale-project-node_modules-join-the-weekly-cleanup-behind-a-60-day-and-lockfile-guard--2026-10-27).
@@ -304,8 +307,10 @@ A real run is [mailed](#email-reports) with the `Moved: N item(s)` line as the s
 Reports uptime, memory and disk, then moves every entry of `~/Library/Caches` into one dated
 folder in `~/.Trash` (`mac-maintenance-caches-YYYYMMDD-HHMMSS`) — a restore window, instead of
 `rm -rf`; the weekly cleanup's 7-day Trash rule reclaims the space later. Entries the weekly
-cleanup already empties in place (`pip`, `pip-tools`, `Homebrew`) are left to it; entries an app
-holds open fail to move and are listed. When Trash is not readable or writable the step says so
+cleanup already empties in place (`pip`, `pip-tools`, `Homebrew`) are left to it. An entry in
+which a process of this user holds a file open (`lsof`) is listed as in use and left in place,
+as is one that fails to move. On APFS a move of an open folder succeeds, so only the `lsof` check
+protects a running app; quit apps first to have their caches cleared. When Trash is not readable or writable the step says so
 and is skipped. The script never deletes: `./test.sh maint` asserts that statically, and runs the
 real script against a fake HOME (it only ever touches paths under `$HOME`) to check the move,
 the skip list, the log, idempotence and the edge cases. Not scheduled: a cache reset under
