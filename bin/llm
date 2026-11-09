@@ -136,8 +136,9 @@ done
 
 # --- lineup ------------------------------------------------------------------
 # One "role tag size_gb" line per model; '#' starts a comment. Roles: coder,
-# fast, reasoner, general. size_gb is the download size, used only to check
-# disk before a pull.
+# fast, reasoner, general, embed (installed and kept by `update`, never routed a
+# prompt: it is for local search over your own documents). size_gb is the
+# download size, used only to check disk before a pull.
 
 LINEUP_FILE=${LLM_LINEUP:-${0:A:h:h}/config/llm/lineup}
 typeset -a LINEUP_TAGS
@@ -145,7 +146,7 @@ typeset -A LINEUP_ROLE LINEUP_SIZE
 if [[ -r $LINEUP_FILE ]]; then
   while read -r l_role l_tag l_size _; do
     [[ -z $l_role || $l_role == \#* ]] && continue
-    [[ $l_role == (coder|fast|reasoner|general) ]] || die "$LINEUP_FILE: unknown role '$l_role'"
+    [[ $l_role == (coder|fast|reasoner|general|embed) ]] || die "$LINEUP_FILE: unknown role '$l_role'"
     [[ -n $l_tag ]] || die "$LINEUP_FILE: role '$l_role' has no tag"
     assert_not_cloud "$l_tag"
     LINEUP_TAGS+=("$l_tag"); LINEUP_ROLE[$l_tag]=$l_role; LINEUP_SIZE[$l_tag]=${l_size:-0}
@@ -377,7 +378,9 @@ role_of() {
 
 classify() {
   local n=${1:l}
-  if [[ $n =~ '(coder|code|coding|devstral|codestral|starcoder|codegemma|codellama)' ]]; then
+  if [[ $n =~ 'embed' ]]; then
+    print -r -- embed
+  elif [[ $n =~ '(coder|code|coding|devstral|codestral|starcoder|codegemma|codellama)' ]]; then
     print -r -- coder
   elif [[ $n =~ '(r1|qwq|magistral|reason|thinking|deepthink)' ]]; then
     print -r -- reasoner
@@ -386,7 +389,7 @@ classify() {
   fi
 }
 
-typeset -a CODER_M FAST_M REASON_M GENERAL_M INSTALLED
+typeset -a CODER_M FAST_M REASON_M GENERAL_M EMBED_M INSTALLED
 typeset -A CAPS SIZE
 while IFS=$'\t' read -r name caps size; do
   [[ -n $name ]] || continue
@@ -403,13 +406,14 @@ for name in $ORDERED; do
     coder)    CODER_M+=("$name") ;;
     fast)     FAST_M+=("$name") ;;
     reasoner) REASON_M+=("$name") ;;
+    embed)    EMBED_M+=("$name") ;;   # text → vectors only; never answers a prompt
     *)        GENERAL_M+=("$name") ;;
   esac
 done
-MODEL_COUNT=${#ORDERED}
+MODEL_COUNT=$(( ${#ORDERED} - ${#EMBED_M} ))
 
 if (( MODEL_COUNT == 0 )) && [[ $CMD != update ]]; then
-  die "backend at $BASE has no models — run 'llm update' to install the lineup"
+  die "backend at $BASE has no chat models — run 'llm update' to install the lineup"
 fi
 
 resident_models() {
@@ -578,7 +582,7 @@ elif [[ -n $ROLE ]]; then
   MODEL=$(pick_from $ROLE)
   REASON_WHY="forced $ROLE"
 elif (( MODEL_COUNT == 1 )); then
-  MODEL=${ORDERED[1]}
+  MODEL=$(pick_from general)
   REASON_WHY="only model available"
 elif looks_like_code "$CONTENT"; then
   MODEL=$(pick_from coder)

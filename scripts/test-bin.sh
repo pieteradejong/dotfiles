@@ -315,6 +315,21 @@ else
     && pass "status verifies each installed lineup model by manifest + blobs on disk (MLX-safe), flags a missing layer" \
     || fail "status verifies installed lineup models by manifest + blobs on disk: $(grep -E '^  (ok|!!) ' "$OUT" | tail -4 | tr '\n' '|')"
 
+  # embed role: installed and listed, never routed a prompt (it only makes search vectors).
+  printf 'reasoner beta:1 19\ncoder alpha:1 18\nembed delta:1 1\n' > "$T/lineup-embed"
+  run_fake env LLM_LINEUP="$T/lineup-embed" "$LLM" models; rc=$?
+  { [ "$rc" = 0 ] && grep -qE '^  delta:1 +embed ' "$OUT"; } \
+    && pass "an embed lineup role parses and is listed as embed" \
+    || fail "an embed lineup role parses and is listed as embed (rc=$rc): $(grep 'delta' "$OUT")"
+  run_fake env LLM_LINEUP="$T/lineup-embed" "$LLM" --dry-run fast "fix this"
+  grep -qE '^model: +delta:1 ' "$OUT" \
+    && fail "llm fast never borrows the embed model (got delta:1)" \
+    || pass "llm fast never borrows the embed model ($(grep '^model:' "$OUT" | awk '{print $2}'))"
+  printf 'embed alpha:1 1\nembed beta:1 1\nembed delta:1 1\nembed gamma-coder:1 1\n' > "$T/lineup-embed-only"
+  run_fake env LLM_LINEUP="$T/lineup-embed-only" "$LLM" --dry-run "plan my week"; rc=$?
+  { [ "$rc" != 0 ] && grep -q 'no chat models' "$OUT"; } \
+    && pass "with only embed models, a prompt is refused, not sent to one" \
+    || fail "with only embed models, a prompt is refused (rc=$rc): $(head -2 "$OUT")"
   printf 'wizard alpha:1 1\n' > "$T/lineup-bad"
   run_fake env LLM_LINEUP="$T/lineup-bad" "$LLM" models; rc=$?
   { [ "$rc" != 0 ] && grep -q "unknown role 'wizard'" "$OUT"; } \

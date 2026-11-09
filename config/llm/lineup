@@ -3,7 +3,8 @@
 # role      tag                       download GB
 #
 # Roles: coder (llm code), fast (llm fast), reasoner (llm reason, and the
-# default for non-code prompts), general. The first model listed for a role is
+# default for non-code prompts), general, embed (search vectors only; never
+# answers a prompt). The first model listed for a role is
 # the one that role gets. Size is the download size from ollama.com, used only
 # to check disk before a pull. Never list a :cloud tag; llm refuses them.
 #
@@ -13,3 +14,7 @@ coder       qwen3.6:27b-coding        18
 # Enabled 2026-10-15: 125 GB free. (Was off 2026-10-06 at 40 GB free; all three would have left
 # ~15.) Without a fast model, `llm fast` uses the coder.
 fast        qwen3.6:35b-a3b-coding    24
+# Added 2026-11-06 for local search over notes: 0.6 GB, stays loaded beside any one chat model.
+embed       qwen3-embedding:0.6b      1
+# Kept for other local projects that embed with it; listed second, so it never wins the role.
+embed       nomic-embed-text:latest   1

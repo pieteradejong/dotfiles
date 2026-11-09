@@ -7,6 +7,7 @@ History before this file: `git log`.
 ## [Unreleased]
 
 ### Added
+- `bin/llm` lineup role `embed` (`config/llm/lineup`: `qwen3-embedding:0.6b`, then `nomic-embed-text:latest`): the model is installed and kept by `llm update` and listed by `llm models`, but never routed a prompt, since it only makes search vectors. `MODEL_COUNT` counts chat models only, so a backend with only embed models refuses a prompt ("no chat models"), and the single-model shortcut picks a general model. Three new cases in `scripts/test-bin.sh`.
 - `.github/workflows/ci.yml` job `security-prev`: the reusable security check a second time, with `policy-ref` set to the previous rules (PR base, else the pre-push tip, else `main`). A commit that weakens `gate.sh`, `patterns.sh` or `gitleaks.toml` is still judged by the rules it replaces. It cannot cover an edit to `ci.yml` itself (D56).
 - `security/patterns.sh` `GATE_FILE_RULES`: `.git-credentials`, `*.tfstate` and `*.tfstate.*`, `*.kdbx`, `*.keychain-db`, `.docker/config.json`, `*.ovpn`, at any depth, block at commit and push.
 - `scripts/test-security-gate.sh` § private personal-values list: runs a copy of `security/` beside a fixture `private/` list (no env override for the list path). A listed value blocks in ci and is never echoed, a clean line passes, and `status` reports a missing list. The suite also gains cases for each new filename rule, the email prefix and merge-commit content: 196 cases.
