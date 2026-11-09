@@ -647,6 +647,31 @@ in place, and the caches after it still move. This also fixed the Trash folder b
 after a busy entry. `shellcheck` and `zsh -n` are clean. NOT YET: a scheduled real run of both
 steps, including `colima start` under launchd.
 
+**Addendum 2026-11-09: each run checks itself.** Every real run was meant to be confirmed by a
+person reading the log after the next Sunday, a TODO line per new step. Pieter asked for that
+check to be part of the scripts. `bin/weekly-cleanup-check` now runs on the captured output of
+every real run. It checks that every step heading of the script appeared (read from the script,
+so a new step needs no edit), that there are no error lines, that the npx, Library-caches,
+`Reclaimed` and `Done` lines are there, and that a Colima the run started was stopped again. The
+verdict goes into the log, the mail subject and the exit code. Run on the log instead, it also
+flags a last run older than 8 days, which catches the one failure a run cannot report itself:
+the launchd job not running. `mac-maintenance.sh` prints that as `LAST WEEKLY CLEANUP`. Also
+fixed: the Docker step printed "Colima stopped again" even when `colima stop` failed.
+*Rejected:* a hand-kept list of expected steps, which goes stale the first time a step is added.
+*Rejected:* checking only the exit code, because every step tolerates failure on purpose, so the
+script exited 0 regardless. *Rejected:* relying on the mail, which is not configured on this Mac
+(`mail-report exit 3` in every run since 2026-10-18), so the log and the exit code are what is
+always there.
+
+**Verified: PARTIAL.** 2026-11-09: `./test.sh bin` → 167 passed, 0 failed. New cases: a complete
+fixture run passes; a missing step, an error line, a missing summary, a Colima left running, a log
+older than 8 days and no log each fail with the right `PROBLEM:` line; and the wiring (log, subject,
+exit code). `./test.sh maint` → 57 passed. `shellcheck` is clean on 34 files. Run on the real log,
+it found the Sun 2026-11-08 09:00 launchd run: the npx step ran without error (`Stale: 0`). It also
+flagged the two steps added after that run as missing, which is correct. NOT YET: a real run that
+includes the self-check, expected Sun 2026-11-15 09:00. The check itself will report that run's
+result.
+
 ## D28 — The maintenance dashboard is a local file built from the reports · 2026-10-07
 
 **Problem.** The weekly audit, dotaudit and the disk cleanup each write their own output

@@ -96,6 +96,9 @@ H="$T/dry"; fresh_home "$H"
 HOME="$H" "$MAINT" --dry-run > "$OUT" 2>&1; rc=$?
 [ "$rc" = 0 ] && pass "--dry-run exits 0" || fail "--dry-run exits 0 (rc=$rc)"
 grep -q '\[DRY RUN\]' "$OUT" && pass "--dry-run says so in the report header" || fail "--dry-run header"
+grep -q 'PROBLEM: no log at .*the weekly cleanup has never run' "$OUT" \
+  && pass "the report says when the weekly cleanup has never run (no log in this HOME)" \
+  || fail "the report says when the weekly cleanup has never run"
 grep -q 'would run: mv .*com.example.app' "$OUT" && grep -q 'would run: mv .*com.example.other' "$OUT" \
   && pass "--dry-run lists each app cache it would move" || fail "--dry-run lists each app cache it would move"
 grep -q 'would run: mv .*/Caches/pip ' "$OUT" || grep -q 'would run: mv .*/Caches/pip$' "$OUT" \
@@ -108,7 +111,7 @@ n_now="$(find "$H/Library/Caches" -mindepth 1 -maxdepth 1 | wc -l | tr -d ' ')"
 [ -z "$(find "$H/.Trash" -mindepth 1)" ] && pass "--dry-run put nothing in Trash" || fail "--dry-run put nothing in Trash"
 [ -z "$(find "$H" -maxdepth 1 -name 'maintenance-*.log')" ] && pass "--dry-run writes no log" || fail "--dry-run writes no log"
 [ "$(mail_calls)" = 0 ] && pass "--dry-run sends no mail" || fail "--dry-run sends no mail ($(mail_calls) call(s))"
-for h in UPTIME MEMORY DISK 'LIBRARY CACHES'; do
+for h in UPTIME MEMORY DISK 'LAST WEEKLY CLEANUP' 'LIBRARY CACHES'; do
   grep -q -- "--- $h" "$OUT" && pass "report has the $h section" || fail "report has the $h section"
 done
 

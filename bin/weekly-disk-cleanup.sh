@@ -25,7 +25,8 @@
 #       NM_STALE_DAYS    days a ~/dev project must be untouched before its
 #                        node_modules is removed (default 60, D47)
 #
-# Exit: 0 done, 2 bad usage. A mail that cannot be sent is a WARN line, not a failure.
+# Exit: 0 done and self-check OK, 1 the self-check found a problem (bin/weekly-cleanup-check),
+#       2 bad usage. A mail that cannot be sent is a WARN line, not a failure.
 
 DRY_RUN=false
 MAIL=true
@@ -344,7 +345,12 @@ if $docker_up; then
   act docker network prune -f
   has colima && act colima ssh -- sudo fstrim -a
   $DRY_RUN || echo "After:  $(docker system df --format '{{.Type}} {{.Size}}' 2>/dev/null | tr '\n' ' ')"
-  if $colima_started; then act colima stop; $DRY_RUN || echo "Colima stopped again"; fi
+  if $colima_started; then
+    if $DRY_RUN; then act colima stop
+    elif colima stop >/dev/null 2>&1; then echo "Colima stopped again"
+    else echo "colima stop failed — Colima left running"
+    fi
+  fi
 else
   echo "Docker daemon not running, skipped"
 fi
@@ -462,13 +468,27 @@ if [ -t 1 ]; then
 else
   run_cleanup > "$RUN_OUT" 2>&1
 fi
+# Self-check (bin/weekly-cleanup-check): every step ran, no error lines, the
+# summary lines are there, a Colima this run started was stopped. Its verdict
+# goes into the log, the mail subject and the exit code, so `launchctl print`
+# shows a bad run too.
+CHECK_BIN="${WEEKLY_CHECK_BIN:-${0:A:h}/weekly-cleanup-check}"
+CHECK_OUT="$(mktemp "${TMPDIR:-/tmp}/weekly-disk-cleanup-check.XXXXXX")"
+trap 'rm -f "$RUN_OUT" "$CHECK_OUT"' EXIT
+if [ -x "$CHECK_BIN" ]; then
+  "$CHECK_BIN" --run "$RUN_OUT" > "$CHECK_OUT" 2>&1; check_rc=$?
+else
+  printf '%s\n' "--- Self-check ---" "PROBLEM: $CHECK_BIN not found" "Self-check: 1 problem(s)" > "$CHECK_OUT"; check_rc=1
+fi
+{ echo ""; cat "$CHECK_OUT"; } >> "$RUN_OUT"
+[ -t 1 ] && { echo ""; cat "$CHECK_OUT"; }
 cat "$RUN_OUT" >> "$LOG_FILE"
 
 if $MAIL; then
-  subject="weekly-disk-cleanup on $(hostname -s): $(grep -m1 '^Reclaimed: ' "$RUN_OUT" || echo finished)"
+  subject="weekly-disk-cleanup on $(hostname -s): $(grep -m1 '^Reclaimed: ' "$RUN_OUT" || echo finished) · $(grep -m1 '^Self-check: ' "$CHECK_OUT")"
   "$MAIL_REPORT_BIN" --subject "$subject" < "$RUN_OUT"; rc=$?
   if [ "$rc" != 0 ]; then
     echo "WARN: report not mailed (mail-report exit $rc) — see mail-report --help" | tee -a "$LOG_FILE"
   fi
 fi
-exit 0
+exit "$check_rc"

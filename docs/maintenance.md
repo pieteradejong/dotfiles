@@ -190,6 +190,26 @@ weekly-disk-cleanup.sh --no-mail    # real run, log only
 launchctl start com.pieterdejong.weeklycleanup && cat ~/.weekly-disk-cleanup.log   # run the launchd job now (mails too)
 ```
 
+**Self-check.** Every real run ends by checking itself with `bin/weekly-cleanup-check --run`:
+- every step heading in the script appears in the run (read from the script, so a new step is
+  covered automatically);
+- no error lines, such as `command not found`, permission errors, `lsof` or Docker daemon errors,
+  or a failed `colima start`/`stop`;
+- the npx, Library-caches, `Reclaimed` and `Done` lines are there;
+- a Colima the run started was stopped again.
+
+The verdict, `Self-check: OK` or `Self-check: N problem(s)` with one `PROBLEM:` line each, is
+appended to the log and added to the mail subject. It is also the exit code (1 on a problem), so
+`launchctl print gui/$(id -u)/com.pieterdejong.weeklycleanup` shows `last exit code = 1` after a
+bad run. Run without arguments, `weekly-cleanup-check` checks the last run in the log and also
+whether that run is older than 8 days, which means the job is not running. `mac-maintenance.sh`
+prints this as its `LAST WEEKLY CLEANUP` section.
+
+```zsh
+weekly-cleanup-check                 # last run in ~/.weekly-disk-cleanup.log, plus its age
+weekly-cleanup-check --run FILE      # one captured run
+```
+
 **Known limitation — Full Disk Access.** `~/.Trash` is TCC-protected and a plain launchd agent has
 no Full Disk Access, so under launchd the Trash step cannot even list it. The step probes first
 and, when it cannot read Trash, logs `no Full Disk Access to ~/.Trash (launchd) — skipped` and
@@ -304,7 +324,8 @@ scheduled job needs non-interactive AWS credentials, which is an open item
 
 A real run is [mailed](#email-reports) with the `Moved: N item(s)` line as the subject.
 
-Reports uptime, memory and disk, then moves every entry of `~/Library/Caches` into one dated
+Reports uptime, memory, disk and the last weekly cleanup (`weekly-cleanup-check`: did the
+launchd job run in the last 8 days, and did every step work), then moves every entry of `~/Library/Caches` into one dated
 folder in `~/.Trash` (`mac-maintenance-caches-YYYYMMDD-HHMMSS`) — a restore window, instead of
 `rm -rf`; the weekly cleanup's 7-day Trash rule reclaims the space later. Entries the weekly
 cleanup already empties in place (`pip`, `pip-tools`, `Homebrew`) are left to it. An entry in

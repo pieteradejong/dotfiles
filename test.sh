@@ -89,6 +89,7 @@ bin/rcdev
 bin/whatsup
 bin/doc-dupes
 bin/media-backup
+bin/weekly-cleanup-check
 "
 
 # zsh scripts. shellcheck has no zsh support, so these get `zsh -n` instead of a

@@ -188,11 +188,9 @@ Weaken". Built on 2026-11-04 (the edits went through), except the GitHub setting
 - [ ] Add the media bucket name and AWS account id to `private/security/personal-patterns.conf`?
       This only works if the media repo is also added to `personal-data-repos.conf`, otherwise its
       pushes are blocked, 2026-10-26 — D45 Rejected
-- [ ] Sun 2026-11-15 09:00 — first launchd run with the npx-cache, headless-Chrome,
-      Library-caches and new Docker steps. `~/.weekly-disk-cleanup.log` should show
-      `--- npx cache …` with `Stale: N`, `--- Headless Chrome leftover profiles …`,
-      `Old files: N · folders in use: N`, and for Docker `Colima was stopped: started for the
-      prune`, `After:` sizes, then `Colima stopped again` (`colima status` stopped afterwards). No
-      `ps`/`lsof` errors under launchd, and no in-use entry removed. Record in the D27 addenda's
-      `Verified:` Record in the D27 addendum's `Verified:` — 2026-11-08, D27 addendum
-      2026-11-08 (`private/reports/disk-survey-2026-11-08.md`)
+- [ ] Sun 2026-11-15 09:00 — first launchd run with the self-check and the new cleanup steps
+      (npx, headless Chrome, Library caches, Docker with Colima start/stop). The run now checks
+      itself: run `weekly-cleanup-check` (or read the `Self-check:` line at the end of
+      `~/.weekly-disk-cleanup.log`). Expect `Self-check: OK`; if not, each `PROBLEM:` line names
+      the step. Record the result in the D27 addenda's `Verified:` — 2026-11-09, D27 addenda
+      2026-11-08/09 (`private/reports/disk-survey-2026-11-08.md`)

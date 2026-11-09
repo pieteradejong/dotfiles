@@ -371,7 +371,7 @@ if grep -qE '^  act docker image prune -a -f$' "$CLEANUP" \
    && grep -qE '^  act docker builder prune -a -f$' "$CLEANUP" \
    && ! grep -qE '^[^#]*docker (system|container|volume) prune' "$CLEANUP" \
    && ! grep -qE '^[^#]*docker .*--volumes' "$CLEANUP" \
-   && grep -qE '^  if \$colima_started; then act colima stop;' "$CLEANUP"; then
+   && grep -qE '^  if \$colima_started; then$' "$CLEANUP" && grep -qE '^    elif colima stop >/dev/null 2>&1; then echo "Colima stopped again"$' "$CLEANUP"; then
   pass "the live docker prune spares containers and volumes, and stops a Colima it started"
 else
   fail "the live docker prune spares containers and volumes, and stops a Colima it started"
@@ -989,6 +989,65 @@ MB_ARGS="" mb env FAKE_RC_CONVOS=1; rc=$?
   && pass "a failing convos step still runs media, then exits 1" || fail "failing convos step (rc=$rc)"
 : > "$OUT"; grep -nE '\brm\b|--delete|delete-object' "$MB" > "$OUT"
 [ -s "$OUT" ] && fail "media-backup has no delete" || pass "media-backup has no delete"
+
+header "weekly-cleanup-check (fixture runs and logs)"
+
+WCC="$BIN_DIR/weekly-cleanup-check"
+WCD="$T/wcc"; mkdir -p "$WCD"
+# good_run — a run with every heading of the real script and every summary line,
+# so this fixture follows the script: a new step needs no edit here.
+good_run() {
+  echo "  Weekly disk cleanup - Sun Nov 15 09:00:00 EST 2026"
+  grep -E '^echo "--- ' "$CLEANUP" | sed -E 's/^echo "//; s/"$//'
+  printf '%s\n' "Stale: 0" "Old files: 12 · folders in use: 3" "Reclaimed: 100 MB" "Done: Sun"
+}
+good_run > "$WCD/good"
+"$WCC" --run "$WCD/good" > "$OUT" 2>&1; rc=$?
+[ "$rc" = 0 ] && grep -q '^Self-check: OK$' "$OUT" && grep -qE '^ok: all [0-9]+ steps ran$' "$OUT" \
+  && pass "a complete run passes: every step heading of the script, summaries, no errors" \
+  || fail "a complete run passes (rc=$rc): $(grep -E '^(PROBLEM|Self)' "$OUT" | tr '\n' '|')"
+grep -v '^--- Library caches' "$WCD/good" > "$WCD/missing"
+"$WCC" --run "$WCD/missing" > "$OUT" 2>&1; rc=$?
+[ "$rc" = 1 ] && grep -q '^PROBLEM: steps missing from the run: Library caches$' "$OUT" \
+  && pass "a run missing a step fails and names the step" || fail "missing step (rc=$rc): $(grep PROBLEM "$OUT")"
+{ cat "$WCD/good"; echo "weekly-disk-cleanup.sh:12: command not found: npm"; } > "$WCD/err"
+"$WCC" --run "$WCD/err" > "$OUT" 2>&1; rc=$?
+[ "$rc" = 1 ] && grep -q '^PROBLEM: error lines in the run:' "$OUT" && grep -q 'command not found: npm' "$OUT" \
+  && pass "an error line fails the run and is quoted" || fail "error line (rc=$rc)"
+{ cat "$WCD/good"; echo "Colima was stopped: started for the prune"; } > "$WCD/colima-left"
+"$WCC" --run "$WCD/colima-left" > "$OUT" 2>&1; rc=$?
+[ "$rc" = 1 ] && grep -q 'started for the prune but not stopped again' "$OUT" \
+  && pass "a Colima started by the run and left running is a problem" || fail "colima left running (rc=$rc)"
+{ cat "$WCD/good"; echo "Colima was stopped: started for the prune"; echo "Colima stopped again"; } > "$WCD/colima-ok"
+"$WCC" --run "$WCD/colima-ok" > "$OUT" 2>&1; rc=$?
+[ "$rc" = 0 ] && grep -q '^ok: Colima started for the prune and stopped again$' "$OUT" \
+  && pass "a Colima started and stopped again passes" || fail "colima stopped (rc=$rc)"
+grep -v '^Old files: ' "$WCD/good" > "$WCD/nosummary"
+"$WCC" --run "$WCD/nosummary" > "$OUT" 2>&1; rc=$?
+[ "$rc" = 1 ] && grep -q '^PROBLEM: Library-caches summary missing$' "$OUT" \
+  && pass "a missing summary line is a problem" || fail "missing summary (rc=$rc)"
+# Log mode: the last run in the log, and its age from the log's mtime.
+{ echo "old run"; echo "  Weekly disk cleanup - Sun Nov 1 09:00:00 EST 2026"; echo "--- npm cache ---"; cat "$WCD/good"; } > "$WCD/log"
+LOG_FILE="$WCD/log" "$WCC" > "$OUT" 2>&1; rc=$?
+[ "$rc" = 0 ] && grep -q '^ok: last run: Sun Nov 15 09:00:00 EST 2026$' "$OUT" && grep -q '^ok: last run is 0 day(s) old$' "$OUT" \
+  && pass "log mode checks only the last run in the log, and its age" || fail "log mode (rc=$rc): $(grep -E '^(ok: last|PROBLEM)' "$OUT" | tr '\n' '|')"
+touch -t 202001010000 "$WCD/log"
+LOG_FILE="$WCD/log" "$WCC" > "$OUT" 2>&1; rc=$?
+[ "$rc" = 1 ] && grep -qE '^PROBLEM: last run is [0-9]+ days old \(limit 8\): is the launchd job loaded\?' "$OUT" \
+  && pass "a log older than 8 days means the scheduler is not running" || fail "stale log (rc=$rc)"
+LOG_FILE="$WCD/nolog" "$WCC" > "$OUT" 2>&1; rc=$?
+[ "$rc" = 1 ] && grep -q 'the weekly cleanup has never run' "$OUT" \
+  && pass "no log is a problem: never run" || fail "no log (rc=$rc)"
+"$WCC" --bogus > "$OUT" 2>&1; rc=$?
+[ "$rc" = 2 ] && grep -q '^usage:' "$OUT" && pass "unknown option: usage, exit 2" || fail "usage (rc=$rc)"
+# The weekly script runs the check on its own output, logs it, puts it in the
+# mail subject and exits with its result.
+grep -qE '^  "\$CHECK_BIN" --run "\$RUN_OUT" > "\$CHECK_OUT" 2>&1; check_rc=\$\?$' "$CLEANUP" \
+  && grep -qE '^\{ echo ""; cat "\$CHECK_OUT"; \} >> "\$RUN_OUT"$' "$CLEANUP" \
+  && grep -qE "Self-check: ' \"\\\$CHECK_OUT\"\)\"\$" "$CLEANUP" \
+  && grep -qE '^exit "\$check_rc"$' "$CLEANUP" \
+  && pass "the weekly script self-checks each real run: log, mail subject, exit code" \
+  || fail "the weekly script self-checks each real run: log, mail subject, exit code"
 
 header "publishability"
 

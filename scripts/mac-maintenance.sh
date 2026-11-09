@@ -93,6 +93,18 @@ echo "--- DISK ---"
 df -h "$HOME" | awk 'NR==1 || NR==2'
 echo ""
 
+# --- Last weekly cleanup ----------------------------------------------------
+# bin/weekly-cleanup-check on ~/.weekly-disk-cleanup.log: did the launchd job
+# run in the last 8 days, and did every step of that run work. Read-only.
+echo "--- LAST WEEKLY CLEANUP ---"
+check_bin="${WEEKLY_CHECK_BIN:-$SCRIPT_DIR/../bin/weekly-cleanup-check}"
+if [ -x "$check_bin" ]; then
+  "$check_bin" 2>&1 | sed '1d'
+else
+  echo "$check_bin not found, skipped"
+fi
+echo ""
+
 # --- Library caches → Trash ------------------------------------------------
 # One dated folder per run, so a run is easy to find and to put back.
 echo "--- LIBRARY CACHES → TRASH ---"
