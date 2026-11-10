@@ -7,7 +7,7 @@ No network: charts are inline SVG, the page loads nothing from outside.
 
   security-audit-YYYY-MM-DD.md   scripts/security-audit.sh   trend, top-level FAILs
   findings-YYYY-MM-DD.tsv        scripts/dev-audit.sh        breakdown, per-check trend
-  ~/.weekly-disk-cleanup.log     bin/weekly-disk-cleanup.sh  space reclaimed per run
+  ~/.weekly-disk-cleanup.log     bin/weekly-disk-cleanup.sh  space reclaimed and Self-check per run
 
 Usage: audit-dashboard.py [--reports DIR] [--cleanup-log FILE] [--out FILE]
   --reports      directory holding the reports (default: $DEV_ROOT/audit-reports)
@@ -112,7 +112,9 @@ def parse_size(text):
 
 
 def parse_cleanup_log(path):
-    """~/.weekly-disk-cleanup.log -> [{date, sections: {name: reclaimed_bytes}}], last run per day."""
+    """~/.weekly-disk-cleanup.log -> [{date, sections: {name: reclaimed_bytes}, check, problems}],
+    last run per day. check is the run's "Self-check:" verdict ("" for runs before it existed),
+    problems its "PROBLEM:" lines (bin/weekly-cleanup-check)."""
     if not path.is_file():
         return []
     runs, cur, section = {}, None, None
@@ -126,9 +128,13 @@ def parse_cleanup_log(path):
                 day = time.strftime("%Y-%m-%d", time.strptime(f"{tok[1]} {tok[2]} {tok[-1]}", "%b %d %Y"))
             except (IndexError, ValueError):
                 continue
-            cur = runs[day] = {"date": day, "sections": {}}
+            cur = runs[day] = {"date": day, "sections": {}, "check": "", "problems": []}
         elif cur is None:
             continue
+        elif line.startswith("Self-check: "):
+            cur["check"] = line[len("Self-check: "):].strip()
+        elif line.startswith("PROBLEM: "):
+            cur["problems"].append(line[len("PROBLEM: "):].strip())
         elif line.startswith("--- ") and line.endswith(" ---"):
             section = line[4:-4].strip()
             cur["sections"].setdefault(section, {})
@@ -143,7 +149,8 @@ def parse_cleanup_log(path):
         for name, s in runs[day]["sections"].items():
             if "Before" in s and "After" in s:
                 reclaimed[name] = max(0.0, s["Before"] - s["After"])
-        out.append({"date": day, "sections": reclaimed})
+        out.append({"date": day, "sections": reclaimed,
+                    "check": runs[day]["check"], "problems": runs[day]["problems"]})
     return out
 
 
@@ -268,7 +275,8 @@ def tiles(reports, findings, cleanup, n_actions):
         out.append(tile("dotaudit FAIL", nf, delta(nf, pf) + f" · {nr} repos/dirs affected"))
     if cleanup:
         last = cleanup[-1]
-        out.append(tile("Last cleanup", human(sum(last["sections"].values())), f'reclaimed · {esc(last["date"])}'))
+        check = f' · Self-check {esc(last["check"])}' if last["check"] else ""
+        out.append(tile("Last cleanup", human(sum(last["sections"].values())), f'reclaimed · {esc(last["date"])}{check}'))
     out.append(tile("Open actions", f'<span id="open-count">{n_actions}</span>', "ticked off in this browser"))
     return f'<div class="tiles">{"".join(out)}</div>'
 
@@ -356,8 +364,21 @@ def breakdown_section(findings):
     return "".join(parts)
 
 
+def self_check_table(cleanup):
+    """The Self-check verdict of each recent run, and its PROBLEM lines (bin/weekly-cleanup-check)."""
+    checked = [r for r in cleanup if r.get("check")]
+    if not checked:
+        return '<h3>Self-check per run</h3><p class="empty">No run in the log has a Self-check line yet.</p>'
+    rows = []
+    for r in reversed(checked[-12:]):
+        probs = "<br>".join(esc(x) for x in r["problems"]) or "—"
+        rows.append(f"<tr><th>{esc(r['date'])}</th><td><b>{esc(r['check'])}</b></td><td>{probs}</td></tr>")
+    return ('<h3>Self-check per run</h3><table class="plain"><thead><tr><th>run</th><th>verdict</th>'
+            f'<th>problems</th></tr></thead><tbody>{"".join(rows)}</tbody></table>')
+
+
 def disk_section(cleanup):
-    parts = ['<section id="disk"><h2>Disk cleanup</h2>']
+    parts = ['<section id="disk"><h2>Disk cleanup</h2>', self_check_table(cleanup)]
     runs = [r for r in cleanup if r["sections"]]
     if not runs:
         return "".join(parts) + '<p class="empty">No cleanup runs with sizes in the log.</p></section>'

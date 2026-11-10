@@ -42,10 +42,12 @@ only; this file is public. Workspace-wide items: `~/dev/TODO.md`. Decisions: `do
       The branch also carries D38 (`3033ca6`) and D39 (`fd09cb4`, model-selection section in
       `claude/dev-CLAUDE.md`), 2026-10-17; one push covers all three.
 
-- [ ] **Mail reports: the one-time setup** (`docs/maintenance.md` § Email reports): a Gmail App
+- [x] **Mail reports: the one-time setup** (`docs/maintenance.md` § Email reports): a Gmail App
       Password, `security add-generic-password -U -s dotfiles-mail-report -a <address> -w`,
       then `mail-report --test`. Until then every real run logs `WARN: report not mailed
       (mail-report exit 3)` and otherwise behaves as before.
+      Closed 2026-11-09, never done: superseded by D60 (reports stay on the Mac, `mail-report`
+      archived).
 
 - [ ] **rclone: create a personal Google Drive client_id** before the shared one is retired
       (rclone says "during 2026"), or the daily docs backup stops. Seen in
@@ -192,5 +194,7 @@ Weaken". Built on 2026-11-04 (the edits went through), except the GitHub setting
       (npx, headless Chrome, Library caches, Docker with Colima start/stop). The run now checks
       itself: run `weekly-cleanup-check` (or read the `Self-check:` line at the end of
       `~/.weekly-disk-cleanup.log`). Expect `Self-check: OK`; if not, each `PROBLEM:` line names
-      the step. Record the result in the D27 addenda's `Verified:` — 2026-11-09, D27 addenda
-      2026-11-08/09 (`private/reports/disk-survey-2026-11-08.md`)
+      the step. Also check that the run's macOS notification appeared (Notification Center) and
+      that the session-start `Maintenance:` line reads `cleanup 0d ago, Self-check OK`. Record the
+      result in the D27 addenda's and D60's `Verified:` — 2026-11-09, D27 addenda 2026-11-08/09,
+      D60 (`private/reports/disk-survey-2026-11-08.md`)

@@ -580,34 +580,46 @@ grep -qE '^[^#]*echo "Reclaimed: ' "$CLEANUP" \
   && pass "a real run prints a Reclaimed summary line" \
   || fail "a real run prints a Reclaimed summary line"
 
-# Mail. A real run appends its output to the log and mails it through
-# bin/mail-report (overridable with MAIL_REPORT_BIN); --dry-run never mails.
-# Checked statically plus one --dry-run with a stub that would leave a marker.
-MAIL_STUB="$T/mail-stub"
-printf '#!/bin/sh\ntouch "%s/mail-called"\ncat > /dev/null\n' "$T" > "$MAIL_STUB"; chmod +x "$MAIL_STUB"
+# Notification. A real run appends its output to the log, then shows a local
+# macOS notification through bin/notify-local (overridable with NOTIFY_BIN);
+# --dry-run never notifies, and no mail sender is called anywhere (D60).
+NOTIFY_STUB="$T/notify-stub"
+printf '#!/bin/sh\ntouch "%s/notify-called"\n' "$T" > "$NOTIFY_STUB"; chmod +x "$NOTIFY_STUB"
 : > "$OUT"
-HOME="$DRY_HOME" PATH="/usr/bin:/bin" MAIL_REPORT_BIN="$MAIL_STUB" zsh "$CLEANUP" --dry-run > "$OUT" 2>&1; rc=$?
-[ "$rc" = 0 ] && [ ! -e "$T/mail-called" ] \
-  && pass "--dry-run sends no mail" || fail "--dry-run sends no mail (rc=$rc)"
+HOME="$DRY_HOME" PATH="/usr/bin:/bin" NOTIFY_BIN="$NOTIFY_STUB" zsh "$CLEANUP" --dry-run > "$OUT" 2>&1; rc=$?
+[ "$rc" = 0 ] && [ ! -e "$T/notify-called" ] \
+  && pass "--dry-run shows no notification" || fail "--dry-run notified (rc=$rc)"
 : > "$OUT"
-HOME="$DRY_HOME" PATH="/usr/bin:/bin" zsh "$CLEANUP" --no-mail --dry-run > "$OUT" 2>&1; rc=$?
+HOME="$DRY_HOME" PATH="/usr/bin:/bin" zsh "$CLEANUP" --no-notify --dry-run > "$OUT" 2>&1; rc=$?
 [ "$rc" = 0 ] && grep -q 'would run:' "$OUT" \
-  && pass "--no-mail is accepted alongside --dry-run" || fail "--no-mail rejected (rc=$rc)"
-grep -qE '^[^#]*"\$MAIL_REPORT_BIN" --subject' "$CLEANUP" \
-  && pass "the mail goes through \$MAIL_REPORT_BIN (overridable)" \
-  || fail "the mail goes through \$MAIL_REPORT_BIN (overridable)"
+  && pass "--no-notify is accepted alongside --dry-run" || fail "--no-notify rejected (rc=$rc)"
+HOME="$DRY_HOME" PATH="/usr/bin:/bin" zsh "$CLEANUP" --no-mail --dry-run > "$OUT" 2>&1; rc=$?
+[ "$rc" = 2 ] && pass "--no-mail is gone: usage, exit 2" || fail "--no-mail rc=$rc"
+grep -qE '^[^#]*"\$NOTIFY_BIN" "Weekly disk cleanup"' "$CLEANUP" \
+  && pass "the notification goes through \$NOTIFY_BIN (overridable)" \
+  || fail "the notification goes through \$NOTIFY_BIN (overridable)"
 append_ln="$(grep -nE '^[^#]*cat "\$RUN_OUT" >> "\$LOG_FILE"' "$CLEANUP" | head -1 | cut -d: -f1)"
-mail_ln="$(grep -nE '^[^#]*"\$MAIL_REPORT_BIN" --subject' "$CLEANUP" | head -1 | cut -d: -f1)"
-[ -n "$append_ln" ] && [ -n "$mail_ln" ] && [ "$append_ln" -lt "$mail_ln" ] \
-  && pass "the log is appended before the mail is sent" \
-  || fail "the log is appended before the mail is sent (lines $append_ln / $mail_ln)"
-grep -qE '^[^#]*grep -m1 .\^Reclaimed: ' "$CLEANUP" \
-  && pass "the mail subject carries the Reclaimed line" \
-  || fail "the mail subject carries the Reclaimed line"
-grep -qE '^[^#]*WARN: report not mailed' "$CLEANUP" \
-  && pass "a sender failure is a WARN line, not an exit code" \
-  || fail "a sender failure is a WARN line, not an exit code"
-
+notify_ln="$(grep -nE '^[^#]*"\$NOTIFY_BIN" "Weekly disk cleanup"' "$CLEANUP" | head -1 | cut -d: -f1)"
+[ -n "$append_ln" ] && [ -n "$notify_ln" ] && [ "$append_ln" -lt "$notify_ln" ] \
+  && pass "the log is appended before the notification" \
+  || fail "the log is appended before the notification (lines $append_ln / $notify_ln)"
+grep -qE "Reclaimed: ' \"\\\$RUN_OUT\" \|\| echo finished\) · \\\$\(grep -m1 '\^Self-check: ' \"\\\$CHECK_OUT\"\)" "$CLEANUP" \
+  && pass "the notification carries the Reclaimed and Self-check lines" \
+  || fail "the notification carries the Reclaimed and Self-check lines"
+: > "$OUT"; grep -nE '^[^#]*(mail-report|MAIL_REPORT)' "$CLEANUP" > "$OUT"
+[ -s "$OUT" ] && fail "no mail sender is called" || pass "no mail sender is called"
+# notify-local passes title and message as osascript arguments, never as source.
+NO_OSA="$T/osa-stub"
+printf '#!/bin/sh\nfor a in "$@"; do printf "%%s\\n" "$a"; done > "%s/osa.args"\n' "$T" > "$NO_OSA"; chmod +x "$NO_OSA"
+NOTIFY_OSASCRIPT="$NO_OSA" "$BIN_DIR/notify-local" 'Title "q"' 'it said "hi" & left' ; rc=$?
+[ "$rc" = 0 ] && [ "$(sed -n 7p "$T/osa.args")" = 'Title "q"' ] && [ "$(sed -n 8p "$T/osa.args")" = 'it said "hi" & left' ] \
+  && ! sed -n 1,6p "$T/osa.args" | grep -q 'hi' \
+  && pass "notify-local passes title and message as arguments, quotes intact" \
+  || fail "notify-local argument passing: $(tr '\n' '|' < "$T/osa.args")"
+"$BIN_DIR/notify-local" only-one > "$OUT" 2>&1; rc=$?
+[ "$rc" = 2 ] && grep -q '^usage:' "$OUT" && pass "notify-local with one argument: usage, exit 2" || fail "notify-local usage (rc=$rc)"
+NOTIFY_OSASCRIPT=/nonexistent "$BIN_DIR/notify-local" t m; rc=$?
+[ "$rc" = 0 ] && pass "notify-local without osascript exits 0 (never fails a caller)" || fail "notify-local no osascript rc=$rc"
 
 # ── 5b. rcdev — the always-on Remote Control agent ───────────────────────────
 # Never installs or starts anything: `run` is exercised only with RCDEV_DRY_RUN,
@@ -1041,13 +1053,40 @@ LOG_FILE="$WCD/nolog" "$WCC" > "$OUT" 2>&1; rc=$?
 "$WCC" --bogus > "$OUT" 2>&1; rc=$?
 [ "$rc" = 2 ] && grep -q '^usage:' "$OUT" && pass "unknown option: usage, exit 2" || fail "usage (rc=$rc)"
 # The weekly script runs the check on its own output, logs it, puts it in the
-# mail subject and exits with its result.
+# notification and exits with its result.
 grep -qE '^  "\$CHECK_BIN" --run "\$RUN_OUT" > "\$CHECK_OUT" 2>&1; check_rc=\$\?$' "$CLEANUP" \
   && grep -qE '^\{ echo ""; cat "\$CHECK_OUT"; \} >> "\$RUN_OUT"$' "$CLEANUP" \
-  && grep -qE "Self-check: ' \"\\\$CHECK_OUT\"\)\"\$" "$CLEANUP" \
   && grep -qE '^exit "\$check_rc"$' "$CLEANUP" \
-  && pass "the weekly script self-checks each real run: log, mail subject, exit code" \
-  || fail "the weekly script self-checks each real run: log, mail subject, exit code"
+  && pass "the weekly script self-checks each real run: log, notification, exit code" \
+  || fail "the weekly script self-checks each real run: log, notification, exit code"
+
+header "maintenance-status (fixture logs, stub launchctl)"
+
+MS="$BIN_DIR/maintenance-status"
+MSD="$T/ms"; mkdir -p "$MSD"
+good_run > "$MSD/cleanup.log"
+printf '2026-11-08 12:25:11\t10 FAIL\t15 WARN\t14 new\t0 resolved\t/x.md\n' > "$MSD/audit.log"
+printf '#!/bin/sh\nprintf "PID\\tStatus\\tLabel\\n"\nprintf "4102\\t0\\tcom.pieterdejong.rcdev\\n"\nprintf -- "-\\t1\\tcom.pieterdejong.docsbackup\\n"\nprintf -- "-\\t1\\tcom.pieterdejong.securityaudit\\n"\nprintf -- "-\\t0\\tcom.pieterdejong.weeklycleanup\\n"\nprintf "99\\t15\\tcom.pieterdejong.running\\n"\nprintf -- "-\\t1\\tcom.apple.other\\n"\n' > "$MSD/launchctl"
+chmod +x "$MSD/launchctl"
+ms() { CLEANUP_LOG="$MSD/cleanup.log" AUDIT_LOG="$MSD/audit.log" LAUNCHCTL="$MSD/launchctl" CLEANUP_SCRIPT="$CLEANUP" "$MS" > "$OUT" 2>&1; }
+ms; rc=$?
+[ "$rc" = 0 ] && [ "$(wc -l < "$OUT" | tr -d ' ')" = 1 ] \
+  && grep -qxF 'Maintenance: cleanup 0d ago, Self-check OK · ⚠ audit 0d ago: 10 FAIL (14 new) · ⚠ docsbackup: last run failed (exit 1)' "$OUT" \
+  && pass "one line: cleanup verdict, audit FAILs, and only our stopped jobs with a non-zero exit" \
+  || fail "maintenance-status line: $(cat "$OUT")"
+printf '%s\n' "  Weekly disk cleanup - x" "--- npm cache ---" "Self-check: 2 problem(s)" > "$MSD/cleanup.log"
+ms
+grep -q '⚠ cleanup 0d ago: [0-9]* problem(s) (weekly-cleanup-check)' "$OUT" \
+  && pass "a cleanup run with problems is flagged" || fail "cleanup problems: $(cat "$OUT")"
+touch -t 202001010000 "$MSD/cleanup.log" "$MSD/audit.log"
+ms
+grep -q '⚠ cleanup overdue: last run [0-9]*d ago' "$OUT" && grep -q '⚠ audit overdue: last run [0-9]*d ago' "$OUT" \
+  && pass "logs older than 8 days are flagged overdue" || fail "overdue: $(cat "$OUT")"
+CLEANUP_LOG="$MSD/none" AUDIT_LOG="$MSD/none" LAUNCHCTL=/nonexistent "$MS" > "$OUT" 2>&1; rc=$?
+[ "$rc" = 0 ] && grep -qxF 'Maintenance: ⚠ cleanup: never run · ⚠ audit: never run' "$OUT" \
+  && pass "no logs and no launchctl: says never run, still exits 0" || fail "never run (rc=$rc): $(cat "$OUT")"
+grep -q 'maintenance-status' "$(dirname "$BIN_DIR")/claude/hooks/session-start.sh" \
+  && pass "the SessionStart hook prints the maintenance line" || fail "the SessionStart hook prints the maintenance line"
 
 header "publishability"
 

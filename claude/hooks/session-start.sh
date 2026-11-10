@@ -11,6 +11,8 @@
 #      the first edit rather than discovered at commit time. At the workspace
 #      root (~/dev, not a repo) it prints the workspace TODO and the recently
 #      active repos; anywhere else outside a repo it prints nothing.
+#      Then one line from bin/maintenance-status: how the scheduled
+#      maintenance jobs did (D60).
 #   2. Record a baseline (HEAD and what was already dirty) under
 #      ~/.local/state/claude-logs/<session_id>.base, so the Stop hook
 #      (stop-log-check.sh) can tell what this session changed.
@@ -68,5 +70,14 @@ if [ -n "$sid" ] && . "$HOOK_DIR/../../security/lib/logs.sh" 2>/dev/null; then
   fi
 fi
 
-[ -x "$WHATSUP" ] && NO_COLOR=1 "$WHATSUP" --brief 2>/dev/null
+brief=""
+[ -x "$WHATSUP" ] && brief="$(NO_COLOR=1 "$WHATSUP" --brief 2>/dev/null)"
+if [ -n "$brief" ]; then
+  printf '%s\n' "$brief"
+  # One line on the scheduled maintenance jobs (cleanup self-check, security
+  # audit, failed launchd jobs): the local replacement for mailed reports (D60).
+  # Only where the brief prints at all, so outside ~/dev the hook stays silent.
+  MSTATUS="$HOOK_DIR/../../bin/maintenance-status"
+  [ -x "$MSTATUS" ] && "$MSTATUS" 2>/dev/null
+fi
 exit 0

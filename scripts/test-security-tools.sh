@@ -385,6 +385,10 @@ After:  0B
 --- pip cache ---
 Before: 300M
 After:  100M
+
+--- Self-check ---
+PROBLEM: steps missing from the run: Library caches <x>
+Self-check: 1 problem(s)
 EOF
 dash() { HOME="$DB/home" python3 "$DASH" --reports "$DB/reports" --cleanup-log "$DB/cleanup.log" "$@" > "$OUT" 2>&1; }
 dash; rc=$?; H="$DB/reports/dashboard.html"
@@ -397,6 +401,11 @@ grep -q '<div class="tl">dotaudit FAIL</div><div class="tv">3</div><div class="t
   && pass "dotaudit tile counts FAIL rows of the latest findings file" || fail "dotaudit tile wrong"
 grep -q '<div class="tl">Last cleanup</div><div class="tv">1.2G</div>' "$H" \
   && pass "disk tile sums reclaimed space; dry runs and blank sizes are skipped" || fail "disk tile wrong"
+grep -q 'reclaimed · 2026-01-11 · Self-check 1 problem(s)</div>' "$H" \
+  && pass "disk tile carries the last run's Self-check verdict" || fail "disk tile Self-check missing"
+grep -q '<h3>Self-check per run</h3>' "$H" && grep -q '<th>2026-01-11</th><td><b>1 problem(s)</b></td><td>steps missing from the run: Library caches &lt;x&gt;</td>' "$H" \
+  && ! grep -q '<th>2026-01-04</th><td><b>' "$H" \
+  && pass "Self-check table: verdict and escaped PROBLEM lines per run; runs without one are left out" || fail "Self-check table wrong"
 grep -q '<b>Rotate exposed credentials</b> <span class="cnt">1</span>' "$H" && grep -q '<b>Security CI missing</b> <span class="cnt">1</span>' "$H" \
   && grep -q '<b>Other</b> <span class="cnt">1</span>' "$H" && pass "FAILs are grouped by fix; unknown checks land in Other" || fail "action groups wrong"
 grep -q '<b>Weekly audit FAILs</b> <span class="cnt">1</span>' "$H" \

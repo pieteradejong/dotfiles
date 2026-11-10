@@ -12,10 +12,10 @@ Replaces the old `weekly-cleanup.md` and `mac-maintenance.md`.
 | [Security & privacy audit](#weekly-security--privacy-audit) | `scripts/security-audit.sh` | Sundays 10:00 | `scripts/security-audit.sh --quick --no-notify` | read-only always; `--quick` skips the slow steps (`--templates` keeps step 8) | `~/dev/audit-reports/security-audit-YYYY-MM-DD.md` · `~/Library/Logs/security-audit/` | `./test.sh tools` | `macos/com.pieterdejong.securityaudit.plist` | D15, D28, D30, D55 |
 | [Template drift](#template-dependency-drift) | `scripts/template-versions.py` | section 8 of each audit (check only) | `scripts/template-versions.py --quiet` | read-only; `--apply` bumps, needs the Node of the template's `.nvmrc` | `~/dev/audit-reports/template-versions-YYYY-MM-DD.{md,tsv}` | `./test.sh templates`, `ruff` | — | D55 |
 | [Dashboard](#dashboard) | `scripts/audit-dashboard.py` | after each audit | `scripts/audit-dashboard.py` | reads reports, writes one HTML file | `~/dev/audit-reports/dashboard.html` | `./test.sh tools`, `ruff` | — | D28 |
-| [Disk cleanup](#weekly-disk-cleanup) | `bin/weekly-disk-cleanup.sh` | Sundays 09:00 | `weekly-disk-cleanup.sh` | `--dry-run` | `~/.weekly-disk-cleanup.log` · [mailed](#email-reports) | `./test.sh bin` (static + `--dry-run`, never a real run) | `macos/com.pieterdejong.weeklycleanup.plist` | D18, D20, D27, D31 |
-| [Mac maintenance](#mac-maintenance-manual) | `scripts/mac-maintenance.sh` | by hand | `scripts/mac-maintenance.sh` | `--dry-run` | `~/maintenance-YYYYMMDD.log` · [mailed](#email-reports) | `./test.sh maint` (real run on a fake HOME, mail stubbed) | — | D29, D31 |
-| [X follower review](#weekly-x-follower-review) | `projects/twittertools/scripts/weekly_followers.sh` (outside this repo) | Mondays 09:00 · **not installed yet** | `scripts/weekly_followers.sh --no-mail` | none: every run is a paid API read (~$1.30) | `twittertools/logs/follower_watch.log` · [mailed](#email-reports) | twittertools `./test.sh followers` (fake API, stub mail); plist: `./test.sh bin` | `macos/com.pieterdejong.twitterfollowers.plist` | D53 |
-| [Email reports](#email-reports) | `bin/mail-report` | end of each run above | `mail-report --test` | `--dry-run` prints, sends nothing | your inbox | `./test.sh mail` (fake Keychain, nothing sent) | — | D31 |
+| [Disk cleanup](#weekly-disk-cleanup) | `bin/weekly-disk-cleanup.sh` | Sundays 09:00 | `weekly-disk-cleanup.sh` | `--dry-run` | `~/.weekly-disk-cleanup.log` · [notification and status line](#reports) | `./test.sh bin` (static + `--dry-run`, never a real run) | `macos/com.pieterdejong.weeklycleanup.plist` | D18, D20, D27, D60 |
+| [Mac maintenance](#mac-maintenance-manual) | `scripts/mac-maintenance.sh` | by hand | `scripts/mac-maintenance.sh` | `--dry-run` | `~/maintenance-YYYYMMDD.log` · [notification](#reports) | `./test.sh maint` (real run on a fake HOME, notifier stubbed) | — | D29, D60 |
+| [X follower review](#weekly-x-follower-review) | `projects/twittertools/scripts/weekly_followers.sh` (outside this repo) | Mondays 09:00 · **not installed yet** | `scripts/weekly_followers.sh --no-mail` | none: every run is a paid API read (~$1.30) | `twittertools/logs/follower_watch.log` (no longer mailed: `mail-report` is retired, D60) | twittertools `./test.sh followers` (fake API, stub mail); plist: `./test.sh bin` | `macos/com.pieterdejong.twitterfollowers.plist` | D53 |
+| [Reports](#reports) | `bin/notify-local`, `bin/maintenance-status`, the dashboard | end of each run above; every session start | `maintenance-status` | read-only | Notification Center · session start · `dashboard.html` | `./test.sh bin`, `./test.sh tools` | — | D60 |
 | [Docs backup](#daily-docs-backup) | `~/docs/.backup/backup_docs.py` (outside this repo; targets `~/docs`, `~/dev`, `~/media/convos`) | daily 03:00 | `python3 ~/docs/.backup/backup_docs.py --execute` | without `--execute` | `~/docs/.backup/logs/` | — | `macos/com.pieterdejong.docsbackup.plist` | [policy/backups.md](policy/backups.md) |
 | [Media backup](#media-backup-to-s3-manual) | `bin/media-backup` (wrapper; logic in the private media repo) | by hand | `media-backup --execute` | dry run by default; `--offline` | `~/.cache/media-video-backup/upload-<ts>.log` | `./test.sh bin` (stub media repo, nothing uploaded) | — | D46 |
 | [Remote Control](#remote-control-server-rcdev) | `bin/rcdev`, `bin/rc-projects` | always on (at login) | `rcdev status` | `RCDEV_DRY_RUN` | `~/Library/Logs/claude-remote-control/` | `./test.sh bin` | `macos/com.pieterdejong.rcdev*.plist` | D18 |
@@ -176,18 +176,18 @@ removed and that no log was written. `--dry-run` is the one mode that is safe to
 
 Each step runs independently; one failing does not stop the rest. The run ends with
 `Free after:` and one `Reclaimed: N MB` line. A real run is captured into one per-run file,
-appended to `~/.weekly-disk-cleanup.log` (trimmed to 1000 lines before each run) and then
-[mailed](#email-reports) with the `Reclaimed:` line as the subject; `--no-mail` skips the mail,
-`--dry-run` never logs or mails. Anything printed before the capture starts goes to
+appended to `~/.weekly-disk-cleanup.log` (trimmed to 1000 lines before each run), and its
+`Reclaimed:` and `Self-check:` lines are shown as a macOS notification ([Reports](#reports));
+`--no-notify` skips the notification, `--dry-run` never logs or notifies. Anything printed before the capture starts goes to
 `~/.weekly-disk-cleanup.launchd.log`. The script puts Homebrew and `~/.local/bin` on `PATH` itself:
 launchd's bare `PATH` found Xcode's old `/usr/bin/pip3`, which does not know pip's current cache
 layout, so the pip step was a no-op.
 
 ```zsh
-weekly-disk-cleanup.sh --dry-run    # sizes + what each step would run; changes nothing, no log, no mail
-weekly-disk-cleanup.sh              # real run from a terminal: prints, logs, mails, and has Full Disk Access for Trash
-weekly-disk-cleanup.sh --no-mail    # real run, log only
-launchctl start com.pieterdejong.weeklycleanup && cat ~/.weekly-disk-cleanup.log   # run the launchd job now (mails too)
+weekly-disk-cleanup.sh --dry-run    # sizes + what each step would run; changes nothing, no log, no notification
+weekly-disk-cleanup.sh              # real run from a terminal: prints, logs, notifies, and has Full Disk Access for Trash
+weekly-disk-cleanup.sh --no-notify  # real run, log only
+launchctl start com.pieterdejong.weeklycleanup && cat ~/.weekly-disk-cleanup.log   # run the launchd job now (notifies too)
 ```
 
 **Self-check.** Every real run ends by checking itself with `bin/weekly-cleanup-check --run`:
@@ -199,7 +199,7 @@ launchctl start com.pieterdejong.weeklycleanup && cat ~/.weekly-disk-cleanup.log
 - a Colima the run started was stopped again.
 
 The verdict, `Self-check: OK` or `Self-check: N problem(s)` with one `PROBLEM:` line each, is
-appended to the log and added to the mail subject. It is also the exit code (1 on a problem), so
+appended to the log and shown in the notification. It is also the exit code (1 on a problem), so
 `launchctl print gui/$(id -u)/com.pieterdejong.weeklycleanup` shows `last exit code = 1` after a
 bad run. Run without arguments, `weekly-cleanup-check` checks the last run in the log and also
 whether that run is older than 8 days, which means the job is not running. `mac-maintenance.sh`
@@ -263,15 +263,17 @@ whole lifecycle against a stub `launchctl` and a fake HOME; the real agent is ne
 
 Every Monday at 09:00, `projects/twittertools/scripts/weekly_followers.sh` reads your X followers
 and following through the API and saves them as a JSON snapshot in that repo's
-`data/follower-snapshots/`. It then emails who followed you, who unfollowed you, and who you
-followed and unfollowed since last week. The code, its tests and the reasoning are in twittertools
+`data/follower-snapshots/`. It then writes who followed you, who unfollowed you, and who you
+followed and unfollowed since last week to its log. It used to email this through
+`mail-report`; that sender is retired (D60), so the wrapper, which mails only when it finds
+`mail-report`, now just logs. The code, its tests and the reasoning are in twittertools
 (`DECISIONS.md` 29, `README.md` § Weekly follower review); this repo only holds the schedule (D53).
 
 - **Install** (after the X credentials are in twittertools' `.env`, see its `TODO.md`):
   `cp macos/com.pieterdejong.twitterfollowers.plist ~/Library/LaunchAgents/ && launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.pieterdejong.twitterfollowers.plist`
 - **Run now:** `launchctl kickstart gui/$(id -u)/com.pieterdejong.twitterfollowers`. Each run is
   a paid API read.
-- **Exit codes** in the log and the mail subject: 0 ok · 1 API error · 3 no credentials ·
+- **Exit codes** in the log: 0 ok · 1 API error · 3 no credentials ·
   4 incomplete snapshot (kept, but left out of the comparison).
 - **Remove:** `launchctl bootout gui/$(id -u)/com.pieterdejong.twitterfollowers`, then delete
   the copy in `~/Library/LaunchAgents/`.
@@ -317,12 +319,13 @@ scheduled job needs non-interactive AWS credentials, which is an open item
 ## Mac maintenance (manual)
 
 ```zsh
-~/dev/dotfiles/scripts/mac-maintenance.sh --dry-run   # report + what would be moved; no log, no mail
-~/dev/dotfiles/scripts/mac-maintenance.sh             # report, then quarantine; logs to ~/maintenance-YYYYMMDD.log and mails the run
-~/dev/dotfiles/scripts/mac-maintenance.sh --no-mail   # same, log only
+~/dev/dotfiles/scripts/mac-maintenance.sh --dry-run    # report + what would be moved; no log, no notification
+~/dev/dotfiles/scripts/mac-maintenance.sh              # report, then quarantine; logs to ~/maintenance-YYYYMMDD.log and notifies
+~/dev/dotfiles/scripts/mac-maintenance.sh --no-notify  # same, log only
 ```
 
-A real run is [mailed](#email-reports) with the `Moved: N item(s)` line as the subject.
+A real run ends with a notification: the `Moved: N item(s)` count and the weekly cleanup's
+Self-check verdict ([Reports](#reports)).
 
 Reports uptime, memory, disk and the last weekly cleanup (`weekly-cleanup-check`: did the
 launchd job run in the last 8 days, and did every step work), then moves every entry of `~/Library/Caches` into one dated
@@ -343,47 +346,32 @@ items are in [`mac-overheating.md`](mac-overheating.md) and [`TODO.md`](../TODO.
 
 ---
 
-## Email reports
+## Reports
 
-The disk cleanup and the Mac maintenance script mail their run when it ends: the same text that
-went into the log, as a plain-text message, subject `weekly-disk-cleanup on <host>: Reclaimed N MB`
-or `mac-maintenance on <host>: Moved N item(s)`. The sender is [`bin/mail-report`](../bin/mail-report):
-Python standard library only, Gmail SMTP over TLS, credentials from one macOS Keychain item.
-Nothing personal is in this repo — no address, no password, not in the scripts and not in the
-plists ([D31](design-decisions.md#d31--job-results-are-mailed-through-gmail-smtp-with-keychain-credentials-a-missing-mailbox-never-fails-a-job--2026-10-12)).
+Nothing leaves the Mac. The maintenance jobs report in three local places
+([D60](design-decisions.md#d60--maintenance-reports-stay-on-the-mac-notification-session-start-line-dashboard-email-retired--2026-11-09)):
 
-**One-time setup** (by hand, outside the repo):
-
-1. Google Account → Security → 2-Step Verification → App passwords → create one named
-   `dotfiles mail-report`. An App Password is the only way a script may sign in to Gmail; it can be
-   revoked on that page without touching the account password.
-2. Store it. `-w` with no value prompts, so the password never appears in a shell history, in
-   `ps` or in a file:
-   ```zsh
-   security add-generic-password -U -s dotfiles-mail-report -a you@example.com -w
+1. **A macOS notification** at the end of every real run, through
+   [`bin/notify-local`](../bin/notify-local). The weekly cleanup shows `Reclaimed: N MB ·
+   Self-check: OK` (or `N problem(s)`), and `mac-maintenance.sh` shows `Moved: N item(s) · weekly
+   cleanup OK`. It stays in Notification Center until dismissed; the full text is in each job's log.
+   `--no-notify` skips it. If no notification appears from a launchd run, check System Settings →
+   Notifications → Script Editor (osascript posts as Script Editor).
+2. **One line at the start of every Claude Code session** in `~/dev`, from
+   [`bin/maintenance-status`](../bin/maintenance-status), printed by the SessionStart hook after
+   `whatsup --brief`, and in `whatsup` at the workspace root:
    ```
-   The account is the Gmail address; it is the sender and, unless `--to` or `MAIL_REPORT_TO` says
-   otherwise, the recipient. The item is created by `security`, so later reads by `security` from
-   a launchd job need no Keychain prompt.
-3. `mail-report --test` — one probe mail arrives.
+   Maintenance: cleanup 1d ago, Self-check OK · ⚠ audit 1d ago: 10 FAIL (14 new) · ⚠ docsbackup: last run failed (exit 1)
+   ```
+   - The cleanup verdict comes from `weekly-cleanup-check`.
+   - The audit count comes from the security audit's log.
+   - Every other `com.pieterdejong.*` launchd job whose last run exited non-zero is listed.
+   - A log older than 8 days reads `overdue`, which means the job is not running.
+3. **The dashboard** (`~/dev/audit-reports/dashboard.html`) has a *Self-check per run* table, with
+   each cleanup run's verdict and `PROBLEM:` lines, and the last verdict on the *Last cleanup* tile.
 
-```zsh
-mail-report --test                                         # probe mail to yourself
-printf 'hello\n' | mail-report --dry-run --subject probe    # print the composed message, send nothing
-weekly-disk-cleanup.sh --no-mail                           # a real run without the mail
-```
-
-**When the mail cannot be sent** (no Keychain item, exit 3; SMTP or auth failure, exit 1), the job
-still exits 0 and writes one `WARN: report not mailed (mail-report exit N)` line to its output and
-its log. A missing mailbox never fails a cleanup. To stop the mails altogether, delete the Keychain
-item (`security delete-generic-password -s dotfiles-mail-report`) or pass `--no-mail`.
-
-**What leaves the Mac.** Only the run's output: cache sizes, paths under `$HOME`, counts, the
-`Reclaimed:`/`Moved:` lines. Google is then a processor of that text
-([privacy-by-design.md](policy/privacy-by-design.md) § Processors); it holds no secret and no
-other person's data. Env overrides: `MAIL_REPORT_SMTP` (`host:port`, default
-`smtp.gmail.com:465`), `MAIL_REPORT_TO`, `MAIL_REPORT_SERVICE` (the Keychain service name),
-`MAIL_REPORT_BIN` on the two jobs (which sender to call — the tests point it at a stub).
+`bin/mail-report`, the Gmail sender these replaced, is in `archive/`. It was never configured on
+this Mac, so every run since 2026-10-18 logged `report not mailed (exit 3)`.
 
 ---
 
@@ -392,10 +380,9 @@ other person's data. Env overrides: `MAIL_REPORT_SMTP` (`host:port`, default
 ```zsh
 cd ~/dev/dotfiles
 ./test.sh            # everything; CI runs exactly this
-./test.sh bin        # weekly-disk-cleanup.sh (static + --dry-run, mail stubbed), rcdev lifecycle, llm, media-backup (stub repo)
+./test.sh bin        # weekly-disk-cleanup.sh (static + --dry-run, notifier stubbed), weekly-cleanup-check, maintenance-status, notify-local, rcdev lifecycle, llm, media-backup (stub repo)
 ./test.sh tools      # security-audit.sh on a fixture workspace (incl. the delta section), the dashboard, sweeps, sanitizers
-./test.sh maint      # mac-maintenance.sh, real run on a fake HOME; the mail goes to a stub that records it
-./test.sh mail       # bin/mail-report against a fake `security`; every send is a --dry-run
+./test.sh maint      # mac-maintenance.sh, real run on a fake HOME; the notification goes to a stub that records it
 ./test.sh gate       # the commit/push gate
 ./test.sh docs       # these docs: links, anchors, index, CLAUDE.md in sync
 ```
@@ -419,9 +406,10 @@ the rejected alternatives and the `Verified:` line.
 - [D28](design-decisions.md#d28--the-maintenance-dashboard-is-a-local-file-built-from-the-reports--2026-10-07) — the dashboard is a local file built from the reports.
 - [D29](design-decisions.md#d29--mac-maintenancesh-stays-at-the-cleanups-standard-and-under-test--2026-10-10) — `mac-maintenance.sh` stays, at the cleanup's standard and under test.
 - [D30](design-decisions.md#d30--the-audit-reports-what-changed-since-the-last-run-acceptance-stays-in-the-register--2026-10-10) — the audit reports what changed since the last run; acceptance stays in the register.
-- [D31](design-decisions.md#d31--job-results-are-mailed-through-gmail-smtp-with-keychain-credentials-a-missing-mailbox-never-fails-a-job--2026-10-12) — job results are mailed through Gmail SMTP with Keychain credentials; a missing mailbox never fails a job.
+- [D31](design-decisions.md#d31--job-results-are-mailed-through-gmail-smtp-with-keychain-credentials-a-missing-mailbox-never-fails-a-job--2026-10-12) — job results are mailed through Gmail SMTP with Keychain credentials; a missing mailbox never fails a job. *Superseded by D60.*
 - [D46](design-decisions.md#d46--media-backup-is-one-by-hand-command-in-bin-the-logic-stays-in-the-media-repo--2026-10-27) — media backup is one by-hand command in `bin/`; the logic stays in the media repo.
 - [D53](design-decisions.md#d53--the-weekly-x-follower-review-is-a-launchd-job-in-dotfiles-its-code-stays-in-twittertools--2026-10-29) — the weekly X follower review is a launchd job here; its code stays in twittertools.
+- [D60](design-decisions.md#d60--maintenance-reports-stay-on-the-mac-notification-session-start-line-dashboard-email-retired--2026-11-09) — maintenance reports stay on the Mac: a notification, a session-start line, the dashboard; email retired.
 
 ## Open items
 

@@ -3,7 +3,7 @@
 <!--
   Weekly X follower review: projects/twittertools/scripts/weekly_followers.sh, Mondays 09:00.
   Pulls followers + following from the X API (paid: ~$0.001 per account), reports
-  who followed and unfollowed since last week, and mails it (bin/mail-report).
+  who followed and unfollowed since last week to its log (mail-report is retired, D60).
   Install:   cp macos/com.pieterdejong.twitterfollowers.plist ~/Library/LaunchAgents/
              launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.pieterdejong.twitterfollowers.plist
   Run now:   launchctl kickstart gui/$(id -u)/com.pieterdejong.twitterfollowers

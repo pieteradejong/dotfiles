@@ -4,7 +4,7 @@
 #
 #   ./test.sh                 all suites
 #   ./test.sh gate            one suite: shellcheck | zsh-syntax | ruff | bin | gate |
-#                                        tools | dotaudit | containers | maint | mail | pwdgen |
+#                                        tools | dotaudit | containers | maint | pwdgen |
 #                                        logs | docs | claudemd | templates
 #   ./test.sh --verbose       pass --verbose through to each suite
 #
@@ -21,9 +21,7 @@
 #   dotaudit    scripts/test-dev-audit.sh       (the read-only workspace audit)
 #   containers  scripts/test-containers-doctor.sh (Colima / no-Docker-Desktop doctor)
 #   maint       scripts/test-mac-maintenance.sh  (report + cache quarantine, on a
-#                                                fake HOME; mail stubbed)
-#   mail        scripts/test-mail-report.py      (bin/mail-report against a fake
-#                                                Keychain; nothing is sent)
+#                                                fake HOME; notifier stubbed)
 #   pwdgen      scripts/test-pwd-gen.py          (bin/pwd-gen: lengths, classes,
 #                                                wordlist, exit codes; fake pbcopy)
 #   logs        scripts/test-logs.sh            (decision log + changelog coverage:
@@ -49,7 +47,7 @@ ONLY=""
 for a in "$@"; do
   case "$a" in
     --verbose) VERBOSE="--verbose" ;;
-    shellcheck|zsh-syntax|ruff|bin|gate|tools|dotaudit|containers|maint|mail|pwdgen|logs|docs|claudemd|templates) ONLY="$a" ;;
+    shellcheck|zsh-syntax|ruff|bin|gate|tools|dotaudit|containers|maint|pwdgen|logs|docs|claudemd|templates) ONLY="$a" ;;
     -h|--help) sed -n '3,42p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown argument: $a" >&2; exit 2 ;;
   esac
@@ -90,6 +88,8 @@ bin/whatsup
 bin/doc-dupes
 bin/media-backup
 bin/weekly-cleanup-check
+bin/notify-local
+bin/maintenance-status
 "
 
 # zsh scripts. shellcheck has no zsh support, so these get `zsh -n` instead of a
@@ -100,15 +100,13 @@ bin/weekly-disk-cleanup.sh
 "
 
 # Python scripts (stdlib only, per scripts/README.md), linted with ruff.
-# bin/mail-report has no extension; ruff lints a file it is given by name.
+# bin/pwd-gen has no extension; ruff lints a file it is given by name.
 PYTHON_FILES="
-bin/mail-report
 bin/pwd-gen
 scripts/audit-dashboard.py
 scripts/claude-md-check.py
 scripts/test-claude-md-check.py
 scripts/test-docs.py
-scripts/test-mail-report.py
 scripts/test-pwd-gen.py
 scripts/template-versions.py
 scripts/test-template-versions.py
@@ -158,7 +156,6 @@ run_suite tools    bash scripts/test-security-tools.sh $VERBOSE
 run_suite dotaudit bash scripts/test-dev-audit.sh $VERBOSE
 run_suite containers bash scripts/test-containers-doctor.sh $VERBOSE
 run_suite maint    bash scripts/test-mac-maintenance.sh $VERBOSE
-run_suite mail     python3 scripts/test-mail-report.py $VERBOSE
 run_suite pwdgen   python3 scripts/test-pwd-gen.py $VERBOSE
 run_suite logs     bash scripts/test-logs.sh $VERBOSE
 run_suite docs     python3 scripts/test-docs.py $VERBOSE

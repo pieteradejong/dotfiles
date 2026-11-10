@@ -144,14 +144,9 @@ chmod +x ~/dev/audit-reports/snapshot/generate-snapshot.sh
 
 ## Keychain items
 
-Created by hand, never backed up by the repo (they hold secrets). Recreate after a reinstall:
-
-```bash
-# Mail reports from the maintenance jobs (docs/maintenance.md § Email reports):
-# account = the Gmail address, password = a Gmail App Password (prompted, not on the command line)
-security add-generic-password -U -s dotfiles-mail-report -a you@example.com -w
-mail-report --test
-```
+None are needed by the maintenance jobs any more: they report locally (docs/maintenance.md
+§ Reports, D60). The `dotfiles-mail-report` item of the retired email sender can be deleted if it
+exists: `security delete-generic-password -s dotfiles-mail-report`.
 
 ## Notes
 

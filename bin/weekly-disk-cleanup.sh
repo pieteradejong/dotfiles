@@ -4,15 +4,17 @@
 # that was already discarded. Nothing it removes is needed. At worst the next
 # install or build downloads it again.
 #
-# Usage: weekly-disk-cleanup.sh [--dry-run] [--no-mail]
+# Usage: weekly-disk-cleanup.sh [--dry-run] [--no-notify]
 #
 #   (no args)   clean. Runs weekly via launchd
 #               (~/Library/LaunchAgents/com.pieterdejong.weeklycleanup.plist);
 #               from a terminal it also prints as it goes. The run's output is
-#               appended to the log and mailed (bin/mail-report).
+#               appended to the log, and its one-line verdict (reclaimed MB,
+#               self-check) is shown as a macOS notification (bin/notify-local).
+#               Nothing leaves the Mac.
 #   --dry-run   show sizes and what each step would run; change nothing,
-#               leave the log untouched, send no mail.
-#   --no-mail   clean and log, but send no mail.
+#               leave the log untouched, no notification.
+#   --no-notify clean and log, but show no notification.
 #
 # Sections, each independent — one failing (e.g. Docker not running)
 # does not stop the others. See docs/maintenance.md for what each step does
@@ -21,21 +23,22 @@
 # Repo-only, like mac-maintenance.sh: launchd runs this file in place. There is
 # no second copy to keep in sync.
 #
-# Env:  MAIL_REPORT_BIN  the sender (default: mail-report next to this script)
+# Env:  NOTIFY_BIN       the notifier (default: notify-local next to this script)
+#       WEEKLY_CHECK_BIN the self-check (default: weekly-cleanup-check next to it)
 #       NM_STALE_DAYS    days a ~/dev project must be untouched before its
 #                        node_modules is removed (default 60, D47)
 #
 # Exit: 0 done and self-check OK, 1 the self-check found a problem (bin/weekly-cleanup-check),
-#       2 bad usage. A mail that cannot be sent is a WARN line, not a failure.
+#       2 bad usage. A notification that cannot be shown never fails the run.
 
 DRY_RUN=false
-MAIL=true
+NOTIFY=true
 for arg in "$@"; do
   case "$arg" in
     -n|--dry-run) DRY_RUN=true ;;
-    --no-mail) MAIL=false ;;
+    --no-notify) NOTIFY=false ;;
     -h|--help) sed -n '2,/^$/s/^# \{0,1\}//p' "$0"; exit 0 ;;
-    *) echo "usage: weekly-disk-cleanup.sh [--dry-run] [--no-mail]" >&2; exit 2 ;;
+    *) echo "usage: weekly-disk-cleanup.sh [--dry-run] [--no-notify]" >&2; exit 2 ;;
   esac
 done
 
@@ -48,7 +51,7 @@ export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
 
 LOG_FILE="$HOME/.weekly-disk-cleanup.log"
-MAIL_REPORT_BIN="${MAIL_REPORT_BIN:-${0:A:h}/mail-report}"
+NOTIFY_BIN="${NOTIFY_BIN:-${0:A:h}/notify-local}"
 NM_ROOT="$HOME/dev"
 NM_STALE_DAYS="${NM_STALE_DAYS:-60}"
 
@@ -108,7 +111,7 @@ nm_is_stale() {
 
 # run_cleanup — the whole run, sections in order. Called once below: printed
 # as is for --dry-run, otherwise captured so the same text goes to the log and
-# into the mail.
+# is read back for the self-check and the notification.
 run_cleanup() {
 
 echo ""
@@ -451,10 +454,10 @@ echo "Done: $(date)"
 
 # --- Output --------------------------------------------------------------------
 # --dry-run prints only. A real run is captured into one per-run file first —
-# a tee into the log is asynchronous, so the run could not be read back for the
-# mail reliably — then appended to the log (trimmed to 1000 lines before, not
-# after, so the trim never races this run's lines) and mailed. A terminal run
-# also prints as it goes.
+# a tee into the log is asynchronous, so the run could not be read back
+# reliably — then self-checked, appended to the log (trimmed to 1000 lines
+# before, not after, so the trim never races this run's lines), and summed up
+# in a notification. A terminal run also prints as it goes.
 if $DRY_RUN; then
   run_cleanup
   exit 0
@@ -470,7 +473,7 @@ else
 fi
 # Self-check (bin/weekly-cleanup-check): every step ran, no error lines, the
 # summary lines are there, a Colima this run started was stopped. Its verdict
-# goes into the log, the mail subject and the exit code, so `launchctl print`
+# goes into the log, the notification and the exit code, so `launchctl print`
 # shows a bad run too.
 CHECK_BIN="${WEEKLY_CHECK_BIN:-${0:A:h}/weekly-cleanup-check}"
 CHECK_OUT="$(mktemp "${TMPDIR:-/tmp}/weekly-disk-cleanup-check.XXXXXX")"
@@ -484,11 +487,8 @@ fi
 [ -t 1 ] && { echo ""; cat "$CHECK_OUT"; }
 cat "$RUN_OUT" >> "$LOG_FILE"
 
-if $MAIL; then
-  subject="weekly-disk-cleanup on $(hostname -s): $(grep -m1 '^Reclaimed: ' "$RUN_OUT" || echo finished) · $(grep -m1 '^Self-check: ' "$CHECK_OUT")"
-  "$MAIL_REPORT_BIN" --subject "$subject" < "$RUN_OUT"; rc=$?
-  if [ "$rc" != 0 ]; then
-    echo "WARN: report not mailed (mail-report exit $rc) — see mail-report --help" | tee -a "$LOG_FILE"
-  fi
+if $NOTIFY; then
+  "$NOTIFY_BIN" "Weekly disk cleanup" \
+    "$(grep -m1 '^Reclaimed: ' "$RUN_OUT" || echo finished) · $(grep -m1 '^Self-check: ' "$CHECK_OUT") — ~/.weekly-disk-cleanup.log" || true
 fi
 exit "$check_rc"

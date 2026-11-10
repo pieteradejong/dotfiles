@@ -12,7 +12,8 @@
 #   whatsup --no-color   plain text (also: NO_COLOR, or stdout not a terminal)
 #   whatsup -h           this header
 #
-# Outside a repo it shows the workspace TODO and the recently active repos.
+# Outside a repo it shows the workspace TODO and the recently active repos, and
+# (full view only) bin/maintenance-status.
 # Read-only: no command here writes, touches the network, or changes git config,
 # which is what makes it safe in do-not-touch repos. Always exits 0 — it is also
 # a hook, and a hook that can wedge a session is worse than none.
@@ -195,6 +196,9 @@ show_workspace() {
     printf '%sRecently active:%s %s\n' "$B" "$R" "$(first_n 5 "$recent")"
   else
     section "Recently active"; printf '%s\n' "$(first_n 5 "$recent")"
+  fi
+  if [ "$BRIEF" != 1 ] && [ -x "$SCRIPT_DIR/maintenance-status" ]; then
+    section "Maintenance"; "$SCRIPT_DIR/maintenance-status" 2>/dev/null | sed 's/^Maintenance: //'
   fi
   [ "$ALL" = 1 ] || return 0
   section "Every repo"; printf '\n'

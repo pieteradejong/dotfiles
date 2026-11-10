@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+#
+# maintenance-status — one line on how the scheduled maintenance jobs are doing.
+#
+# Usage: maintenance-status
+#
+# Printed by the Claude Code SessionStart hook (claude/hooks/session-start.sh)
+# and by `whatsup` at the workspace root, so a job that stopped running or
+# failed shows up where work starts, with nothing sent off the Mac:
+#
+#   Maintenance: cleanup 1d ago, Self-check OK · ⚠ audit 1d ago: 10 FAIL (14 new) · ⚠ docsbackup: last run failed (exit 1)
+#
+#   cleanup  bin/weekly-cleanup-check on ~/.weekly-disk-cleanup.log: the last
+#            run's Self-check verdict, and overdue when older than 8 days.
+#   audit    the last line of the security audit's log: FAIL count, new
+#            findings; overdue when older than 8 days.
+#   others   every other com.pieterdejong.* launchd job whose last run exited
+#            non-zero (from `launchctl list`).
+#
+# Read-only: reads logs and `launchctl list`, never runs a job. Always exits 0,
+# because it runs inside a hook, and a hook that can wedge a session is worse
+# than none. bash 3.2 compatible.
+#
+# Env:  WEEKLY_CHECK_BIN  default: weekly-cleanup-check beside this file
+#       CLEANUP_LOG       default: ~/.weekly-disk-cleanup.log
+#       AUDIT_LOG         default: ~/Library/Logs/security-audit/security-audit.log
+#       LAUNCHCTL         default: launchctl (tests stub it)
+#       MAX_AGE_DAYS      default: 8
+
+set -u
+
+if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
+  sed -n '2,/^$/s/^# \{0,1\}//p' "$0"; exit 0
+fi
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CHECK_BIN="${WEEKLY_CHECK_BIN:-$SCRIPT_DIR/weekly-cleanup-check}"
+CLEANUP_LOG="${CLEANUP_LOG:-$HOME/.weekly-disk-cleanup.log}"
+AUDIT_LOG="${AUDIT_LOG:-$HOME/Library/Logs/security-audit/security-audit.log}"
+LAUNCHCTL="${LAUNCHCTL:-launchctl}"
+MAX_AGE_DAYS="${MAX_AGE_DAYS:-8}"
+W="⚠"
+
+now="$(date +%s)"
+age_days() { echo $(( (now - $(stat -f %m "$1" 2>/dev/null || echo "$now")) / 86400 )); }
+parts=""
+add() { parts="${parts:+$parts · }$1"; }
+
+# --- weekly cleanup ---
+if [ ! -f "$CLEANUP_LOG" ]; then
+  add "$W cleanup: never run"
+else
+  d="$(age_days "$CLEANUP_LOG")"
+  verdict=""
+  [ -x "$CHECK_BIN" ] && verdict="$(LOG_FILE="$CLEANUP_LOG" "$CHECK_BIN" --max-age-days "$MAX_AGE_DAYS" 2>/dev/null | grep -m1 '^Self-check: ' | sed 's/^Self-check: //')"
+  if [ "$d" -gt "$MAX_AGE_DAYS" ]; then
+    add "$W cleanup overdue: last run ${d}d ago"
+  elif [ "$verdict" = "OK" ]; then
+    add "cleanup ${d}d ago, Self-check OK"
+  else
+    add "$W cleanup ${d}d ago: ${verdict:-not checked} (weekly-cleanup-check)"
+  fi
+fi
+
+# --- security audit ---
+if [ ! -f "$AUDIT_LOG" ]; then
+  add "$W audit: never run"
+else
+  d="$(age_days "$AUDIT_LOG")"
+  last="$(tail -n 1 "$AUDIT_LOG")"
+  n_fail="$(printf '%s\n' "$last" | awk -F'\t' '{ split($2, a, " "); print a[1] + 0 }')"
+  n_new="$(printf '%s\n' "$last" | awk -F'\t' '{ split($4, a, " "); print a[1] + 0 }')"
+  if [ "$d" -gt "$MAX_AGE_DAYS" ]; then
+    add "$W audit overdue: last run ${d}d ago"
+  elif [ "$n_fail" -gt 0 ]; then
+    add "$W audit ${d}d ago: $n_fail FAIL ($n_new new)"
+  else
+    add "audit ${d}d ago: 0 FAIL"
+  fi
+fi
+
+# --- every other launchd job of ours: a non-zero last exit while not running ---
+# `launchctl list` columns: PID (or -), last exit status, label.
+others="$("$LAUNCHCTL" list 2>/dev/null | awk -F'\t' '
+  $3 ~ /^com\.pieterdejong\./ && $3 != "com.pieterdejong.weeklycleanup" && $3 != "com.pieterdejong.securityaudit" \
+    && $1 == "-" && $2 != "0" { sub(/^com\.pieterdejong\./, "", $3); printf "%s %s\n", $3, $2 }')"
+if [ -n "$others" ]; then
+  while read -r name code; do
+    [ -n "$name" ] && add "$W $name: last run failed (exit $code)"
+  done <<EOF
+$others
+EOF
+fi
+
+printf 'Maintenance: %s\n' "$parts"
+exit 0

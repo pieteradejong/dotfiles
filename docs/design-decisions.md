@@ -784,7 +784,7 @@ inbox. launchd jobs have no Mail.app and no GUI session; this Mac has no SMTP re
 unconfigured, no msmtp); and the repo is public, so no address may be committed — the gate blocks
 real email addresses in any file (D24).
 
-**Decision.** One sender, [`bin/mail-report`](../bin/mail-report): Python standard library only
+**Decision.** One sender, [`bin/mail-report`](../archive/mail-report): Python standard library only
 (`smtplib` over implicit TLS to `smtp.gmail.com:465`), stdin as a plain-text body, one `--subject`.
 Credentials are a single macOS Keychain item (`dotfiles-mail-report`: account = Gmail address,
 password = a Gmail App Password), created once by hand with `security add-generic-password … -w`
@@ -821,6 +821,9 @@ accepted, the log append precedes the mail call); `shellcheck`, `zsh -n` and `ru
 NOT YET: the Keychain item on this Mac, `mail-report --test`, and the first launchd run that mails
 (Sun 2026-10-18 09:00) — which also confirms that `security` reads the item under launchd without a
 prompt.
+
+**Superseded 2026-11-09 by D60.** The Keychain item was never created, so no run ever mailed.
+Reports now stay on the Mac and `mail-report` is in `archive/`.
 
 ## D32 — `llm` owns the model lineup and the daemon, not just the prompt · 2026-10-06
 
@@ -1745,3 +1748,54 @@ old git would error into `2>/dev/null` and every content check would see nothing
 merge case (a home path added only in the merge commit, pushed to a PUBLIC remote) blocks with
 `home-path: … merged.py`. With `security/` stashed back to the committed version, that case and
 the 11 others added this session fail (184 passed, 12 failed).
+
+## D60 — Maintenance reports stay on the Mac: notification, session-start line, dashboard; email retired · 2026-11-09
+
+**Problem.** D31 sent each maintenance run's result by email through Gmail SMTP. That needs a
+Gmail App Password in the Keychain, and it was never set up. Every weekly run since 2026-10-18
+logged `WARN: report not mailed (mail-report exit 3)`, so no result reached anyone. Meanwhile
+two other jobs failed silently: the docs backup (`dev: FAILED rc=1`, last exit 1) and the
+cleanup's Docker step, skipped in 13 of 15 runs. Pieter tried the App Password setup, found it
+didn't work for him, and asked for a way that involves no external service.
+
+**Decision.** Three local channels, and the email code is removed:
+1. **A macOS notification** at the end of every real run of `weekly-disk-cleanup.sh` and
+   `mac-maintenance.sh`, through `bin/notify-local`. Title and message go to `osascript` as
+   `argv`, never spliced into AppleScript source. `--no-notify` replaces `--no-mail`.
+2. **One status line at session start.** `bin/maintenance-status` prints it from the SessionStart
+   hook, after `whatsup --brief` and only where that prints, and in `whatsup`'s workspace view.
+   It shows the cleanup's Self-check verdict, the security audit's FAIL count, any other
+   `com.pieterdejong.*` launchd job whose last run exited non-zero, and `overdue` for a log older
+   than 8 days. It is read-only and always exits 0, as a hook must.
+3. **The dashboard** gets a *Self-check per run* table, and the verdict on the *Last cleanup* tile.
+
+`bin/mail-report` and its test moved to `archive/`, and the `mail` suite is gone from `test.sh`.
+The twittertools follower review mailed through it only when it found it on `PATH`, so it now
+just logs.
+
+*Rejected:* keeping `mail-report` as a dormant option. It would be code under test that never
+runs, and an external service one config step away from the maintenance path. *Rejected:* a
+local mail spool (`mail`/`postfix` to the local mailbox). Nobody reads it, so it is as silent as
+the old WARN line. *Rejected:* notifications alone. A notification is dismissed and forgotten,
+and it can't report a job that never ran; the session-start line can.
+
+**Cost.** Nothing arrives anywhere you are not already looking: a job that fails while no
+session starts is seen at the next session, not in an inbox. Notifications from launchd post as
+Script Editor, so if they are switched off in System Settings → Notifications they don't appear.
+The status line and the dashboard still show the result.
+
+**Verified: PARTIAL.** 2026-11-09:
+- `./test.sh bin` → 176 passed, 0 failed. New cases: `notify-local` passes quotes through as
+  arguments, prints usage on bad arguments, and exits 0 without `osascript`. `maintenance-status`
+  gets the exact line from a fixture, flags problems, overdue logs and never-run logs, and stays
+  at exit 0 with no `launchctl`. Neither job script calls a mail sender, a dry run never
+  notifies, and the log is appended before the notification.
+- `./test.sh maint` → 55 passed: one notification per real run carrying the Moved count and the
+  weekly verdict, `--no-notify`, a failing notifier never fails the run, and `--no-mail` is
+  rejected. `./test.sh tools` passes the dashboard's Self-check table and tile. `./test.sh logs`
+  → 279 passed: the hook stays silent outside `~/dev`. `shellcheck` is clean on 36 files.
+- On this Mac, one real `notify-local` test notification was posted. The session-start line
+  printed `⚠ cleanup 1d ago: 2 problem(s) · ⚠ audit 1d ago: 10 FAIL (14 new) · ⚠ docsbackup: last
+  run failed (exit 1)`. The cleanup problems are the two steps added after the Nov 8 run.
+
+NOT YET: a launchd run that posts its notification (Sun 2026-11-15 09:00).
