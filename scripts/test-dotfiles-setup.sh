@@ -2,6 +2,9 @@
 
 # test-dotfiles-setup.sh
 # Comprehensive test script for dotfiles configuration
+# Checks this Mac's live setup, so it is not hermetic: run it through ./run.sh doctor,
+# not ./test.sh. The "~/..." strings below are messages, not paths.
+# shellcheck disable=SC2088
 
 set -u
 
@@ -164,7 +167,7 @@ test_sync_status() {
 test_git_status() {
     header "TEST 7: Git Repository Status"
     [ ! -d "$DOTFILES_DIR/.git" ] && { fail "Not a git repo"; return 1; }
-    cd "$DOTFILES_DIR"
+    cd "$DOTFILES_DIR" || return 1
     
     branch=$(git branch --show-current 2>/dev/null)
     [ -n "$branch" ] && pass "Branch: $branch" || warn "Unknown branch"
@@ -172,7 +175,7 @@ test_git_status() {
     status=$(git status --porcelain 2>/dev/null)
     [ -z "$status" ] && pass "Working tree clean" || warn "$(echo "$status" | wc -l | tr -d ' ') uncommitted changes"
     
-    ahead=$(git rev-list --count @{u}..HEAD 2>/dev/null || echo "0")
+    ahead=$(git rev-list --count '@{u}'..HEAD 2>/dev/null || echo "0")
     [ "$ahead" = "0" ] && pass "No unpushed commits" || warn "$ahead unpushed commits"
 }
 

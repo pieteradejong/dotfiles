@@ -72,9 +72,11 @@ dotrestore   # Restore from repo (with safety backup)
 | `dotrestore` | Restore repo configs → local (with confirmation) |
 | `dotstatus` | Check sync status between local and repo |
 | `dotfiles extensions` | Install VS Code/Cursor extensions from lists |
-| `dottest` | Run comprehensive test suite |
+| `dottest` | Check this Mac's installed dotfiles (`scripts/test-dotfiles-setup.sh`; same as `./run.sh doctor`) |
 | `dotaudit` | Read-only audit of every git repo under `~/dev` (see [docs/dev-audit.md](docs/dev-audit.md)) |
-| `./test.sh` | Every test in this repo: shellcheck, the security gate, its tools, `dotaudit` (CI runs exactly this) |
+| `./init.sh` | Get the repo ready to work on: installs missing test tools with Homebrew, checks git 2.54+, `private/` and the gate. Idempotent; `--check` installs nothing |
+| `./test.sh` | Every check in this repo, each a named suite: toolchain, coverage (every script linted, every test run), tree scan, shellcheck, the security gate, its tools, `dotaudit`, … (CI runs exactly this). `--docker` adds the restore test in a container |
+| `./run.sh` | Everyday commands: `status` (default: warnings, gate, dotfiles drift), `warnings`, `test`, `lint`, `format`, `audit`, `doctor` |
 | `security/gate.sh status` | Is the commit/push security gate installed and intact? |
 | `security/gate.sh scan-tree` | What would the gate say about everything `git add -A` would commit? |
 | `scripts/security-audit.sh` | The weekly security & privacy audit, on demand (see [docs/maintenance.md](docs/maintenance.md)) |

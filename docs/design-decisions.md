@@ -1799,3 +1799,199 @@ The status line and the dashboard still show the result.
   run failed (exit 1)`. The cleanup problems are the two steps added after the Nov 8 run.
 
 NOT YET: a launchd run that posts its notification (Sun 2026-11-15 09:00).
+
+## D61 — The weekly audit names newer local models for the llm lineup; it never swaps one · 2026-11-10
+
+**Problem.** The llm lineup is supposed to follow the latest open-weight local release for each
+role. Nothing checked that. A newer model was only found when someone went looking, as on
+2026-11-06, when EmbeddingGemma 2 (three weeks old) turned up while the `embed` role was being
+chosen.
+
+**Decision.**
+- `scripts/model-versions.py` (stdlib Python) reads `config/llm/lineup`. For each role it reads
+  two public ollama.com pages: the lineup model's own search card, for its "Updated" date, and
+  the 20 most recently updated models in the role's category (embed → embedding,
+  reasoner → thinking, coder / fast / general → tools).
+- A model is a candidate only if all of these hold:
+  - it was updated after the lineup model and is not the same family;
+  - it lists a local parameter size, which rules out cloud-only models;
+  - it has at least 10,000 downloads;
+  - a plain size tag fits the role's budget: 24 GB for chat roles, 2 GB for embed, and at least
+    half the lineup model's listed size.
+- The weekly audit runs it as section 9, one WARN per role with candidates. It also runs under
+  `--quick`, because it is one search page per role and takes about 2 s. The full table is
+  written beside the report.
+- Check only. It never pulls and never edits the lineup. A swap needs its own measurements:
+  prefill speed, memory next to the other resident models, answer quality. The local-llm
+  measurements of 2026-11-06 showed that a size or a date can't stand in for those.
+
+**Rejected.**
+- *Swapping or pulling automatically:* the 2026-11-06 measurements showed a model's fit depends on
+  prefill speed and on what else is resident. Neither is on the library page.
+- *A separate launchd job:* the Sunday audit already reports weekly, with a delta and a
+  dashboard (as in D55).
+- *Hugging Face as the source:* the lineup installs through Ollama, so the Ollama library is
+  what `llm update` can actually pull.
+- *Release date as the test:* ollama.com shows only "Updated", which a new tag also bumps. The
+  report treats a candidate as a lead to check, not a verdict.
+
+**Cost.** It scrapes HTML, so a change to ollama.com's markup breaks it. That shows up as exit 2
+and a WARN saying the check is incomplete, not as a silent "nothing newer". Only the newest 20
+per category are seen; the search has no second page.
+
+**Verified: PARTIAL.** 2026-11-10:
+- `./test.sh` passes all 15 suites. `models` is `scripts/test-model-versions.py`, 7 offline
+  cases covering:
+  - the candidate rules (newer, local, used, size floor and ceiling, the largest fitting plain
+    tag, embed against chat category);
+  - an INFO line with exit 0;
+  - configurable budgets;
+  - `--out` writing mode 600;
+  - a fetch failure giving exit 2 and a WARN;
+  - bad usage;
+  - a static check that the script cannot pull or write the lineup.
+- `tools` covers section 9 with a stub, under `--quick`: the WARN line, the INFO line, and that
+  exit 1 is not reported as incomplete.
+- Live: `model-versions.py --summary` took 1.5 s. The reasoner, coder and fast roles had nothing
+  newer that fits; embed: `embeddinggemma-2:740m (1 GB, 2026-10-15)`. A real
+  `security-audit.sh --quick` wrote section 9 with those four lines.
+
+NOT YET: section 9 in a scheduled audit (Sun 2026-11-15 10:00).
+
+## D62 — Warnings name each finding in red in every new terminal; secret files are scanned live · 2026-11-10
+
+**Problem.** A file of account recovery codes sat in the root of `~/dev` for two months. The
+weekly audit reported it as a section-6 FAIL every week, so detection worked; visibility did not.
+The finding lived in a mode-600 report and a one-line notification. Since D60, the session-start
+line showed `⚠ audit: 10 FAIL`, a count that said nothing about *what* failed and was the same
+every week. Pieter asked for red warnings in the terminal, at Claude Code start and by email, for
+all maintenance results.
+
+**Decision.**
+1. **`bin/maintenance-status` prints one line per finding that needs action** below its status
+   line. `✗` (red) marks secret files outside version control and every FAIL in the latest audit
+   report. `⚠` (yellow) marks an untracked, unignored secret file inside a repo. The audit FAIL
+   lines are capped at 5, followed by `… N more in <report>`. Colour appears only on a terminal,
+   and `NO_COLOR` turns it off.
+2. **Secret files are scanned live, every time**, with the audit's own section-6 rules. The rules
+   moved to `security/lib/loose-files.sh` (`loose_scan`), which both section 6 of
+   `security-audit.sh` and `maintenance-status` call, so there is one copy of the rules. A fixed
+   file disappears at once instead of at the next Sunday audit. Audit section 6 is skipped among
+   the report lines, because the live scan replaces it.
+3. **Every new terminal runs it** (`--quiet`: silent when nothing needs action), from a one-shot
+   `precmd` hook in `shell/.zshrc`. The Claude Code SessionStart hook and `whatsup` already run it
+   (D60).
+4. **No email.** D60 retired it the day before, after the Gmail App Password setup failed for
+   Pieter; asked again on 2026-11-10, he chose to keep it that way.
+
+*Rejected:*
+- **Reopening email.** D60's reasons still hold: an external service and a setup that did not
+  work.
+- **A new status-file convention** (`maint-record` writing `~/.local/state/maintenance/<job>.status`,
+  read by a new command). This was planned before D60 landed. `maintenance-status` already reads
+  each job's own log, so a second reader would duplicate it.
+- **A cached background scan.** The live scan takes about 0.85 s after one rewrite: the repo for
+  each candidate is found by walking up to `.git` in shell, and each repo gets one
+  `git ls-files --others --exclude-standard` call. It was 1.9 s with three `git` calls per file.
+  That is fast enough to run fresh, and a cache would show a deleted file for one more run.
+- **A plain call at the end of `.zshrc`.** Output during startup breaks Powerlevel10k's instant
+  prompt.
+
+**Cost.**
+- A new terminal waits about 1 s before its first prompt.
+- A FAIL that is accepted on purpose stays red until it goes into a skip list. That is
+  deliberate, because a warning that is always on stops being read
+  ([warnings-runbook.md](warnings-runbook.md)).
+- Audit FAILs from other sections still refresh only when the audit runs.
+
+**Verified: PARTIAL.** 2026-11-10:
+- **Same section-6 output.** On the real `~/dev`, the old inline code and `loose_scan` give
+  identical output (11 INFO lines, `diff` empty), both before and after the speed rewrite.
+- **`./test.sh` passes all 15 suites.** `bin` has 187 cases. The 11 new ones cover:
+  - `--quiet` is silent when clean;
+  - a loose recovery-codes file gives a `✗` line plus a count, and clears once deleted;
+  - an untracked key in a repo gives a yellow `⚠`, and an ignored one is not shown;
+  - red only with `FORCE_COLOR` or on a tty, and `NO_COLOR` wins;
+  - audit FAILs are listed with section 6 and WARNs left out, and capped;
+  - an unknown option still exits 0;
+  - the `.zshrc` hook is present.
+- **The `tools` suite still passes** the section-6 FAIL, INFO and FAIL cases through the shared
+  scanner.
+- **Live on this Mac:**
+  - A real interactive zsh (`script -q /dev/null zsh -i`) printed the status line in bold red
+    before the first prompt.
+  - A probe file `projects/scratch/zz-recovery-codes.txt` gave a red `✗` line; after `rm`, there
+    was no match.
+  - `maintenance-status` takes about 1.0 s.
+  - `claude/hooks/session-start.sh` run by hand at `~/dev` (`echo '{}' | …`) printed the status
+    line and the `✗ audit:` detail line, with no escape codes.
+
+NOT YET: a real new Claude Code session showing the detail lines at start, and the first
+scheduled audit through the shared scanner (Sun 2026-11-15 10:00).
+
+## D63 — `init.sh` and `run.sh` join `test.sh`, and `test.sh` checks its own coverage · 2026-11-10
+
+**Problem.** `repo-standards.md` § Scripts asks every repo for `init.sh`, `test.sh` and `run.sh`.
+This repo, which holds that standard, had only `test.sh`, and `test.sh` itself fell short:
+- **The lint lists were kept by hand.** Six tracked shell scripts and `shell/.zprofile` were in no
+  list. One test script (`test-dotfiles-setup.sh`) and the Docker restore test
+  (`scripts/test/assertions.sh`) were run by nothing.
+- **Some steps were missing.** There was no toolchain step: a missing tool showed up as a failure
+  deep in a later suite. No step scanned the tree itself.
+
+Pieter asked for a comprehensive `test.sh` and a good `init.sh` and `run.sh`.
+
+**Decision.**
+1. **`test.sh` gains three suites.** They run first, and every suite still runs after a failure:
+   - **`toolchain`**: the required tools are present, and git is 2.54 or newer.
+   - **`coverage`**: every tracked or untracked-unignored shell, zsh and Python file is in exactly
+     one lint list, or in `LINT_EXEMPT` with a reason. Every list entry exists. Every
+     `scripts/test-*` is run by a `run_suite` line, or is in `MANUAL_TESTS` with the command that
+     runs it.
+   - **`scan`**: `security/gate.sh scan-tree`.
+
+   Older scripts are shellchecked at `-S warning` (the standard's floor) in a second list. That
+   took fixing three real warnings: an unguarded `cd`, an unquoted `@{u}`, and two unused
+   variables. The Docker restore test runs only under `--docker`; without it, the summary lists it
+   as skipped. A new suite `entry` tests `init.sh` and `run.sh`.
+2. **`init.sh`** installs missing test tools with Homebrew (the list CI installs) and never
+   upgrades. It then checks git's version, `private/`, and the gate (`gate.sh status`), and smoke-runs
+   `./test.sh toolchain`. It is idempotent, and `--check` installs nothing. It never installs the
+   gate or edits git hook config (CLAUDE.md hard rule), and it never restores dotfiles into
+   `$HOME`, which stays the deliberate `sync-dotfiles.sh restore`.
+3. **`run.sh`** wraps scripts that exist: `status` (the default: warnings, gate, dotfiles drift),
+   `warnings`, `test` (`exec ./test.sh "$@"`), `lint`, `format` (ruff format over test.sh's
+   `PYTHON_FILES`), `audit` (`--quick --no-notify`), and `doctor` (`test-dotfiles-setup.sh`). It
+   has no `build`, because nothing here compiles.
+
+*Rejected:*
+- **Making `init.sh` the machine bootstrap** (restore, Brewfile, extensions). Restore overwrites
+  `$HOME`, so it stays an explicit step in README § Quick Start; `init.sh` is about working on the
+  repo.
+- **`ruff format --check` as a test step.** 10 Python files would be reformatted today. Enforcing
+  it means one reformatting commit first; it is left to `./run.sh format` and an open item.
+- **A full shellcheck (default severity) of the older scripts.** Their remaining notes are SC2015
+  `A && B || C` in test assertions, which is style, not a bug; the standard's floor is
+  `-S warning`.
+- **Changing `ci.yml` to call `./init.sh`.** CI already installs the same list and runs
+  `./test.sh`; a CI change is outward-facing and not needed for this.
+
+**Cost.** `test.sh` grew by about 2 s for the scan and the coverage walk. The coverage guard makes
+adding a script a two-line change (the script, plus its list entry), by design. `sed -i ''` in the
+`entry` suite is BSD syntax, like the rest of this macOS-only repo.
+
+**Verified: PARTIAL.** 2026-11-10:
+- **`./test.sh` passes 19 suites**, with `restore` listed as skipped (needs `--docker`):
+  - `coverage` reports 61 scripts, all linted.
+  - `shellcheck` covers both lists.
+  - `entry` passes 19 cases. They include: `--check` reports a missing gitleaks and never calls
+    the stub brew; without `--check` only the missing tool goes to `brew install`; the idempotent
+    ready run installs nothing; `run.sh test --help` is byte-identical to `test.sh --help`; and in
+    a copy of the tree, a planted unlisted script, an unrun test and a dead list entry each fail
+    coverage by name.
+- **Live:** `./init.sh --check` reports `ready` (exit 0), `./run.sh status` exits 0, and
+  `scripts/test-dotfiles-setup.sh` gives 70 passed, 0 failed, 5 warnings.
+
+NOT YET: `./test.sh --docker` (needs `colima start` and a debian image pull), and the coverage,
+scan and toolchain suites in CI.
+

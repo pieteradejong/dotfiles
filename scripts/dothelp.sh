@@ -3,9 +3,6 @@
 # dothelp.sh
 # Shows help for all dotfiles management commands
 
-DOTFILES_DIR="$HOME/dev/dotfiles"
-
-RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
 BLUE='\033[0;34m'

@@ -1068,7 +1068,9 @@ good_run > "$MSD/cleanup.log"
 printf '2026-11-08 12:25:11\t10 FAIL\t15 WARN\t14 new\t0 resolved\t/x.md\n' > "$MSD/audit.log"
 printf '#!/bin/sh\nprintf "PID\\tStatus\\tLabel\\n"\nprintf "4102\\t0\\tcom.pieterdejong.rcdev\\n"\nprintf -- "-\\t1\\tcom.pieterdejong.docsbackup\\n"\nprintf -- "-\\t1\\tcom.pieterdejong.securityaudit\\n"\nprintf -- "-\\t0\\tcom.pieterdejong.weeklycleanup\\n"\nprintf "99\\t15\\tcom.pieterdejong.running\\n"\nprintf -- "-\\t1\\tcom.apple.other\\n"\n' > "$MSD/launchctl"
 chmod +x "$MSD/launchctl"
-ms() { CLEANUP_LOG="$MSD/cleanup.log" AUDIT_LOG="$MSD/audit.log" LAUNCHCTL="$MSD/launchctl" CLEANUP_SCRIPT="$CLEANUP" "$MS" > "$OUT" 2>&1; }
+mkdir -p "$MSD/dev"
+ms() { CLEANUP_LOG="$MSD/cleanup.log" AUDIT_LOG="$MSD/audit.log" LAUNCHCTL="$MSD/launchctl" CLEANUP_SCRIPT="$CLEANUP" \
+  DEV_ROOT="$MSD/dev" SKIPLIST_FILE="$MSD/none" "$MS" "$@" > "$OUT" 2>&1; }
 ms; rc=$?
 [ "$rc" = 0 ] && [ "$(wc -l < "$OUT" | tr -d ' ')" = 1 ] \
   && grep -qxF 'Maintenance: cleanup 0d ago, Self-check OK · ⚠ audit 0d ago: 10 FAIL (14 new) · ⚠ docsbackup: last run failed (exit 1)' "$OUT" \
@@ -1082,11 +1084,67 @@ touch -t 202001010000 "$MSD/cleanup.log" "$MSD/audit.log"
 ms
 grep -q '⚠ cleanup overdue: last run [0-9]*d ago' "$OUT" && grep -q '⚠ audit overdue: last run [0-9]*d ago' "$OUT" \
   && pass "logs older than 8 days are flagged overdue" || fail "overdue: $(cat "$OUT")"
-CLEANUP_LOG="$MSD/none" AUDIT_LOG="$MSD/none" LAUNCHCTL=/nonexistent "$MS" > "$OUT" 2>&1; rc=$?
+CLEANUP_LOG="$MSD/none" AUDIT_LOG="$MSD/none" LAUNCHCTL=/nonexistent DEV_ROOT="$MSD/dev" "$MS" > "$OUT" 2>&1; rc=$?
 [ "$rc" = 0 ] && grep -qxF 'Maintenance: ⚠ cleanup: never run · ⚠ audit: never run' "$OUT" \
   && pass "no logs and no launchctl: says never run, still exits 0" || fail "never run (rc=$rc): $(cat "$OUT")"
 grep -q 'maintenance-status' "$(dirname "$BIN_DIR")/claude/hooks/session-start.sh" \
   && pass "the SessionStart hook prints the maintenance line" || fail "the SessionStart hook prints the maintenance line"
+
+header "maintenance-status details: live secret-file scan, audit FAILs, colour, --quiet (D62)"
+
+# A clean state: fresh logs, OK verdict, no failed launchd job, nothing on disk.
+good_run > "$MSD/cleanup.log"
+printf '2026-11-08 12:25:11\t0 FAIL\t0 WARN\t0 new\t0 resolved\t/x.md\n' > "$MSD/audit.log"
+printf '#!/bin/sh\nprintf "PID\\tStatus\\tLabel\\n"\n' > "$MSD/launchctl"
+ms --quiet; rc=$?
+[ "$rc" = 0 ] && [ ! -s "$OUT" ] && pass "--quiet prints nothing when nothing needs action" || fail "--quiet when clean (rc=$rc): $(cat "$OUT")"
+ms
+[ "$(wc -l < "$OUT" | tr -d ' ')" = 1 ] && grep -q '^Maintenance: cleanup 0d ago, Self-check OK · audit 0d ago: 0 FAIL$' "$OUT" \
+  && pass "without --quiet a clean state is one plain line" || fail "clean line: $(cat "$OUT")"
+
+# A loose recovery-codes file outside any repo: FAIL, live, gone once deleted.
+printf 'x\n' > "$MSD/dev/github-recovery-codes.txt"
+ms --quiet
+grep -qxF '  ✗ secret file on disk: outside any repo, no version control and no guard: github-recovery-codes.txt' "$OUT" \
+  && grep -q '⚠ 1 secret file(s) on disk' "$OUT" \
+  && pass "a loose secret file is a ✗ detail line and counted on the status line" || fail "secret file: $(cat "$OUT")"
+ms --quiet
+grep -q $'\033' "$OUT" && fail "colour leaked into a non-terminal: $(cat -v "$OUT")" || pass "no colour codes when stdout is not a terminal"
+FORCE_COLOR=1 ms --quiet
+grep -q $'^\033\\[1;31mMaintenance: ' "$OUT" && grep -q $'^  \033\\[1;31m✗ secret file' "$OUT" \
+  && pass "FORCE_COLOR=1: the status line and ✗ lines are bold red" || fail "colour: $(cat -v "$OUT")"
+FORCE_COLOR=1 NO_COLOR=1 ms --quiet
+grep -q $'\033' "$OUT" && fail "NO_COLOR ignored: $(cat -v "$OUT")" || pass "NO_COLOR wins over FORCE_COLOR"
+rm "$MSD/dev/github-recovery-codes.txt"
+ms --quiet
+[ ! -s "$OUT" ] && pass "deleting the file clears the warning at once, no audit run needed" || fail "after delete: $(cat "$OUT")"
+
+# An untracked, unignored key inside a repo is a ⚠ (yellow) line; a tracked or ignored one is silent.
+git init -q "$MSD/dev/repo"
+printf 'k\n' > "$MSD/dev/repo/deploy.pem"; printf 'k\n' > "$MSD/dev/repo/ignored.pem"; printf 'ignored.pem\n' > "$MSD/dev/repo/.gitignore"
+FORCE_COLOR=1 ms --quiet
+grep -q $'^  \033\\[33m⚠ secret file on disk: untracked and NOT ignored .*: repo/deploy.pem' "$OUT" \
+  && ! grep -q 'ignored.pem' "$OUT" \
+  && pass "untracked key in a repo: yellow ⚠ line; an ignored one is not shown" || fail "in-repo key: $(cat -v "$OUT")"
+rm -rf "$MSD/dev/repo"
+
+# Audit FAILs: shown from the report the log points to, section 6 skipped, capped at MAX_DETAIL.
+{
+  printf '# Security audit\n\n## 3. GitHub repo settings\n\n'
+  printf -- '- **FAIL** github fail %s\n' 1 2 3
+  printf '\n## 6. Credential-shaped files outside version control\n\n- **FAIL** outside any repo, no version control and no guard: stale.txt\n'
+  printf '\n## 7. GitHub account\n\n- **WARN** a warning\n- **FAIL** account fail\n'
+} > "$MSD/report.md"
+printf '2026-11-08 12:25:11\t5 FAIL\t1 WARN\t0 new\t0 resolved\t%s\n' "$MSD/report.md" > "$MSD/audit.log"
+MAX_DETAIL=3 ms
+grep -qxF '  ✗ audit: github fail 1' "$OUT" && grep -qxF '  ✗ audit: github fail 3' "$OUT" \
+  && ! grep -q 'stale.txt' "$OUT" && ! grep -q 'a warning' "$OUT" \
+  && grep -q '^  … 1 more in .*report.md$' "$OUT" \
+  && pass "audit FAIL lines are listed (section 6 and WARNs left out), capped with '… N more'" || fail "audit details: $(cat "$OUT")"
+ms --bogus; rc=$?
+[ "$rc" = 0 ] && pass "an unknown option still exits 0 (it runs in hooks)" || fail "unknown option rc=$rc"
+grep -q '_maint_status_once' "$(dirname "$BIN_DIR")/shell/.zshrc" && grep -q 'maintenance-status" --quiet' "$(dirname "$BIN_DIR")/shell/.zshrc" \
+  && pass "shell/.zshrc runs maintenance-status --quiet before the first prompt" || fail "zshrc hook missing"
 
 header "publishability"
 

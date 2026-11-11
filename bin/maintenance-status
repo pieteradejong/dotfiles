@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 #
-# maintenance-status — one line on how the scheduled maintenance jobs are doing.
+# maintenance-status — one line on how the scheduled maintenance jobs are doing,
+# then one line per finding that needs action, in red.
 #
-# Usage: maintenance-status
+# Usage: maintenance-status [--quiet]
+#   --quiet  print nothing when nothing needs action (the new-terminal hook in
+#            shell/.zshrc uses it, so a clean week costs no screen line)
 #
 # Printed by the Claude Code SessionStart hook (claude/hooks/session-start.sh)
 # and by `whatsup` at the workspace root, so a job that stopped running or
@@ -17,23 +20,50 @@
 #   others   every other com.pieterdejong.* launchd job whose last run exited
 #            non-zero (from `launchctl list`).
 #
-# Read-only: reads logs and `launchctl list`, never runs a job. Always exits 0,
-# because it runs inside a hook, and a hook that can wedge a session is worse
-# than none. bash 3.2 compatible.
+# Detail lines, below the status line (D62):
+#
+#   ✗ secret file on disk: outside any repo, no version control and no guard: <path>
+#   ⚠ secret file on disk: untracked and NOT ignored — …: <path>
+#   ✗ audit: <a FAIL from the latest audit report, sections other than 6>
+#   … 7 more in ~/dev/audit-reports/security-audit-<date>.md
+#
+#   secret files  a live scan of ~/dev with the audit's own section-6 rules
+#                 (security/lib/loose-files.sh), so a file you just deleted
+#                 drops off now, not at the next weekly audit.
+#   audit         the FAIL lines of the report the audit log points to, up to
+#                 5; section 6 is skipped there because the live scan replaces it.
+#
+# Colour: red for ✗ and for a status line with a ⚠, yellow for ⚠ detail lines,
+# only on a terminal and only when NO_COLOR is unset (FORCE_COLOR=1 forces it).
+#
+# Read-only: reads logs, the report and `launchctl list`, never runs a job.
+# Always exits 0, because it runs inside a hook, and a hook that can wedge a
+# session is worse than none. bash 3.2 compatible.
 #
 # Env:  WEEKLY_CHECK_BIN  default: weekly-cleanup-check beside this file
 #       CLEANUP_LOG       default: ~/.weekly-disk-cleanup.log
 #       AUDIT_LOG         default: ~/Library/Logs/security-audit/security-audit.log
 #       LAUNCHCTL         default: launchctl (tests stub it)
 #       MAX_AGE_DAYS      default: 8
+#       DEV_ROOT          default: ~/dev (the tree the live scan covers)
+#       SKIPLIST_FILE     default: private/audit/skiplist.conf in this repo
+#       MAX_DETAIL        default: 5 audit FAIL lines before "… N more"
 
 set -u
 
-if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
-  sed -n '2,/^$/s/^# \{0,1\}//p' "$0"; exit 0
-fi
+QUIET=0
+case "${1:-}" in
+  -h|--help) sed -n '2,/^$/s/^# \{0,1\}//p' "$0"; exit 0 ;;
+  --quiet)   QUIET=1 ;;
+  "")        ;;
+  *)         echo "maintenance-status: unknown option: $1 (see --help)" >&2; exit 0 ;;
+esac
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DOTFILES_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+DEV_ROOT="${DEV_ROOT:-$HOME/dev}"
+SKIPLIST_FILE="${SKIPLIST_FILE:-$DOTFILES_DIR/private/audit/skiplist.conf}"
+MAX_DETAIL="${MAX_DETAIL:-5}"
 CHECK_BIN="${WEEKLY_CHECK_BIN:-$SCRIPT_DIR/weekly-cleanup-check}"
 CLEANUP_LOG="${CLEANUP_LOG:-$HOME/.weekly-disk-cleanup.log}"
 AUDIT_LOG="${AUDIT_LOG:-$HOME/Library/Logs/security-audit/security-audit.log}"
@@ -92,5 +122,78 @@ $others
 EOF
 fi
 
-printf 'Maintenance: %s\n' "$parts"
+# --- detail lines: one per finding that needs action (D62) ---
+details=""
+detail() { details="${details}$1
+"; }
+
+# Secret files on disk, live, with the audit's own section-6 rules.
+if [ -d "$DEV_ROOT" ] && [ -f "$DOTFILES_DIR/security/lib/loose-files.sh" ]; then
+  # shellcheck source-path=SCRIPTDIR
+  # shellcheck source=../security/patterns.sh
+  . "$DOTFILES_DIR/security/patterns.sh" 2>/dev/null
+  # shellcheck source-path=SCRIPTDIR
+  # shellcheck source=../security/lib/loose-files.sh
+  . "$DOTFILES_DIR/security/lib/loose-files.sh"
+  scan_work="$(mktemp -d 2>/dev/null)" && {
+    skip=""
+    [ -f "$SKIPLIST_FILE" ] && skip="$(grep -E '^skip:' "$SKIPLIST_FILE" | cut -d: -f2)"
+    n_secret=0
+    # shellcheck disable=SC2086  # skip names are single words, split on purpose
+    while IFS="$(printf '\t')" read -r lvl msg; do
+      case "$lvl" in
+        FAIL) detail "✗ secret file on disk: $msg"; n_secret=$((n_secret + 1)) ;;
+        WARN) detail "⚠ secret file on disk: $msg"; n_secret=$((n_secret + 1)) ;;
+      esac
+    done <<EOF
+$(loose_scan "$DEV_ROOT" "$scan_work" $skip 2>/dev/null)
+EOF
+    rm -rf "$scan_work"
+    [ "$n_secret" -gt 0 ] && add "$W $n_secret secret file(s) on disk"
+  }
+fi
+
+# FAIL lines of the latest audit report (6th column of the log's last line),
+# except section 6, which the live scan above replaces.
+if [ -f "$AUDIT_LOG" ]; then
+  report="$(tail -n 1 "$AUDIT_LOG" | awk -F'\t' '{ print $6 }')"
+  if [ -n "$report" ] && [ -f "$report" ]; then
+    fails="$(awk '
+      /^## [0-9]+\./ { sec = $2 + 0; next }
+      /^- \*\*FAIL\*\* / && sec != 6 { sub(/^- \*\*FAIL\*\* /, ""); print }' "$report")"
+    if [ -n "$fails" ]; then
+      n="$(printf '%s\n' "$fails" | wc -l | tr -d ' ')"
+      while IFS= read -r line; do detail "✗ audit: $line"; done <<EOF
+$(printf '%s\n' "$fails" | head -n "$MAX_DETAIL")
+EOF
+      shown="$report"
+      # shellcheck disable=SC2088  # a literal ~ for display, not a path to expand
+      case "$report" in "$HOME"/*) shown="~/${report#"$HOME"/}" ;; esac
+      [ "$n" -gt "$MAX_DETAIL" ] && detail "… $((n - MAX_DETAIL)) more in $shown"
+    fi
+  fi
+fi
+
+# --- print ---
+case "$parts$details" in *"$W"*|*✗*) problem=1 ;; *) problem=0 ;; esac
+[ "$QUIET" = 1 ] && [ "$problem" = 0 ] && exit 0
+
+if { [ -t 1 ] || [ "${FORCE_COLOR:-}" = 1 ]; } && [ -z "${NO_COLOR:-}" ]; then
+  RED="$(printf '\033[1;31m')"; YEL="$(printf '\033[33m')"; RST="$(printf '\033[0m')"
+else
+  RED=""; YEL=""; RST=""
+fi
+
+if [ "$problem" = 1 ]; then
+  printf '%sMaintenance: %s%s\n' "$RED" "$parts" "$RST"
+else
+  printf 'Maintenance: %s\n' "$parts"
+fi
+printf '%s' "$details" | while IFS= read -r line; do
+  case "$line" in
+    ✗*) printf '  %s%s%s\n' "$RED" "$line" "$RST" ;;
+    ⚠*) printf '  %s%s%s\n' "$YEL" "$line" "$RST" ;;
+    *)  printf '  %s\n' "$line" ;;
+  esac
+done
 exit 0

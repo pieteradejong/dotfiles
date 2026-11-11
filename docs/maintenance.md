@@ -11,6 +11,7 @@ Replaces the old `weekly-cleanup.md` and `mac-maintenance.md`.
 |---|---|---|---|---|---|---|---|---|
 | [Security & privacy audit](#weekly-security--privacy-audit) | `scripts/security-audit.sh` | Sundays 10:00 | `scripts/security-audit.sh --quick --no-notify` | read-only always; `--quick` skips the slow steps (`--templates` keeps step 8) | `~/dev/audit-reports/security-audit-YYYY-MM-DD.md` · `~/Library/Logs/security-audit/` | `./test.sh tools` | `macos/com.pieterdejong.securityaudit.plist` | D15, D28, D30, D55 |
 | [Template drift](#template-dependency-drift) | `scripts/template-versions.py` | section 8 of each audit (check only) | `scripts/template-versions.py --quiet` | read-only; `--apply` bumps, needs the Node of the template's `.nvmrc` | `~/dev/audit-reports/template-versions-YYYY-MM-DD.{md,tsv}` | `./test.sh templates`, `ruff` | — | D55 |
+| [Model lineup drift](#local-model-lineup) | `scripts/model-versions.py` | section 9 of each audit (check only), `--quick` included | `scripts/model-versions.py` | read-only always; never pulls | `~/dev/audit-reports/model-versions-YYYY-MM-DD.md` | `./test.sh models`, `ruff` | — | D61 |
 | [Dashboard](#dashboard) | `scripts/audit-dashboard.py` | after each audit | `scripts/audit-dashboard.py` | reads reports, writes one HTML file | `~/dev/audit-reports/dashboard.html` | `./test.sh tools`, `ruff` | — | D28 |
 | [Disk cleanup](#weekly-disk-cleanup) | `bin/weekly-disk-cleanup.sh` | Sundays 09:00 | `weekly-disk-cleanup.sh` | `--dry-run` | `~/.weekly-disk-cleanup.log` · [notification and status line](#reports) | `./test.sh bin` (static + `--dry-run`, never a real run) | `macos/com.pieterdejong.weeklycleanup.plist` | D18, D20, D27, D60 |
 | [Mac maintenance](#mac-maintenance-manual) | `scripts/mac-maintenance.sh` | by hand | `scripts/mac-maintenance.sh` | `--dry-run` | `~/maintenance-YYYYMMDD.log` · [notification](#reports) | `./test.sh maint` (real run on a fake HOME, notifier stubbed) | — | D29, D60 |
@@ -90,6 +91,21 @@ in the template's decision log and add a row to `~/dev/templates/VERSION_HOLDS.t
 `CHANGELOG.md`. rn-supabase is its own repo: `--apply` refuses it with a dirty tree, and it is committed through
 the gate like any repo. Runner, action and `.nvmrc` rows are never applied; they are by-hand work. Why:
 [D55](design-decisions.md#d55--template-dependency-drift-is-a-script-run-check-only-by-the-weekly-audit---apply-tries-majors-behind-a-restore--2026-11-03).
+
+### Local model lineup
+
+Section 9 runs [`scripts/model-versions.py`](../scripts/model-versions.py) check-only and leaves its table
+beside the report as `model-versions-YYYY-MM-DD.md`. For each role in `config/llm/lineup`, it lists newer
+models on ollama.com that run locally, have real use, and fit the role's size range (24 GB for chat roles,
+2 GB for embed, at least half the current model's size). A WARN is a lead, not a swap. To act on one:
+
+```zsh
+~/dev/dotfiles/scripts/model-versions.py              # the full table
+```
+
+Read the model card, measure it here (prefill speed, memory next to the models that stay resident, answer
+quality on the role's own checks), then change the lineup and run `llm update`. Thresholds: `MODEL_MAX_GB`,
+`EMBED_MAX_GB`, `MODEL_MIN_RATIO`, `MODEL_MIN_DOWNLOADS`. Why: [D61](design-decisions.md#d61--the-weekly-audit-names-newer-local-models-for-the-llm-lineup-it-never-swaps-one--2026-11-10).
 
 ### Install / operate
 
@@ -367,6 +383,11 @@ Nothing leaves the Mac. The maintenance jobs report in three local places
    - The audit count comes from the security audit's log.
    - Every other `com.pieterdejong.*` launchd job whose last run exited non-zero is listed.
    - A log older than 8 days reads `overdue`, which means the job is not running.
+   - Below the line, one red `✗` (or yellow `⚠`) line per finding that needs action: secret files
+     on disk, scanned live, and the latest audit report's FAILs. The same output, red, appears
+     before the first prompt of every new terminal; `--quiet` keeps a clean state silent there
+     ([D62](design-decisions.md#d62--warnings-name-each-finding-in-red-in-every-new-terminal-secret-files-are-scanned-live--2026-11-10)).
+     What each line means and how to clear it: [warnings-runbook.md](warnings-runbook.md).
 3. **The dashboard** (`~/dev/audit-reports/dashboard.html`) has a *Self-check per run* table, with
    each cleanup run's verdict and `PROBLEM:` lines, and the last verdict on the *Last cleanup* tile.
 
@@ -385,6 +406,11 @@ cd ~/dev/dotfiles
 ./test.sh maint      # mac-maintenance.sh, real run on a fake HOME; the notification goes to a stub that records it
 ./test.sh gate       # the commit/push gate
 ./test.sh docs       # these docs: links, anchors, index, CLAUDE.md in sync
+./test.sh coverage   # every tracked script is linted, every scripts/test-* runs (D63)
+./test.sh entry      # init.sh and run.sh
+./test.sh --docker   # adds the restore test in a debian container (colima start first)
+./init.sh --check    # what this repo needs, installing nothing
+./run.sh             # warnings, gate status, dotfiles drift
 ```
 
 What is only asserted statically, never executed for real: `weekly-disk-cleanup.sh` (it deletes).
@@ -410,6 +436,9 @@ the rejected alternatives and the `Verified:` line.
 - [D46](design-decisions.md#d46--media-backup-is-one-by-hand-command-in-bin-the-logic-stays-in-the-media-repo--2026-10-27) — media backup is one by-hand command in `bin/`; the logic stays in the media repo.
 - [D53](design-decisions.md#d53--the-weekly-x-follower-review-is-a-launchd-job-in-dotfiles-its-code-stays-in-twittertools--2026-10-29) — the weekly X follower review is a launchd job here; its code stays in twittertools.
 - [D60](design-decisions.md#d60--maintenance-reports-stay-on-the-mac-notification-session-start-line-dashboard-email-retired--2026-11-09) — maintenance reports stay on the Mac: a notification, a session-start line, the dashboard; email retired.
+- [D61](design-decisions.md#d61--the-weekly-audit-names-newer-local-models-for-the-llm-lineup-it-never-swaps-one--2026-11-10) — the weekly audit names newer local models for the llm lineup; it never swaps one.
+- [D62](design-decisions.md#d62--warnings-name-each-finding-in-red-in-every-new-terminal-secret-files-are-scanned-live--2026-11-10) — warnings name each finding, in red, in every new terminal; secret files are scanned live.
+- [D63](design-decisions.md#d63--initsh-and-runsh-join-testsh-and-testsh-checks-its-own-coverage--2026-11-10) — `init.sh` and `run.sh` join `test.sh`, and `test.sh` checks its own coverage.
 
 ## Open items
 

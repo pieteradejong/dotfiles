@@ -11,8 +11,9 @@
 #      the first edit rather than discovered at commit time. At the workspace
 #      root (~/dev, not a repo) it prints the workspace TODO and the recently
 #      active repos; anywhere else outside a repo it prints nothing.
-#      Then one line from bin/maintenance-status: how the scheduled
-#      maintenance jobs did (D60).
+#      Then bin/maintenance-status: one line on how the scheduled
+#      maintenance jobs did (D60), and one ✗/⚠ line per finding that needs
+#      action — secret files on disk (live scan) and the audit's FAILs (D62).
 #   2. Record a baseline (HEAD and what was already dirty) under
 #      ~/.local/state/claude-logs/<session_id>.base, so the Stop hook
 #      (stop-log-check.sh) can tell what this session changed.

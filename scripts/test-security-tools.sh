@@ -277,6 +277,17 @@ echo "fetch failed: example" >&2
 exit 2
 EOF2
 chmod +x "$A/bin/template-versions"
+# Stub model-versions.py: one role with a newer candidate, one without. Every audit run below
+# uses it, so section 9 never reaches ollama.com from a test.
+cat > "$A/bin/model-versions" <<'EOF2'
+#!/bin/bash
+[ "$1" = --summary ] && [ "$2" = --out ] || exit 9
+printf 'WARN\tembed `vec:0.6b`: newer local candidate(s): vec-2:740m (1 GB, 2026-10-15)\n'
+printf 'INFO\treasoner `big:27b`: nothing newer fits 24 GB\n'
+exit 1
+EOF2
+chmod +x "$A/bin/model-versions"
+export MODEL_VERSIONS="$A/bin/model-versions"
 printf 'recovery\n' > "$A/dev/github-recovery-codes.txt"
 git init -q "$A/dev/projects/app"
 printf 'x\n' > "$A/dev/projects/app/deploy.key"
@@ -335,6 +346,15 @@ grep -q '^- \*\*WARN\*\* web: 1 major · 2 minor' "$report" 2>/dev/null && pass 
 grep -q '^- py: packages current (0 held)$' "$report" 2>/dev/null && pass "a current template is info" || fail "current template not info"
 grep -q 'WARN\*\* template-versions.py exit 2 — the check is incomplete: fetch failed: example' "$report" 2>/dev/null \
   && pass "a failed fetch makes the section say it is incomplete" || fail "incomplete check not reported"
+grep -q '^## 9. Local model lineup$' "$report" 2>/dev/null && pass "report has the model lineup section, under --quick too" || fail "section 9 missing"
+# shellcheck disable=SC2016 # the backticks are literal markdown
+grep -q '^- \*\*WARN\*\* embed `vec:0.6b`: newer local candidate(s): vec-2:740m' "$report" 2>/dev/null \
+  && pass "a newer local model candidate is a WARN" || fail "model candidate WARN missing"
+# shellcheck disable=SC2016 # the backticks are literal markdown
+grep -q '^- reasoner `big:27b`: nothing newer fits 24 GB$' "$report" 2>/dev/null \
+  && pass "a role with nothing newer is info" || fail "model info line missing"
+grep -q 'model-versions.py exit' "$report" 2>/dev/null && fail "exit 1 (candidates found) was reported as an incomplete check" \
+  || pass "exit 1 (candidates found) is not an incomplete check"
 perm="$(stat -f %Lp "$report" 2>/dev/null || stat -c %a "$report" 2>/dev/null)"
 [ "$perm" = 600 ] && pass "report is mode 600" || fail "report mode $perm"
 mkdir -p "$A/plain"; cp "$A/out/security-audit-2020-01-01.md" "$A/plain/"

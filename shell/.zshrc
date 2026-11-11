@@ -381,5 +381,14 @@ alias dottest="$DOTFILES/scripts/test-dotfiles-setup.sh"
 alias dothelp="$DOTFILES/scripts/dothelp.sh"
 alias dotaudit="$DOTFILES/scripts/dev-audit.sh"
 
+# Maintenance and security warnings, in red, before the first prompt of each new
+# terminal; silent when nothing needs action (D62). A one-shot precmd hook, not a
+# plain call: output during startup breaks Powerlevel10k's instant prompt.
+_maint_status_once() {
+  add-zsh-hook -d precmd _maint_status_once
+  [[ -x "$DOTFILES/bin/maintenance-status" ]] && "$DOTFILES/bin/maintenance-status" --quiet
+}
+autoload -Uz add-zsh-hook && add-zsh-hook precmd _maint_status_once
+
 # Added by cua-driver-rs installer — see https://github.com/trycua/cua
 export PATH="$HOME/.local/bin:$PATH"

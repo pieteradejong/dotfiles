@@ -6,6 +6,14 @@ only; this file is public. Workspace-wide items: `~/dev/TODO.md`. Decisions: `do
 
 ## Verify after the next scheduled runs
 
+- [ ] D63, 2026-11-10: run `./test.sh --docker` once (`colima start`; pulls `debian:bookworm-slim`),
+      and see the `toolchain`, `coverage` and `scan` suites pass in CI on the next push.
+- [ ] D63, 2026-11-10: decide on `ruff format`: 10 Python files would be reformatted. Either one
+      `./run.sh format` commit, then a `ruff format --check` step in `test.sh`, or leave it.
+- [ ] D62, 2026-11-10: a fresh Claude Code session in `~/dev` shows the `✗` detail lines at start,
+      and the Sun 2026-11-15 10:00 audit's section 6 (through `security/lib/loose-files.sh`) reads
+      as before. Then fill in D62's `Verified:` line.
+
 - [ ] D37 live check, 2026-10-17 — in a fresh Claude Code session under `~/dev/projects/chrome-bookmarks`
       every prompt shows the three `followup` lines; a reply naming open work with no `TODO.md`
       touched is blocked once by `stop-log-check`; the same at `~/dev` itself. Record in D37's
@@ -52,10 +60,23 @@ only; this file is public. Workspace-wide items: `~/dev/TODO.md`. Decisions: `do
 - [ ] **rclone: create a personal Google Drive client_id** before the shared one is retired
       (rclone says "during 2026"), or the daily docs backup stops. Seen in
       `~/docs/.backup/logs/launchd.out` on 2026-10-10. https://rclone.org/drive/#making-your-own-client-id
+- [ ] **Docs backup failing**: `com.pieterdejong.docsbackup` last exit 1, `dev: FAILED rc=1` in
+      `~/docs/.backup/logs/launchd.out` (`~/docs/.backup/backup_docs.py`), so the `~/dev` part of
+      the daily backup is not completing. Flagged by the first `maintenance-status` line (D60) on
+      2026-11-09; not yet investigated. Clears when the status line stops listing `docsbackup`.
 - [ ] Audit §3: three private repos lack Dependabot alerts, every week since 2026-09-27 —
       `scripts/github-security-sweep.sh --apply` (outward-facing: confirm first).
-- [ ] Audit §6: the recovery-codes file at the root of `~/dev` — into the password manager, then
-      delete it (open since 2026-09-07; also in `~/dev/TODO.md`).
+- [x] Audit §6: the recovery-codes file at the root of `~/dev` — into the password manager, then
+      delete it (open since 2026-09-07; also in `~/dev/TODO.md`). **Done 2026-11-08** by Pieter;
+      verified: no match on disk, and the live section-6 scan has no FAIL (D62).
+- [ ] Pieter: regenerate the GitHub recovery codes (Settings → Password and authentication) so
+      copies of the deleted file in backup history are useless — 2026-11-10,
+      `docs/warnings-runbook.md` § secret file on disk, step 3.
+- [x] Pieter's OK to commit D62 in the live checkout. `CHANGELOG.md`, `TODO.md`,
+      `docs/design-decisions.md`, `docs/maintenance.md`, `scripts/security-audit.sh` and `test.sh`
+      also hold another session's uncommitted D61 work, so either both go in together or my hunks
+      are staged alone — 2026-11-10, D62. **Done 2026-11-11:** "commit and push all"; D61, D62 and
+      D63 went in together on `gate-hardening` after a green `./test.sh`.
 - [ ] Audit §4: findings AU-1 and AU-2 in the private register (old secrets in GitHub history) —
       revoke or confirm dead, record the output. These are eight of the ten weekly FAILs.
 - [ ] Full Disk Access for the cleanup under launchd: grant it to `/bin/zsh` (broad) or keep
@@ -198,3 +219,7 @@ Weaken". Built on 2026-11-04 (the edits went through), except the GitHub setting
       that the session-start `Maintenance:` line reads `cleanup 0d ago, Self-check OK`. Record the
       result in the D27 addenda's and D60's `Verified:` — 2026-11-09, D27 addenda 2026-11-08/09,
       D60 (`private/reports/disk-survey-2026-11-08.md`)
+- [ ] Sun 2026-11-15 10:00 — first scheduled audit with section 9 *Local model lineup*: check
+      `~/dev/audit-reports/security-audit-2026-11-15.md` § 9 (one line per lineup role) and
+      `model-versions-2026-11-15.md` beside it, and that a markup change on ollama.com shows as
+      "check incomplete", not as "nothing newer". Record it in D61's `Verified:` — 2026-11-10, D61

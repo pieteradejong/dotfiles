@@ -21,6 +21,9 @@
 #   7. account    SSH keys on the GitHub account, token scopes
 #   8. templates  dependency drift in the curated templates (template-versions.py
 #                 --summary; check only, never --apply)
+#   9. models     newer local models on ollama.com that could replace one in the
+#                 llm lineup (model-versions.py --summary; check only, never pulls).
+#                 Runs under --quick too: one search page per role, a few seconds
 #
 # Usage: security-audit.sh [--quick] [--templates] [--history] [--no-notify] [--out DIR]
 #   --quick      skip steps 2, 4 and 8 (the slow ones)
@@ -45,6 +48,9 @@ DOTFILES_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 # shellcheck source-path=SCRIPTDIR
 # shellcheck source=../security/lib/visibility.sh
 . "$DOTFILES_DIR/security/lib/visibility.sh"
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=../security/lib/loose-files.sh
+. "$DOTFILES_DIR/security/lib/loose-files.sh"
 
 DEV_ROOT="${DEV_ROOT:-$HOME/dev}"
 OUT_DIR="$DEV_ROOT/audit-reports"
@@ -57,6 +63,7 @@ PERSONAL_PATTERNS_FILE="$DOTFILES_DIR/private/security/personal-patterns.conf"
 BYPASS_LOG="${SECURITY_GATE_BYPASS_LOG:-$HOME/.local/state/security-gate/bypass.log}"
 QUICK=0; FORCE_HISTORY=0; NOTIFY=1; TEMPLATES=0
 TEMPLATE_VERSIONS="${TEMPLATE_VERSIONS:-$SCRIPT_DIR/template-versions.py}"
+MODEL_VERSIONS="${MODEL_VERSIONS:-$SCRIPT_DIR/model-versions.py}"
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -206,52 +213,13 @@ fi
 
 # --- 6. loose credential-shaped files -------------------------------------------------------------
 section "6. Credential-shaped files outside version control"
-skips=" $(skip_names | tr '\n' ' ') "
-find "$DEV_ROOT" -maxdepth 5 \( -name node_modules -o -name .git -o -name .venv -o -name venv -o -name audit-reports \) -prune -o -type f \
-  \( -iname '*recovery*code*' -o -name '*.pem' -o -name '*.key' -o -name '*.p12' -o -name '*.pfx' -o -name '*.ppk' \
-     -o -name 'id_rsa*' -o -name 'id_ed25519*' -o -name 'id_ecdsa*' -o -name '.env' -o -name '.env.*' \
-     -o -iname '*credentials*.json' -o -name '*.kdbx' -o -name '.netrc' -o -name '.pypirc' \) -print 2>/dev/null \
-  | LC_ALL=C sort > "$WORK/loose"
-n_out=0; n_untracked=0; n_covered=0
-git init -q --bare "$WORK/empty.git"
-
-# covered_by_gitignore <file> — for a file outside any repo (template sources,
-# loose project dirs): would a .gitignore in its directory or an ancestor below
-# DEV_ROOT ignore it once that directory becomes, or is copied into, a repo?
-# Uses a throwaway empty git dir, so nothing is written next to the file.
-covered_by_gitignore() {
-  local f="$1" dir
-  dir="$(dirname "$f")"
-  while [ "${#dir}" -gt "${#DEV_ROOT}" ]; do
-    if [ -f "$dir/.gitignore" ] && ( cd "$dir" && git --git-dir="$WORK/empty.git" --work-tree=. \
-         check-ignore -q --no-index -- "${f#"$dir"/}" ) 2>/dev/null; then
-      printf '%s' "${dir#"$DEV_ROOT"/}"; return 0
-    fi
-    dir="$(dirname "$dir")"
-  done
-  return 1
-}
-
-while IFS= read -r f; do
-  rel="${f#"$DEV_ROOT"/}"
-  is_example_path "$rel" && continue
-  case "$rel" in *.pub) continue ;; esac
-  skip=0; for s in $skips; do case "/$rel/" in */"$s"/*) skip=1 ;; esac; done
-  [ "$skip" = 1 ] && continue
-  d="$(dirname "$f")"
-  if ! git --no-optional-locks -C "$d" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-    if cov="$(covered_by_gitignore "$f")"; then
-      info_ "outside any repo, but ignored by $cov/.gitignore (a scaffold or git init there won't commit it): $rel"
-      n_covered=$((n_covered + 1))
-    else
-      fail_ "outside any repo, no version control and no guard: $rel"; n_out=$((n_out + 1))
-    fi
-  elif ! git --no-optional-locks -C "$d" ls-files --error-unmatch "$(basename "$f")" >/dev/null 2>&1 \
-       && ! git --no-optional-locks -C "$d" check-ignore -q "$(basename "$f")" 2>/dev/null; then
-    warn_ "untracked and NOT ignored — one \`git add -A\` from being committed: $rel"; n_untracked=$((n_untracked + 1))
-  fi
-done < "$WORK/loose"
-[ "$n_out" = 0 ] && [ "$n_untracked" = 0 ] && [ "$n_covered" = 0 ] && info_ "none"
+# The rules live in security/lib/loose-files.sh, shared with bin/maintenance-status (D62).
+# shellcheck disable=SC2046  # skip names are single words, split on purpose
+loose_scan "$DEV_ROOT" "$WORK" $(skip_names) > "$WORK/loose6"
+while IFS="$(printf '\t')" read -r lvl msg; do
+  case "$lvl" in FAIL) fail_ "$msg" ;; WARN) warn_ "$msg" ;; INFO) info_ "$msg" ;; esac
+done < "$WORK/loose6"
+[ -s "$WORK/loose6" ] || info_ "none"
 
 # --- 7. account ---------------------------------------------------------------------------------------
 section "7. GitHub account"
@@ -285,6 +253,23 @@ else
   # shellcheck disable=SC2016 # the backticks are markdown code spans, not expansions
   info_ "full table: \`template-versions-$STAMP.md\` in this directory; bump with \`template-versions.py --apply\`"
 fi
+
+# --- 9. models -----------------------------------------------------------------------
+section "9. Local model lineup"
+"$MODEL_VERSIONS" --summary --out "$OUT_DIR" > "$WORK/models" 2> "$WORK/models.err"
+mrc=$?
+while IFS="$(printf '\t')" read -r level text; do
+  case "$level" in
+    FAIL) fail_ "$text" ;;
+    WARN) warn_ "$text" ;;
+    INFO) info_ "$text" ;;
+  esac
+done < "$WORK/models"
+if [ "$mrc" -ge 2 ] && ! grep -q 'incomplete' "$WORK/models"; then
+  warn_ "model-versions.py exit $mrc — the check is incomplete: $(head -1 "$WORK/models.err")"
+fi
+# shellcheck disable=SC2016 # the backticks are markdown code spans, not expansions
+info_ "full table: \`model-versions-$STAMP.md\` in this directory; a candidate is a lead, not a swap (docs/maintenance.md)"
 
 # --- since last run ---------------------------------------------------------------------------------
 # FAIL/WARN lines of this run against the newest *full* report in OUT_DIR (a
