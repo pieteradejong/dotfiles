@@ -10,7 +10,8 @@ Checks, over every docs/**/*.md in this repo:
   synced     the live workspace CLAUDE.md is byte-identical to claude/dev-CLAUDE.md,
              ~/.claude/CLAUDE.md to claude/CLAUDE.md, ~/Claude/CLAUDE.md to
              claude/cowork-CLAUDE.md, ~/dev/templates/CLAUDE.md to
-             claude/templates-CLAUDE.md, and ~/.claude/settings.json
+             claude/templates-CLAUDE.md, ~/.codex/AGENTS.md to a fresh
+             bin/codex-agents-sync build, and ~/.claude/settings.json
              registers every hook claude/settings.json does (skipped with a note
              where a live file does not exist, e.g. in CI)
   enforced   every check id scripts/audit/20-policy.sh can emit has a row in
@@ -32,11 +33,13 @@ Env:    DEV_CLAUDE_MD     live workspace CLAUDE.md (default: ~/dev/CLAUDE.md)
         COWORK_CLAUDE_MD  live Cowork-folder CLAUDE.md (default: ~/Claude/CLAUDE.md)
         TEMPLATES_CLAUDE_MD live templates CLAUDE.md (default: ~/dev/templates/CLAUDE.md)
         CLAUDE_SETTINGS   live settings.json (default: ~/.claude/settings.json)
+        CODEX_HOME        holds Codex's AGENTS.md (default: ~/.codex)
 """
 
 import json
 import os
 import re
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -55,6 +58,7 @@ COWORK_CLAUDE_LIVE = Path(os.environ.get("COWORK_CLAUDE_MD", Path.home() / "Clau
 TEMPLATES_CLAUDE_SRC = REPO / "claude" / "templates-CLAUDE.md"
 TEMPLATES_CLAUDE_LIVE = Path(os.environ.get("TEMPLATES_CLAUDE_MD", Path.home() / "dev" / "templates" / "CLAUDE.md"))
 SETTINGS_SRC = REPO / "claude" / "settings.json"
+CODEX_AGENTS_LIVE = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex")) / "AGENTS.md"
 SETTINGS_LIVE = Path(os.environ.get("CLAUDE_SETTINGS", Path.home() / ".claude" / "settings.json"))
 POLICY_MODULE = REPO / "scripts" / "audit" / "20-policy.sh"
 STANDARDS = POLICY / "repo-standards.md"
@@ -271,6 +275,14 @@ def main(argv):
                         [] if same else ["synced: edit claude/templates-CLAUDE.md, then copy it to ~/dev/templates/CLAUDE.md"]))
     else:
         print("  - SKIP: synced: no ~/dev/templates/CLAUDE.md on this machine")
+
+    if CODEX_AGENTS_LIVE.exists():
+        check = subprocess.run([str(REPO / "bin" / "codex-agents-sync"), "--check"],
+                               capture_output=True, text=True, check=False)
+        results.append((check.returncode == 0, "synced: ~/.codex/AGENTS.md matches a fresh codex-agents-sync build",
+                        [] if check.returncode == 0 else ["synced: run bin/codex-agents-sync (" + check.stdout.strip() + ")"]))
+    else:
+        print("  - SKIP: synced: no ~/.codex/AGENTS.md on this machine")
 
     if SETTINGS_LIVE.exists():
         missing = sorted(hooks(SETTINGS_SRC) - hooks(SETTINGS_LIVE))

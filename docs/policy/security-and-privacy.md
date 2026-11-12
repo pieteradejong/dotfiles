@@ -364,7 +364,8 @@ before misses.
 2. **Repo hooks** (`.githooks/pre-commit`, `.githooks/pre-push`) — a forbidden-path regex checked
    independently of `.gitignore`; pre-push catches a commit made with `-n`. Activation
    (`git config core.hooksPath .githooks`) lives in uncommitted `.git/config`, so the hooks are
-   **inert on every fresh clone** until re-run — say so in the repo README.
+   **inert on every fresh clone** until re-run — say so in the repo README. Pieter runs it: an
+   assistant never changes that setting, and the guard hook denies the command.
 3. **CI path guard** — the same regex on every push plus a weekly full-history sweep. Detection,
    not prevention, but independent of the committing machine.
 4. **ShellCheck on the hook scripts**, triggered only on changes to the hooks directory.

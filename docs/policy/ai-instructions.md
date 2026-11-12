@@ -37,6 +37,11 @@ ln -s CLAUDE.md AGENTS.md
 
 Edit `CLAUDE.md` only. Word the header so it reads correctly for either tool.
 
+Codex reads `AGENTS.md` from the git root down to the working directory and has no imports, so
+the workspace file above a repo never reaches it. `bin/codex-agents-sync` builds its global
+`~/.codex/AGENTS.md` from the machine file, the workspace file and the do-not-touch register
+(D66); re-run it after editing any of them.
+
 ## Imports and private material
 
 - `@relative/path.md` (or `@~/path.md`) on its own line pulls a file in, recursively up to five levels.
@@ -139,10 +144,11 @@ every commit. The shape, numbered and appended:
 **Verified:** the command run and what it returned, or NOT YET
 ```
 
-Which log: security and privacy decisions go in `docs/design-decisions.md`; a project's own
-decisions go in `docs/DECISIONS.md` (a `DECISIONS.md` at the root is accepted where it already
-exists); everything else about this workspace — including anything naming a specific repo or
-exposure — goes in the private companion repo's `DECISIONS.md`.
+Which log: decisions about the workspace tooling in this repo — the gate, the audit, the hooks,
+the scripts, the instruction files — go in `docs/design-decisions.md`; a project's own decisions
+go in `docs/DECISIONS.md` (a `DECISIONS.md` at the root is accepted where it already exists);
+workspace matters that name a specific repo or exposure go in the private companion repo's
+`DECISIONS.md`.
 
 Checked, not only read: the commit gate blocks an entry added without a `Verified` line
 (`decision-unverified`; `NOT YET` passes, absence does not), the Claude Code Stop hook

@@ -81,6 +81,7 @@ Scheduling and output locations: [`docs/maintenance.md`](../docs/maintenance.md)
 | `test-logs.sh` | decision log + changelog coverage end to end: `security/lib/logs.sh`, [`bin/whatsup`](../bin/whatsup), the `SessionStart` and `Stop` hooks, the gate's log rules (through real commits in a sandbox), the two dotaudit ids, registration and docs | yes (`logs`) |
 | `test-pwd-gen.py` | [`bin/pwd-gen`](../bin/pwd-gen): lengths, character classes, counts, the exact entropy line, wordlist resolution and exit codes; `--copy` against a fake `pbcopy` | yes (`pwdgen`) |
 | `test-claude-md-check.py` | `claude-md-check.py` against fixture files and stub tool banners; never probes this Mac; a `--list` smoke run over the real sources | yes (`claudemd`) |
+| `test-codex-agents.sh` | `bin/codex-agents-sync` in a sandbox `HOME` and `CODEX_HOME`: the three sources in order, imports dropped, mode 600, `--check` drift, backup of a hand-written file, the byte limit; a `--print` smoke run over the real sources | yes (`codex`) |
 | `test-template-versions.py` | `template-versions.py` against fixture templates and file:// registry answers (offline); `--apply` with stub `init.sh` / `test.sh` / `npm` | yes (`templates`) |
 | `test-docs.py` | policy doc links and anchors, index coverage, workspace `CLAUDE.md` sync | yes (`docs`) |
 | `test-dotfiles-setup.sh` (`dottest`) | checks that this machine's live configs are in place | **no** |

@@ -6,7 +6,7 @@
 #   ./test.sh gate            one suite: toolchain | coverage | scan | shellcheck |
 #                                        zsh-syntax | ruff | bin | gate | tools |
 #                                        dotaudit | containers | maint | pwdgen | logs |
-#                                        docs | claudemd | templates | models | entry |
+#                                        docs | claudemd | codex | templates | models | entry |
 #                                        restore
 #   ./test.sh --verbose       pass --verbose through to each suite
 #   ./test.sh --docker        also run the restore suite (needs Docker: colima start);
@@ -47,6 +47,9 @@
 #                                                diagrams well-formed and generic)
 #   claudemd    scripts/test-claude-md-check.py (the CLAUDE.md fact check against stub
 #                                                tools; never probes this Mac)
+#   codex       scripts/test-codex-agents.sh    (bin/codex-agents-sync: Codex's global AGENTS.md
+#                                                built from the Claude instruction files, in a
+#                                                sandbox HOME and CODEX_HOME)
 #   templates   scripts/test-template-versions.py (template dependency drift against
 #                                                fixture registries; offline, stub
 #                                                init.sh/test.sh/npm for --apply)
@@ -71,7 +74,7 @@ for a in "$@"; do
   case "$a" in
     --verbose) VERBOSE="--verbose" ;;
     --docker)  DOCKER=1 ;;
-    toolchain|coverage|scan|shellcheck|zsh-syntax|ruff|bin|gate|tools|dotaudit|containers|maint|pwdgen|logs|docs|claudemd|templates|models|entry|restore) ONLY="$a" ;;
+    toolchain|coverage|scan|shellcheck|zsh-syntax|ruff|bin|gate|tools|dotaudit|containers|maint|pwdgen|logs|docs|claudemd|codex|templates|models|entry|restore) ONLY="$a" ;;
     -h|--help) awk 'NR > 2 && /^#/ { sub(/^# ?/, ""); print; next } NR > 2 { exit }' "$0"; exit 0 ;;
     *) echo "unknown argument: $a" >&2; exit 2 ;;
   esac
@@ -108,6 +111,7 @@ scripts/test-containers-doctor.sh
 scripts/test-mac-maintenance.sh
 scripts/test-bin.sh
 scripts/test-logs.sh
+scripts/test-codex-agents.sh
 bin/rcdev
 bin/whatsup
 bin/doc-dupes
@@ -115,6 +119,7 @@ bin/media-backup
 bin/weekly-cleanup-check
 bin/notify-local
 bin/maintenance-status
+bin/codex-agents-sync
 "
 
 # zsh scripts. shellcheck has no zsh support, so these get `zsh -n` instead of a
@@ -315,6 +320,7 @@ run_suite pwdgen   python3 scripts/test-pwd-gen.py $VERBOSE
 run_suite logs     bash scripts/test-logs.sh $VERBOSE
 run_suite docs     python3 scripts/test-docs.py $VERBOSE
 run_suite claudemd python3 scripts/test-claude-md-check.py $VERBOSE
+run_suite codex    bash scripts/test-codex-agents.sh $VERBOSE
 run_suite templates python3 scripts/test-template-versions.py $VERBOSE
 run_suite models   python3 scripts/test-model-versions.py $VERBOSE
 # shellcheck disable=SC2329 # invoked through run_suite

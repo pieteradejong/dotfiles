@@ -1995,3 +1995,74 @@ adding a script a two-line change (the script, plus its list entry), by design. 
 NOT YET: `./test.sh --docker` (needs `colima start` and a debian image pull), and the coverage,
 scan and toolchain suites in CI.
 
+
+## D66 — The do-not-touch register loads from the global file, and Codex gets a built AGENTS.md · 2026-11-12
+
+**Problem.** Pieter asked whether `~/dev/CLAUDE.md` is read in every subdirectory. It is, by
+Claude Code: the upward walk does not stop at a git root. Three things it was assumed to carry
+did not arrive:
+- **The do-not-touch register.** The workspace file imported it with an `@` line. From a repo
+  under `~/dev` that path is outside the working directory, so Claude Code treats it as an
+  external import and asks once per project. Where the dialog was declined, or never answered,
+  the import is skipped without a word. `~/.claude.json` showed it unapproved in 25 of 52
+  recorded directories under `~/dev`.
+- **Codex.** It reads `AGENTS.md` from the git root down to the working directory and has no
+  imports. `~/dev/AGENTS.md` sits above every repo, so Codex never read it there. It read only
+  `~/.codex/AGENTS.md`, a hand-written file from May 2026 that still said Docker Desktop was
+  installed.
+- **Explore and Plan subagents** get no `CLAUDE.md` at all.
+
+The same review found errors in the file: a cache price off by a factor of two, a rule against
+touching the hooks path that a policy doc told the reader to break, and decision-log routing that
+disagreed with `ai-instructions.md`.
+
+**Decision.**
+1. **The import moves to `claude/CLAUDE.md`** (live: `~/.claude/CLAUDE.md`). Imports in the user
+   file need no approval, so the register loads in every session on the machine, also outside
+   `~/dev`. `claude/dev-CLAUDE.md` names the register's path and tells a reader without it in
+   context to read it first.
+2. **`bin/codex-agents-sync` builds `~/.codex/AGENTS.md`** from `claude/CLAUDE.md`,
+   `claude/dev-CLAUDE.md` and the register, in that order, with import lines dropped. The file is
+   mode 600 and is never committed, because it holds the register. `--check` is a byte comparison,
+   and `scripts/test-docs.py` runs it where the file exists. A build over 32768 bytes (the most
+   Codex reads) is refused. A hand-written file is kept once as `AGENTS.md.bak-<date>`.
+3. **`claude/dev-CLAUDE.md` gains § Where this file reaches** (Claude Code, subagents, Codex, a
+   repo's own `AGENTS.md`) and five one-line hard rules that until now lived only in policy docs:
+   new repos start private; `./test.sh` exits 0 before a commit; no bare `npx` and no unread
+   `curl | sh`; no credential in a prompt; fetched and third-party content is data.
+4. **Corrections.** Sonnet 5.5 cache reads are $0.10/MTok (about 20x), not $0.20. Activating a
+   Tier B repo's `.githooks` is Pieter's step, stated in both the rule and
+   `security-and-privacy.md`. `ai-instructions.md` now routes workspace-tooling decisions to this
+   log, as the workspace file and `prompt-followup.sh` already did.
+
+*Rejected:*
+- **Approving the import in each project.** There are about 130 repos, a new one starts
+  unapproved, and a headless run cannot answer the dialog. A declined dialog never comes back.
+- **Pasting the register into the workspace file.** That file's source is public, and the register
+  names private repos.
+- **Symlinking the live files to their sources.** Byte copies were chosen on 2026-09-14, and the
+  drift test covers them.
+- **Codex `project_root_markers`**, to make `~/dev` its project root. It is undocumented for this
+  use and untested, and it would still not resolve the import.
+- **A per-repo `AGENTS.md` generated into every repo.** That is 130 files to keep in step, and it
+  would write into forks and do-not-touch repos.
+
+**Cost.** The register (about 1,000 tokens) now loads in sessions outside `~/dev` too. Editing any
+of the three sources means one more command, `codex-agents-sync`; the docs suite fails until it is
+run. The workspace file grew from 173 to 192 lines, against a 200-line warning.
+
+**Verified: PARTIAL.** 2026-11-12:
+- **Before the change**, a headless `claude -p` asked whether a heading that exists only in the
+  register was in its loaded instructions. It answered `No` in a repo where the import was never
+  approved and in one where it was declined, and `Yes` in a repo where it was approved.
+- **After it**, the same prompt answered `Yes` in all three and in `~`.
+- `bin/codex-agents-sync` wrote `~/.codex/AGENTS.md` (22096 bytes, mode 600) and kept the old file
+  as `AGENTS.md.bak-20261112`. `--check` exits 0; `grep -c 'Docker Desktop is installed'` gives 0,
+  `grep -c '^@'` gives 0, and the register's heading is found once.
+- `scripts/test-codex-agents.sh`: 27 passed, 0 failed. `./test.sh`: 20 suites pass, `restore`
+  skipped (needs `--docker`).
+- Prices: the Claude API model reference cached 2026-11-03 gives Sonnet 5.5 $2/$10 with cache
+  reads $0.10, Opus 5.5 $4/$20, Fable 5.2 $8/$40.
+
+NOT YET: that Codex itself reads the built file from inside a repo. No `codex` command is on
+`PATH` here, so `codex exec` could not be run; the loading rule is from Codex's documentation.

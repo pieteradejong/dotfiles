@@ -55,11 +55,11 @@ Node versions are managed with **nvm** — when suggesting Node version changes 
 | git | 2.56 |
 | gh (GitHub CLI) | 2.103 |
 | Docker CLI (Homebrew) | 29.9 |
-| Docker Compose plugin | 5.6 |
+| Docker Compose plugin | 5.7 |
 | Colima | 0.10 |
 | kubectl | v1.37 |
 | Terraform | not installed |
-| Supabase CLI | 2.122 |
+| Supabase CLI | 3.1 |
 | jq | 1.8 |
 | curl | 8.7 |
 | wget | 1.25 |
@@ -80,3 +80,10 @@ When opening files or projects for the user, prefer `code` unless the user indic
 - Homebrew prefix: `/opt/homebrew` (ARM64 location)
 - Custom scripts: `~/dev/dotfiles/bin` is in PATH (commands are run in place from the repo)
 - When constructing paths to Homebrew tools, use `/opt/homebrew/bin/` not `/usr/local/bin/`
+
+## Workspace do-not-touch register
+
+Repos under `~/dev` that must not be modified. Imported here, not in `~/dev/CLAUDE.md`, so that it
+loads in every session without a per-project approval.
+
+@~/dev/dotfiles/private/registers/do-not-touch.md
