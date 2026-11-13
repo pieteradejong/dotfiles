@@ -27,6 +27,10 @@ What checks each rule, and where: `dotfiles/docs/policy/repo-standards.md` § En
   it: never use `--no-verify` or `-n`, never touch `core.hooksPath` or `hook.*` config (activating
   a Tier B repo's `.githooks` is Pieter's step), never ask the user to set `SECURITY_GATE_BYPASS`.
   Fix the finding, or stop and report it. Where a repo has a `./test.sh`, it exits 0 before a commit.
+- **Before any push or going public, run the GitHub security sweep.** `github-security-sweep.sh
+  --check` exits 0, and the newest full `security-audit.sh` report in `~/dev/audit-reports/` is at
+  most 7 days old with no new FAIL; otherwise run the audit first. Fix or report every FAIL before
+  the push. `--apply` changes GitHub settings, so confirm it first (D68).
 - **New repos start private.** Going public follows the go-public checklist.
 - **Committer identity is the GitHub noreply address.** Never set a personal email in any repo.
 - **Public repo ⇒ LICENSE in the first commit.** Canonical line `Copyright (c) <year> Pieter de Jong`;
@@ -107,8 +111,10 @@ order they happen in, not a second copy of them.
    while no `TODO.md` was touched.
 6. **Close with a summary**, after `doc-dupes` on the files written is clean: what changed, what is
    unverified, what is still open and where it is written down, and which decision, changelog and
-   TODO entries were added. Update the project's README or `CLAUDE.md` in the same session when
-   commands or behavior changed; a doc that lags by one session is where drift starts. Say any
+   TODO entries were added. The summary is also written as a dated section in the repo's
+   `docs/SESSIONS.md` (workspace-level sessions: `~/dev/SESSIONS.md`), newest first, committed
+   with the work. Nothing private goes in a public repo's log (D68). Update the project's README
+   or `CLAUDE.md` in the same session when commands or behavior changed; a doc that lags by one session is where drift starts. Say any
    `Verified: NOT YET` out loud rather than leaving it to be discovered. The `Stop` hook blocks
    while a log touched this session holds a duplicate (`ai-instructions.md` § Logs are checked
    for redundancy).

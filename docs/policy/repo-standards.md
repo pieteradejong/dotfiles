@@ -301,6 +301,8 @@ this existed.
 | Never bypass the gate | [security §3](security-and-privacy.md#3-bypass-procedure) | the assistant: `guard-git-bypass.sh`; people: the bypass log | gate (no bypass) | `gate-bypassed`, `gate-disabled`, `gate-not-registered` |
 | Content reaches GitHub only through git | [security §14](security-and-privacy.md#14-assistant-guardrails) | the assistant: `guard-github-write.sh` | — | — |
 | GitHub push protection and secret scanning on | [security §10](security-and-privacy.md#10-github-baseline-settings) | — | — | `github-security-sweep.sh --check` |
+| GitHub security sweep before any push or going public | [security §10](security-and-privacy.md#10-github-baseline-settings), workspace `CLAUDE.md` | — (instruction only; the gate stays offline) | — | `github-security-sweep.sh --check` + audit report ≤ 7 days |
+| Session summary in `docs/SESSIONS.md` | workspace `CLAUDE.md` § Session workflow step 6 | — (instruction only) | — | — |
 | Audit output never inside a git repo | [security §13](security-and-privacy.md#13-audit-tool-design-rules) | assistant only | — | — |
 | Confirm before outward-facing actions | [AI and external services](ai-and-external-services.md) | assistant only | — | — |
 | Never relicense or reshape a fork | [licensing](#licensing) | standards skip forks | — | forks skipped |

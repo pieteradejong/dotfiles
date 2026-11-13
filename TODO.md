@@ -110,6 +110,10 @@ Planned additions, each with its reference doc. Nothing here is built yet. Sourc
 
 ## Tooling
 
+- [ ] D68, 2026-11-13: make the pre-push sweep rule a check, not only an instruction. For example, `bin/maintenance-status` or a `PreToolUse` hook on `git push` warns when the newest full audit report is more than 7 days old or has a new FAIL. The gate itself stays offline.
+- [x] D68, 2026-11-13: commit the D68 changes on `claude-md-reach`. Committed and pushed 2026-11-13 at Pieter's request, with this one `docs` failure known and named in the commit message. It was blocked by: `./test.sh docs` fails `synced: ~/dev/templates/CLAUDE.md`, because the live file follows `gate-hardening`'s uncommitted `claude/templates-CLAUDE.md` (another session). It clears when that edit is committed and the branches merge.
+- [ ] D68, 2026-11-13: make the `docs/SESSIONS.md` rule a check: `stop-log-check.sh` asks for a `SESSIONS.md` section in a turn that changed files, as it does for `TODO.md`.
+
 - [ ] `stop-log-check` counted committed files and another session's uncommitted files as this session's changes: `vercel-live-reusable.yml` and `vercel-project` were committed under D42, and `media-backup` is D46. In the same turn it said no `CHANGELOG.md`, decision or `TODO.md` change was made, although D52's session had edited all three. Same family as the re-ask item in `~/dev/TODO.md`. Added 2026-10-29.
 - [ ] Schedule `scripts/claude-md-check.py`: in the weekly maintenance job (mailed with the rest), or in `whatsup` at `~/dev` (it adds about 2s of probes to every session start). Added 2026-10-29, D52.
 - [ ] D52 live check: a fresh Claude Code session under `~/dev/templates/` lists `templates/CLAUDE.md` among the loaded memory files. Then set D52 `Verified` to yes. Added 2026-10-29.

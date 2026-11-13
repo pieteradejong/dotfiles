@@ -2066,3 +2066,47 @@ run. The workspace file grew from 173 to 192 lines, against a 200-line warning.
 
 NOT YET: that Codex itself reads the built file from inside a repo. No `codex` command is on
 `PATH` here, so `codex exec` could not be run; the loading rule is from Codex's documentation.
+
+## D68 — A GitHub security sweep before every push, and a session log per repo · 2026-11-13
+
+**Problem.** The weekly audit runs on Sundays, and `github-security-sweep.sh --check` is section 3
+of it. In between, a push could go out while a repo had no Dependabot alerts or a FAIL was sitting
+in the last report. Twelve repos had no alerts from the 2026-11-08 audit until a manual `--apply` on
+2026-11-12. Pieter asked for a full sweep and for the sweep to be a written requirement. In the
+same session he asked that the summary of work done always end up in markdown, not only in chat.
+
+**Decision.**
+1. **Hard rule in `claude/dev-CLAUDE.md`** (and `security-and-privacy.md` §10): before any push or
+   going public, `github-security-sweep.sh --check` exits 0 and the newest full
+   `security-audit.sh` report is at most 7 days old with no new FAIL. Otherwise the audit runs
+   first. Every FAIL is fixed or reported before the push. `--apply` is a settings change and is
+   confirmed first.
+2. **Session workflow step 6**: the closing summary is also a dated section, newest first, in the
+   repo's `docs/SESSIONS.md` (workspace-level: `~/dev/SESSIONS.md`), committed with the work.
+   Pieter chose this over one private log and over uncommitted dated files.
+
+*Rejected:*
+- **Making the sweep part of the pre-push gate.** It calls the GitHub API once or twice per repo
+  (minutes, and it needs the network), and the gate must stay fast and work offline. The 7-day
+  report age gives a bound without a network call on every push.
+- **Running it only when the session-start line shows a stale audit or a FAIL.** That misses a
+  push in a session that started clean.
+- **Running the full audit before every push.** With `--history` it takes many minutes. The report
+  age keeps the cost to one run per week.
+
+Both rules are instructions, not checks. Mechanising them (a `Stop` or pre-push hook that reads
+the report age) is open in `TODO.md`.
+
+**Verified: PARTIAL.** 2026-11-13:
+- `github-security-sweep.sh` dry run: `114 ok, 37 not offered (private), 0 need changes, 0 applied,
+  0 error(s), 23 skipped`, exit 0.
+- `security-audit.sh --history --no-notify`: `8 FAIL (8 new, 8 resolved), 17 WARN`. The 8 "new" are
+  all WARN (template drift, one model candidate); no FAIL is new. Resolved: the 12-repo settings
+  FAIL and one loose recovery-codes file.
+- `cmp ~/dev/CLAUDE.md claude/dev-CLAUDE.md` is silent; `codex-agents-sync --check` exits 0 (22689 bytes).
+- `./test.sh docs`: 12 passed, 1 failed. The failure is `~/dev/templates/CLAUDE.md` vs
+  `claude/templates-CLAUDE.md`: the live file follows an uncommitted edit on `gate-hardening`, so it is
+  not this change.
+
+NOT YET: that a later session runs the sweep before a push without being reminded. This is an
+instruction only; the hook follow-ups are in `TODO.md`.

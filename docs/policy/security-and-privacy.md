@@ -345,6 +345,10 @@ drift). Every owned, non-fork, non-archived repo gets:
 Settings only — it never commits, clones or pushes. The private skip list is honored. Results go
 to a TSV in `~/dev/audit-reports/`. Dependabot *update PRs* stay off (they would be commits).
 
+**Before every push or going public**, `--check` must exit 0, and the newest full weekly-audit report
+(§11) must be at most 7 days old with no new FAIL. If not, the audit runs first
+([D68](../design-decisions.md)).
+
 ## 11. Weekly audit
 
 `scripts/security-audit.sh` runs from launchd on Sundays at 10:00: gate status; `dotaudit` over
