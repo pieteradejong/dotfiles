@@ -139,6 +139,10 @@ Planned additions, each with its reference doc. Nothing here is built yet. Sourc
 
 ## Tooling
 
+- [ ] 2026-11-14: `scripts/test-dev-audit.sh` § 9 (full run against `~/dev`, fork exhaustion) passes no
+      skip list. On CI, which has no `private/`, `dev-audit.sh` exits 2 at once, so the case passes without
+      testing anything. Give it the fixture skip list, or skip it explicitly when `private/` is absent. Found
+      while fixing the launchd cases' CI failure (`1fbf26b`).
 - [ ] `stop-log-check` counted committed files and another session's uncommitted files as this session's changes: `vercel-live-reusable.yml` and `vercel-project` were committed under D42, and `media-backup` is D46. In the same turn it said no `CHANGELOG.md`, decision or `TODO.md` change was made, although D52's session had edited all three. Same family as the re-ask item in `~/dev/TODO.md`. Added 2026-10-29.
 - [ ] Schedule `scripts/claude-md-check.py`: in the weekly maintenance job (mailed with the rest), or in `whatsup` at `~/dev` (it adds about 2s of probes to every session start). Added 2026-10-29, D52.
 - [ ] D52 live check: a fresh Claude Code session under `~/dev/templates/` lists `templates/CLAUDE.md` among the loaded memory files. Then set D52 `Verified` to yes. Added 2026-10-29.
