@@ -23,7 +23,8 @@ REPO = Path(__file__).resolve().parent.parent
 PWD_GEN = REPO / "bin" / "pwd-gen"
 WORDLIST = REPO / "config" / "pwd-gen" / "wordlist.txt"
 
-DEFAULT_SYMBOLS = "!@#$%^&*()-_=+[]{}:;,.?"
+DEFAULT_SYMBOLS = "!@#$%*-_"
+WIDE_SYMBOLS = "!@#$%^&*()-_=+[]{}:;,.?"  # the default until D64
 AMBIGUOUS = set("0O1lI|")
 
 FAKE_PBCOPY = """#!/bin/sh
@@ -49,6 +50,10 @@ class PwdGenTest(unittest.TestCase):
         lines = ["# a comment", ""]
         lines += [f"1{i:04d}\tword{i:04d}" if i % 2 else f"word{i:04d}" for i in range(2048)]
         cls.small_list.write_text("\n".join(lines) + "\n")
+        # 1024 plain words and 1024 that contain the default separator.
+        cls.mixed_list = root / "mixed.txt"
+        cls.mixed_list.write_text(
+            "".join(f"plain{i:04d}\nhy-phen{i:04d}\n" for i in range(1024)))
         cls.tiny_list = root / "tiny.txt"
         cls.tiny_list.write_text("alpha\nbravo\ncharlie\n")
 
@@ -143,17 +148,28 @@ class PwdGenTest(unittest.TestCase):
 
     def test_entropy_line_is_exact_for_default(self):
         r = self.run_pg()
-        # 20 chars over 26+26+10+23 = 85 symbols, every class present
+        # 20 chars over 26+26+10+8 = 70 symbols, every class present
         # (inclusion–exclusion), as the tool itself computes.
-        sizes = [26, 26, 10, 23]
+        sizes = [26, 26, 10, 8]
         from itertools import combinations
         count = 0
         for k in range(len(sizes) + 1):
             for missing in combinations(sizes, k):
-                count += (-1) ** k * (85 - sum(missing)) ** 20
-        expected = f"entropy: {math.log2(count):.1f} bits (20 chars, 85-symbol alphabet"
+                count += (-1) ** k * (70 - sum(missing)) ** 20
+        expected = f"entropy: {math.log2(count):.1f} bits (20 chars, 70-symbol alphabet"
         self.assertIn(expected, r.stderr)
+        # The known value, so a shared mistake in the formula cannot pass.
+        self.assertIn("entropy: 122.4 bits (20 chars, 70-symbol alphabet", r.stderr)
         self.assertEqual(r.stderr.count("\n"), 1)
+
+    def test_wide_symbol_set_still_available(self):
+        r = self.run_pg("--symbols", WIDE_SYMBOLS, "-n", "20")
+        allowed = set(string.ascii_letters + string.digits + WIDE_SYMBOLS)
+        for pw in self.lines(r):
+            self.assertEqual(len(pw), 20)
+            self.assertTrue(set(pw) <= allowed, pw)
+            self.assertTrue(any(c in WIDE_SYMBOLS for c in pw), pw)
+        self.assertIn("entropy: 128.1 bits (20 chars, 85-symbol alphabet", r.stderr)
 
     def test_quiet_silences_stderr(self):
         r = self.run_pg("-q")
@@ -176,12 +192,41 @@ class PwdGenTest(unittest.TestCase):
         self.assertEqual(len(parts), 6)
         for w in parts:
             self.assertIn(w, words)
-        self.assertIn(f"entropy: {6 * math.log2(7776):.1f} bits (6 words from 7776", r.stderr)
+        # The four hyphenated EFF words are left out under the default "-".
+        self.assertIn(f"entropy: {6 * math.log2(7772):.1f} bits (6 words from 7772", r.stderr)
+
+    def test_shipped_list_has_exactly_four_hyphenated_words(self):
+        hyphenated = sorted(w for w in WORDLIST.read_text().split() if "-" in w)
+        self.assertEqual(hyphenated, ["drop-down", "felt-tip", "t-shirt", "yo-yo"])
 
     def test_separator_flag(self):
-        (pp,) = self.lines(self.run_pg("-w", "4", "--sep", "."))
+        # With "." nothing is left out, so a hyphenated word may be drawn:
+        # count the separators, and say nothing about "-".
+        r = self.run_pg("-w", "4", "--sep", ".")
+        (pp,) = self.lines(r)
         self.assertEqual(pp.count("."), 3)
-        self.assertNotIn("-", pp)
+        self.assertIn("4 words from 7776", r.stderr)
+
+    def test_words_containing_the_separator_are_never_drawn(self):
+        env = {"PWD_GEN_WORDLIST": str(self.mixed_list)}
+        r = self.run_pg("-w", "6", "-n", "200", env=env)
+        for pp in self.lines(r):
+            parts = pp.split("-")
+            self.assertEqual(len(parts), 6, pp)
+            for w in parts:
+                self.assertRegex(w, r"^plain\d{4}$")
+        self.assertIn("6 words from 1024", r.stderr)
+        # Another separator frees the hyphenated half again.
+        r = self.run_pg("-w", "6", "-n", "200", "--sep", ".", env=env)
+        self.assertIn("6 words from 2048", r.stderr)
+        self.assertTrue(any("-" in pp for pp in self.lines(r)))
+
+    def test_too_few_words_left_without_the_separator_exits_1(self):
+        r = self.run_pg("-w", "4", "--sep", "d", env={"PWD_GEN_WORDLIST": str(self.small_list)})
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("0 distinct words after leaving out 2048 that contain the separator",
+                      r.stderr)
+        self.assertEqual(r.stdout, "")
 
     def test_env_wordlist_accepts_comments_blanks_and_dice_format(self):
         r = self.run_pg("-w", "5", env={"PWD_GEN_WORDLIST": str(self.small_list)})

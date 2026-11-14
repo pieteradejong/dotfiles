@@ -649,6 +649,42 @@ case "$(LC_ALL=C grep '	standards-bad	multiple-lockfiles	' "$TSV12" | cut -f5)" 
 esac
 
 # ---------------------------------------------------------------------------
+header "launchd register (60-launchd.sh, D69)"
+LD="$(mktemp -d)"; mkdir -p "$LD/agents" "$LD/src"
+printf '<plist>a</plist>\n' > "$LD/agents/com.test.listed.plist"
+printf '<plist>a</plist>\n' > "$LD/src/com.test.listed.plist"
+printf '<plist>new</plist>\n' > "$LD/agents/com.test.drifted.plist"
+printf '<plist>old</plist>\n' > "$LD/src/com.test.drifted.plist"
+printf '<plist>@HOME@</plist>\n' > "$LD/src/com.test.template.plist"
+printf '<plist>/Users/x</plist>\n' > "$LD/agents/com.test.template.plist"
+printf '<plist>x</plist>\n' > "$LD/agents/com.test.unlisted.plist"
+printf '<plist>x</plist>\n' > "$LD/agents/com.test.unwanted.plist"
+cat > "$LD/launchd.md" <<REG
+| Label | Installed | Trigger | Runs | Source | Last change | Decision |
+|---|---|---|---|---|---|---|
+| \`com.test.listed\` | yes | daily | x | \`$LD/src/com.test.listed.plist\` | - | - |
+| \`com.test.drifted\` | yes | daily | x | \`$LD/src/com.test.drifted.plist\` | - | - |
+| \`com.test.template\` | yes | daily | x | \`$LD/src/com.test.template.plist\` | - | - |
+| \`com.test.unwanted\` | no | daily | x | \`app\` | - | - |
+| \`com.test.missing\` | yes | daily | x | \`app\` | - | - |
+REG
+LDOUT="$(mktemp -d)"
+DEV_ROOT="$FIXTURE_ROOT" LAUNCHD_REGISTER="$LD/launchd.md" LAUNCH_AGENTS_DIR="$LD/agents" \
+  "$AUDIT" --only launchd --out "$LDOUT" --quiet >/dev/null 2>&1
+TSVLD="$(ls "$LDOUT"/findings-*.tsv)"
+assert_finding    "$TSVLD" WARN com.test.unlisted  launchd-unregistered
+assert_finding    "$TSVLD" WARN com.test.unwanted  launchd-installed-not-wanted
+assert_finding    "$TSVLD" WARN com.test.missing   launchd-not-installed
+assert_finding    "$TSVLD" INFO com.test.drifted   launchd-source-drift
+assert_no_finding "$TSVLD" com.test.listed   launchd-source-drift
+assert_no_finding "$TSVLD" com.test.template launchd-source-drift
+assert_no_finding "$TSVLD" com.test.listed   launchd-unregistered
+DEV_ROOT="$FIXTURE_ROOT" LAUNCHD_REGISTER="$LD/none.md" LAUNCH_AGENTS_DIR="$LD/agents" \
+  "$AUDIT" --only launchd --out "$LDOUT" --quiet >/dev/null 2>&1
+assert_finding    "$TSVLD" WARN - launchd-no-register
+rm -rf "$LD" "$LDOUT"
+
+# ---------------------------------------------------------------------------
 echo ""
 echo -e "${BOLD}${CYAN}── Summary ──${NC}"
 echo -e "  ${GREEN}Passed${NC}: $PASS_COUNT"

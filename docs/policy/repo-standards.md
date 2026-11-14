@@ -135,6 +135,21 @@ Production-shaped projects add `prod`, `debug`, `type-check`.
   must run `./test.sh` unchanged. Reference implementations: `projects/german-industry` (compact,
   one toolchain) and `projects/forparents` (`run_step` suite with a summary table, every step runs
   even after a failure).
+- **`test.sh` says what it runs** (D67). Each step is announced with its name and one line on
+  what it proves, then the command itself (left out when the step is a shell function), and
+  closes with a result line: `✓ pass` with the time and the step's last line of output, or
+  `✗ FAIL` with the exit code, the last 40 lines, the path of the full log and the command that
+  reruns that one step. A skipped step is printed with its reason. The run ends with a table of
+  every step, the counts and the total time. `./test.sh --list` prints the steps and what each
+  proves without running anything; `./test.sh <step>` runs one. The one-line descriptions live in
+  one function (`step_what`), not at the call sites.
+- **Colour means one thing each, and is decided once.** Bold cyan for a step header, dim for the
+  command, timing and detail, green for pass, bold red for fail, yellow for skip. Off when
+  `NO_COLOR` is set; on when `FORCE_COLOR` is set or under GitHub Actions; otherwise on only when
+  stdout is a terminal. A script never writes an escape code outside that switch. The block to
+  copy is the top of `templates/vercel-stack/test.sh` (captured output) or
+  `templates/py-fastapi/minimal-mvp/test.sh` (output streams); a repo gets it when its `test.sh`
+  is next touched.
 - **Back up before anything destructive**, and log what happened.
 - **Prefer conventions that fail loudly.** A broken script fails today; a wrong architecture doc
   fails silently, years later.

@@ -11,7 +11,9 @@
 #   ./test.sh --verbose       pass --verbose through to each suite
 #   ./test.sh --docker        also run the restore suite (needs Docker: colima start);
 #                             without it the suite is listed as skipped, never silently absent
+#   ./test.sh --list          print each suite and what it proves; run nothing
 #
+# Colour only on a terminal; NO_COLOR=1 turns it off, FORCE_COLOR=1 turns it on (D67).
 # Every suite runs even after one fails; the summary lists each with its exit code.
 # Setup: ./init.sh. Everyday commands: ./run.sh (D63).
 #
@@ -66,11 +68,13 @@ cd "$(dirname "${BASH_SOURCE[0]}")" || exit 1
 
 VERBOSE=""
 DOCKER=0
+LIST=0
 ONLY=""
 for a in "$@"; do
   case "$a" in
     --verbose) VERBOSE="--verbose" ;;
     --docker)  DOCKER=1 ;;
+    --list)    LIST=1 ;;
     toolchain|coverage|scan|shellcheck|zsh-syntax|ruff|bin|gate|tools|dotaudit|containers|maint|pwdgen|logs|docs|claudemd|templates|models|entry|restore) ONLY="$a" ;;
     -h|--help) awk 'NR > 2 && /^#/ { sub(/^# ?/, ""); print; next } NR > 2 { exit }' "$0"; exit 0 ;;
     *) echo "unknown argument: $a" >&2; exit 2 ;;
@@ -96,6 +100,7 @@ scripts/audit/20-policy.sh
 scripts/audit/30-privacy.sh
 scripts/audit/40-disk.sh
 scripts/audit/50-gate.sh
+scripts/audit/60-launchd.sh
 scripts/audit/render-report.sh
 scripts/containers-doctor.sh
 scripts/github-security-sweep.sh
@@ -172,14 +177,63 @@ scripts/model-versions.py
 scripts/test-model-versions.py
 "
 
+# Colour: on for a terminal, off when piped. NO_COLOR turns it off, FORCE_COLOR turns it on
+# (https://no-color.org); GitHub Actions renders ANSI without being a terminal.
+if [ -n "${NO_COLOR:-}" ]; then COLOR=0
+elif [ "${FORCE_COLOR:-0}" != 0 ] || [ "${GITHUB_ACTIONS:-}" = true ]; then COLOR=1
+elif [ -t 1 ] && [ "${TERM:-dumb}" != dumb ]; then COLOR=1
+else COLOR=0; fi
+if [ "$COLOR" -eq 1 ]; then
+  BOLD=$'\033[1m'; DIM=$'\033[2m'; RED=$'\033[31m'; GREEN=$'\033[32m'
+  YELLOW=$'\033[33m'; CYAN=$'\033[36m'; RESET=$'\033[0m'
+else
+  BOLD=''; DIM=''; RED=''; GREEN=''; YELLOW=''; CYAN=''; RESET=''
+fi
+
+# What each suite proves, in one line: shown as the suite starts and by --list.
+suite_what() {
+  case "$1" in
+    toolchain)  echo "the required tools are installed, git at $GIT_MIN or newer" ;;
+    coverage)   echo "every script is in exactly one lint list; every scripts/test-* runs in a suite" ;;
+    scan)       echo "the gate finds no secret, personal value or forbidden file in the tree" ;;
+    shellcheck) echo "shellcheck is clean: security scripts at default severity, the rest at -S warning" ;;
+    zsh-syntax) echo "zsh -n parses the zsh scripts and the shell/ rc files" ;;
+    ruff)       echo "ruff check is clean over every Python script" ;;
+    bin)        echo "bin/llm routing and zero-cloud guards; the weekly cleanup, asserted statically" ;;
+    gate)       echo "the commit/push gate blocks what it must and passes what is clean" ;;
+    tools)      echo "the Claude guard hook, the GitHub sweep, the weekly audit, the dotaudit gate module" ;;
+    dotaudit)   echo "the read-only workspace audit reports what its fixtures hold" ;;
+    containers) echo "the Colima doctor (no Docker Desktop)" ;;
+    maint)      echo "the maintenance report and cache quarantine, on a fake HOME" ;;
+    pwdgen)     echo "bin/pwd-gen: lengths, classes, wordlist, exit codes" ;;
+    logs)       echo "decision log and changelog coverage: whatsup, the hooks, the gate's log rules" ;;
+    docs)       echo "policy doc links, anchors and index; workspace CLAUDE.md in sync; mermaid diagrams" ;;
+    claudemd)   echo "the CLAUDE.md fact check, against stub tools" ;;
+    templates)  echo "template dependency drift, against fixture registries (offline)" ;;
+    models)     echo "newer local models against the llm lineup, from fixture pages (offline)" ;;
+    entry)      echo "init.sh and run.sh: help, usage errors, --check never installs" ;;
+    restore)    echo "a clean restore in a debian container ends in the expected state" ;;
+    *)          echo "(no description: add one to suite_what)" ;;
+  esac
+}
+
 RESULTS=""
 FAILED=0
-run_suite() { # <name> <command...>
-  local name="$1" rc; shift
+T0=$(date +%s)
+run_suite() { # <name> <command...>: says what the suite proves, runs it with its output streaming
+  local name="$1" rc start took; shift
   [ -z "$ONLY" ] || [ "$ONLY" = "$name" ] || return 0
-  printf '\n\033[1m════ %s ════\033[0m\n' "$name"
+  if [ "$LIST" = 1 ]; then printf '%s%-11s%s %s\n' "$BOLD" "$name" "$RESET" "$(suite_what "$name")"; return 0; fi
+  printf '\n%s════ %s ════%s  %s\n' "$BOLD$CYAN" "$name" "$RESET" "$(suite_what "$name")"
+  start=$(date +%s)
   "$@"; rc=$?
-  if [ "$rc" = 0 ]; then RESULTS="$RESULTS\n  ✓ $name"; else RESULTS="$RESULTS\n  ✗ $name (exit $rc)"; FAILED=1; fi
+  took=$(( $(date +%s) - start ))
+  if [ "$rc" = 0 ]; then
+    RESULTS="$RESULTS\n  ${GREEN}✓${RESET} $(printf '%-11s' "$name") ${DIM}${took}s${RESET}"
+  else
+    RESULTS="$RESULTS\n  ${BOLD}${RED}✗ $(printf '%-11s' "$name")${RESET} ${DIM}${took}s${RESET}  exit $rc  ${DIM}rerun: ./test.sh $name${RESET}"
+    FAILED=1
+  fi
 }
 
 # version_ge <have> <want> — dotted versions, numeric per field.
@@ -329,9 +383,17 @@ restore_docker() {
 run_suite entry    bash scripts/test-entrypoints.sh $VERBOSE
 if [ "$DOCKER" = 1 ]; then
   run_suite restore restore_docker
+elif [ "$LIST" = 1 ]; then
+  [ -n "$ONLY" ] && [ "$ONLY" != restore ] || printf '%s%-11s%s %s  %s(skipped: needs --docker)%s\n' "$BOLD" restore "$RESET" "$(suite_what restore)" "$YELLOW" "$RESET"
 elif [ -z "$ONLY" ] || [ "$ONLY" = restore ]; then
-  RESULTS="$RESULTS\n  - restore (skipped: needs --docker)"
+  RESULTS="$RESULTS\n  ${YELLOW}- restore${RESET}     ${DIM}skipped: needs --docker${RESET}"
 fi
+[ "$LIST" = 0 ] || exit 0
 
-printf '\n\033[1m════ test.sh summary ════\033[0m%b\n' "$RESULTS"
+printf '\n%s════ test.sh summary ════%s%b\n' "$BOLD" "$RESET" "$RESULTS"
+if [ "$FAILED" = 0 ]; then
+  printf '\n%sAll suites passed%s  %sin %ss%s\n' "$BOLD$GREEN" "$RESET" "$DIM" "$(( $(date +%s) - T0 ))" "$RESET"
+else
+  printf '\n%sSome suites failed%s  %sin %ss%s\n' "$BOLD$RED" "$RESET" "$DIM" "$(( $(date +%s) - T0 ))" "$RESET"
+fi
 exit "$FAILED"

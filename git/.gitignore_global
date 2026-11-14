@@ -32,3 +32,5 @@ __pycache__/
 .ruff_cache/
 .next/
 .terraform/
+
+**/.claude/settings.local.json

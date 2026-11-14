@@ -6,12 +6,13 @@
 # (WORKSPACE_AUDIT_2026-09-01.md, LICENSING.md, PROJECTS_META_NOTES.md), each
 # time producing a markdown snapshot that went stale the day it was written.
 #
-# Checks four things, all of them rules already written in ~/dev/CLAUDE.md:
+# Checks these, all of them rules already written in ~/dev/CLAUDE.md:
 #   git      - uncommitted work, unpushed commits, repos with no remote, bloat
 #   policy   - LICENSE, copyright spelling, .gitignore coverage, CI presence
 #   privacy  - secrets and personal data in TRACKED files
 #   disk     - dependency dirs, >100 MB files, repos with no off-machine copy
 #   gate     - the commit/push security gate is registered, intact, not bypassed
+#   launchd  - ~/Library/LaunchAgents matches the launchd register (D69)
 #
 # THIS TOOL NEVER WRITES TO A SCANNED REPO. No commits, no pushes, no gc, no
 # .gitignore patching, no --fix mode. Every git call goes through git_ro() in
@@ -22,7 +23,7 @@
 # dotfiles is public and a finding like "repo X has a tracked .env" must not be
 # published. See docs/dev-audit.md § Why reports live outside the repo.
 #
-# Usage: dev-audit.sh [--only git|policy|privacy|disk|gate] [--out DIR]
+# Usage: dev-audit.sh [--only git|policy|privacy|disk|gate|launchd] [--out DIR]
 #                     [--github] [--history] [--quiet] [--no-report] [--help]
 #
 # --history also scans git history, not just HEAD, for paths that were committed
@@ -43,7 +44,7 @@ QUIET=0
 WRITE_REPORT=1
 STAMP="$(date +%Y-%m-%d)"
 
-usage() { sed -n '2,28p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,29p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -117,6 +118,7 @@ run_if policy  && audit_policy
 run_if privacy && audit_privacy
 run_if disk    && audit_disk
 run_if gate    && audit_gate
+run_if launchd && audit_launchd
 
 # --- summary ------------------------------------------------------------------
 if [ "$QUIET" != 1 ]; then

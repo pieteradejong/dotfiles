@@ -32,6 +32,8 @@ node-express) · rn-supabase: Expo QR code, `w` for web.
 
 - **py-fastapi/production-ready** needs a running Docker daemon — `colima start` first (PostgreSQL + Redis); `./run.sh` runs `alembic upgrade head`.
 - **rn-supabase** needs Node 26 (`.nvmrc`), the Supabase CLI and a running Docker daemon (`colima start`); `./init.sh` starts local Supabase at `http://localhost:54321`. Every check: `./test.sh` (`--integration` for the live Supabase round-trip, `--scaffold` for the new-app test). Releases: its `docs/RELEASE.md`.
+- Every template's `./test.sh` names each step, what it proves and the command it runs; `./test.sh --list`
+  prints the steps without running them and `./test.sh <step>` runs one (`repo-standards.md` § Scripts).
 - Every template ships `.github/workflows/ci.yml`; it runs once the new project is pushed.
 - **Version drift:** `~/dev/dotfiles/scripts/template-versions.py` (check; `--apply` bumps behind each
   template's own tests, majors included). Held versions and why: `templates/VERSION_HOLDS.tsv`. The weekly

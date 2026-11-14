@@ -64,8 +64,23 @@ only; this file is public. Workspace-wide items: `~/dev/TODO.md`. Decisions: `do
       `~/docs/.backup/logs/launchd.out` (`~/docs/.backup/backup_docs.py`), so the `~/dev` part of
       the daily backup is not completing. Flagged by the first `maintenance-status` line (D60) on
       2026-11-09; not yet investigated. Clears when the status line stops listing `docsbackup`.
-- [ ] Audit §3: three private repos lack Dependabot alerts, every week since 2026-09-27 —
+- [x] Audit §3: three private repos lack Dependabot alerts, every week since 2026-09-27 —
       `scripts/github-security-sweep.sh --apply` (outward-facing: confirm first).
+      **Done 2026-11-12** (12 repos by then): `--apply` → `12 applied, 0 error(s)`; `--check` →
+      `0 need changes`, exit 0. Alert triage follow-ups are in `~/dev/TODO.md`.
+- [ ] Audit §3 refills: a new or recreated private repo starts with Dependabot alerts off (10 of
+      the 12 fixed on 2026-11-12 were created after the 2026-09-14 sweep). Turn alerts on at repo
+      creation (first-commit checklist, `security-and-privacy.md` §4, or the creation script) —
+      2026-11-12, `audit-reports/github-security-2026-11-12-apply.tsv`.
+- [ ] `scripts/security-audit.sh` §3 FAIL text names secret scanning, push protection and
+      Dependabot alerts even when only one is missing; print the actions actually pending (TSV
+      column 6) — 2026-11-12.
+- [ ] `scripts/github-security-sweep.sh`: a private repo reporting secret scanning `disabled`
+      (not `unavailable`) gets a PATCH that will likely fail on this plan; treat it like
+      `unavailable` or add a stub test for it — 2026-11-12, read from the code, not reproduced.
+- [ ] Pieter: `origin-backend-take-home-assignment` (public) had Dependabot alerts on 2026-10-25
+      and off by 2026-11-01, cause unrecorded (re-enabled 2026-11-12). Check the repo's settings
+      audit log if it matters — `audit-reports/github-security-2026-11-01.tsv`.
 - [x] Audit §6: the recovery-codes file at the root of `~/dev` — into the password manager, then
       delete it (open since 2026-09-07; also in `~/dev/TODO.md`). **Done 2026-11-08** by Pieter;
       verified: no match on disk, and the live section-6 scan has no FAIL (D62).
@@ -137,6 +152,48 @@ Planned additions, each with its reference doc. Nothing here is built yet. Sourc
       verifying D38; not caused by `pwd-gen`. Fix or confirm fixed before the D37 commit.
       → Resolved 2026-10-17 07:55 by the D37 commit `007a3a0`: `./test.sh logs` → 264 passed, 0 failed.
 
+### Byte-level comparison (planned 2026-11-13, waits for the branch merges)
+
+Planned in session 2026-11-13. Pieter chose *merge first, then build*: `merge-originals` (D51,
+`bin/originals` with SHA-256 manifests and `verify`) and `claude-md-reach` (D66) both rewrite the
+files this work touches (`scripts/test-bin.sh`, `scripts/test-docs.py`, `docs/design-decisions.md`).
+The merge itself is `~/dev/TODO.md` "merge dotfiles branch `claude-md-reach`" (2026-11-12, D66).
+Byte-level checks already in place: `test-docs.py` synced checks (`read_bytes() ==`),
+`test-bin.sh:755,760` (`cmp -s`), `test-entrypoints.sh:75`, `test-security-tools.sh:587`,
+`test-dotfiles-setup.sh:156` and `sync-dotfiles.sh:340` (`diff -q`); `sync-dotfiles.sh:352` also
+accepts a match after `expand_home_paths`, which is weaker than "in sync" suggests.
+
+- [ ] `scripts/test-docs.py` synced hints always say "copy the repo file to the live one". When the
+      live file is the newer one (as `~/dev/CLAUDE.md` vs `claude/dev-CLAUDE.md` was on 2026-11-13),
+      following that hint deletes the newer rules. Make the hint say which side is newer, show the
+      first differing line, and name the copy in the right direction. The check itself stays
+      byte-exact. Add a test with `DEV_CLAUDE_MD` pointing at a newer fixture. After both merges —
+      2026-11-13
+- [ ] `bin/same`, a read-only comparison tool (bash 3.2): `same A B` (lstat type, size, `cmp`;
+      names CRLF/BOM/final-newline/whitespace-only differences), `-r` trees (`.git` skipped), `--meta`
+      (mode, flags, xattr names), `--nfc` (NFC/NFD name clashes), `--dupes DIR…` (size → SHA-256 → `cmp`,
+      hardlinks reported as already linked, never deletes). No manifest mode: that is
+      `originals verify`'s job. Tests in their own file or in `test-bin.sh` after the merge; decision
+      entry rejecting `fdupes`/`jdupes` (extra dependency, delete modes). After `merge-originals` —
+      2026-11-13
+- [ ] Hash-check the irreplaceable gitignored data in `~/docs/.backup/dev-includes.txt`.
+      `backup_docs.py` runs `rclone check`, which compares local and remote as they are now, so a
+      silent local change is synced and passes. Decide whether `originals verify` covers it (move or
+      adopt the data into `originals_read_only/`) or whether a manifest is needed for paths that
+      can't move (the memorial repo is do-not-touch: nothing may be written inside it). Record it
+      as `~/docs/BACKUP.md` D24. After `merge-originals` — 2026-11-13
+- [ ] `projects/media` verify checks only the size of each S3 object (`backup-media-to-s3.sh`
+      verify block). Content proof is a single sampled file, through `restore-drill.sh`. Option:
+      upload with `--checksum-algorithm CRC64NVME` (aws-cli 2.40 already checks in transit by
+      default) and compare `head-object --checksum-mode ENABLED` with a local CRC64NVME for every
+      key; fallback is presence only, with content proof left to the drill. Waits until the 12
+      uncommitted files in `projects/media` (seen 2026-11-13) are committed; the item moves to
+      media's `TODO.md` then — 2026-11-13
+- [ ] `scripts/claude-md-check.py` on `gate-hardening` reports 3 FAIL in `claude/CLAUDE.md`: gh 2.103
+      vs 2.104.0, Docker Compose 5.6 vs 5.7.1, Supabase CLI 2.122 vs 3.1.0. The live
+      `~/.claude/CLAUDE.md` already has 5.7 and 3.1 (newer, likely from `claude-md-reach`). Re-run
+      after the merge, then `--apply` whatever is still stale — 2026-11-13
+
 ## Privacy coverage of this repo (2026-10-29 review)
 
 This repo is public. Pieter asked whether anything checks that it holds no sensitive data. The
@@ -202,9 +259,17 @@ Weaken". Built on 2026-11-04 (the edits went through), except the GitHub setting
       path (the classifier flagged that as a weakening, and rightly so: anyone could point it at
       `/dev/null`). Copy `security/` into the test sandbox with its own `private/` instead.
       Added 2026-11-02. Done 2026-11-04: fixture copy in `scripts/test-security-gate.sh`.
-- [ ] `./test.sh pwdgen` (`scripts/test-pwd-gen.py`) is flaky: it failed once in a full
+- [x] `./test.sh pwdgen` (`scripts/test-pwd-gen.py`) is flaky: it failed once in a full
       `./test.sh` run on 2026-11-04, then passed three runs in a row and on the committed tree. It
       is probably a randomness-dependent assertion. Find it and make it deterministic. Added 2026-11-04.
+      → Likely cause, 2026-11-12 (read from the code, not reproduced): the EFF list holds four
+      hyphenated words (`drop-down`, `felt-tip`, `t-shirt`, `yo-yo`) and the default separator is
+      `-`, so `test_passphrase_from_shipped_list` (splits on `-`, expects 6 parts) and
+      `test_separator_flag` (asserts no `-`) fail when one is drawn, about 0.5% of runs. It is
+      also a product bug: a six-word passphrase can read as seven. Left out of D64 at Pieter's
+      choice.
+      → Done 2026-11-12 (D65): `pwd-gen` no longer draws a word that contains the separator;
+      cause reproduced with a half-hyphenated list, suite passed 15 runs in a row.
 
 ## Open decisions
 

@@ -191,6 +191,20 @@ the patterns are shared with the gate through `security/patterns.sh`.
 | `large-files` | WARN | Files over 100 MB — GitHub's hard limit, and history never shrinks once pushed. |
 | `large-repo`, `dep-dirs` | INFO | Working trees over 500 MB; rebuildable dependency dirs. Each project's `init.sh` recreates these, so the space is reclaimable rather than lost. |
 
+### `launchd` — does the launchd register match what is installed? (D69)
+
+Not a per-repo check: it compares `~/Library/LaunchAgents` with the register in the private repo
+(`private/registers/launchd.md`, one table row per agent). Override the paths with
+`LAUNCHD_REGISTER` and `LAUNCH_AGENTS_DIR`. Run it alone with `--only launchd`.
+
+| Check | Sev | What it means |
+|---|---|---|
+| `launchd-no-register` | WARN | The register file is missing (for example on a machine without `private/`). |
+| `launchd-unregistered` | WARN | An agent is installed but has no row: an install nobody recorded. |
+| `launchd-not-installed` | WARN | A row says Installed `yes`, but the plist is gone: a removal nobody recorded, or an agent that should be running and isn't. |
+| `launchd-installed-not-wanted` | WARN | A row says Installed `no`, but the plist is there. |
+| `launchd-source-drift` | INFO | The installed plist differs from the Source file named in its row. Templates (`@PLACEHOLDER@`) are not compared. |
+
 ---
 
 ## Design rules
@@ -305,6 +319,8 @@ scripts/audit/10-git-hygiene.sh
 scripts/audit/20-policy.sh
 scripts/audit/30-privacy.sh
 scripts/audit/40-disk.sh
+scripts/audit/50-gate.sh
+scripts/audit/60-launchd.sh       ~/Library/LaunchAgents vs the private register (D69)
 scripts/audit/render-report.sh    TSV -> markdown; separate so an old TSV can
                                   be re-rendered without re-running the sweep
 ```

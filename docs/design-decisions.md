@@ -1995,3 +1995,147 @@ adding a script a two-line change (the script, plus its list entry), by design. 
 NOT YET: `./test.sh --docker` (needs `colima start` and a debian image pull), and the coverage,
 scan and toolchain suites in CI.
 
+
+---
+
+## D64 — `pwd-gen`'s default symbols are the eight that website forms accept · 2026-11-12
+
+**Problem.** D38's default symbol set was `!@#$%^&*()-_=+[]{}:;,.?`, 23 characters. Some website
+password forms reject brackets, braces, parentheses, `;`, `:`, `,`, `?`, `^`, `&`, `=` or `+`, so a
+default password could be refused and had to be regenerated with a hand-typed `--symbols`. Pieter
+asked for one basic password that works on websites: 20 or more characters, special characters,
+easy to copy and paste.
+
+**Decision.** `DEFAULT_SYMBOLS` is `!@#$%*-_`. Nothing else changes: 20 characters, each of lower,
+upper, digit and symbol guaranteed by redraw, exact entropy on stderr. The output stays one token
+with no space, quote, backslash or bracket, so it pastes into a form, a shell or a `.env` file
+unescaped. The default drops from 128.1 bits (85-character alphabet) to 122.4 bits (70). The wide
+set is still one flag away: `--symbols '!@#$%^&*()-_=+[]{}:;,.?'`.
+
+**Rejected.** *A `--web` flag beside the old default*: a website account is the common case, and
+the common case should need no flag. *Keeping the wide set*: 5.7 bits buy nothing at this
+strength, and a refused password costs a second run. *No symbols by default*: many sites demand
+one. *A longer default to win the bits back*: some sites cap at 20; `-l 24` gives 147.0 bits where
+allowed. *New modes (PIN, grouped, machine secret) and the hyphenated-word fix*: offered and
+declined for now; the hyphen cause is recorded on the flaky-test item in `TODO.md`.
+
+**Cost.** 5.7 bits on the default. Anyone who relied on the wide set must pass `--symbols`. With 8
+symbols in 70, a password often holds only one or two of them.
+
+**Verified.** 2026-11-12: `./test.sh pwdgen` → `Ran 25 tests … OK`, including the literal
+`entropy: 122.4 bits (20 chars, 70-symbol alphabet` and the new
+`test_wide_symbol_set_still_available` (20 draws within the wide set, `128.1 bits … 85-symbol`).
+`./test.sh ruff` → `clean (10 files)`. Live: `pwd-gen` → `entropy: 122.4 bits (20 chars,
+70-symbol alphabet, every class present)`; `pwd-gen -n 200 -q | grep -c '[^A-Za-z0-9!@#$%*_-]'` →
+`0`, every line 20 characters. Not run live: `--copy`, whose code is unchanged and which would
+overwrite the clipboard; the suite covers it against a fake `pbcopy`.
+
+---
+
+## D65 — `pwd-gen` never draws a word that contains the separator · 2026-11-12
+
+**Problem.** The EFF large wordlist holds four hyphenated words (`drop-down`, `felt-tip`,
+`t-shirt`, `yo-yo`) and the passphrase separator defaults to `-`. A six-word passphrase that drew
+one read as seven words. It also made `./test.sh pwdgen` flaky (seen once, 2026-11-04):
+`test_passphrase_from_shipped_list` split on `-` and expected six parts, and
+`test_separator_flag` asserted the output held no `-`.
+
+**Decision.** `load_wordlist` leaves out every word that contains the separator in use, before
+the size floor and the entropy line. With the default that is 7772 words, 12.9 bits each, 77.5
+for six; with `--sep .` all 7776 stay. A list that falls under 1024 words this way exits 1 and
+names how many were left out. The rule holds for any `PWD_GEN_WORDLIST` and any `--sep`.
+
+**Rejected.** *Deleting the four words from `config/pwd-gen/wordlist.txt`*: the file is the EFF
+list with "nothing else changed" (`bin/README.md` § Attribution), and it would not help a custom
+list or another separator. *Another default separator*: `.` or `_` only moves the collision to a
+different list, and `-` is the easiest to type. *Fixing only the two tests*: the passphrase would
+still read as the wrong number of words. *An empty `--sep`*: joined words can be ambiguous too,
+but nothing can be left out for it; unchanged, and not handled here.
+
+**Cost.** 0.004 bits on a six-word default passphrase. The entropy line now says `7772`, which
+differs from the list's 7776 and is explained in `--help`.
+
+**Verified.** 2026-11-12. Before the fix, 200 six-word passphrases from a list of 1024 plain and
+1024 hyphenated words: 197 split into 7–12 parts. After: `200` split into `6`. Shipped list,
+`pwd-gen -w 6 -n 20000`: all 20000 split into 6 parts, `entropy: 77.5 bits (6 words from 7772,
+EFF large wordlist)`. `scripts/test-pwd-gen.py` 15 runs in a row → 0 failures; `./test.sh pwdgen`
+→ `Ran 28 tests … OK`; `./test.sh ruff` → `clean (10 files)`.
+
+## D67 — Every `test.sh` says what it runs, in one colour scheme · 2026-11-12
+
+Numbered 67 because D66 is taken on the unmerged `claude-md-reach` branch.
+
+**Problem.** Of 100 `test.sh` files under `projects/` and `templates/`, 43 used colour, 30 of
+those checked for a terminal, and none honoured `NO_COLOR`. Three runner dialects were in use
+(`run_step`, `check`/`ok`/`bad`, `run_suite`). The best of them printed `▶ deps` and nothing more
+until the next step: not the command, not what the step proved, not that it had finished.
+`dotfiles/test.sh` and `german-industry/test.sh` wrote escape codes into pipes.
+
+**Decision.** `repo-standards.md` § Scripts gains two rules. *`test.sh` says what it runs*: a
+header with the step's name and a one-line statement of what it proves, the command (unless it is
+a shell function), a result line with the time and the step's own last line of output, the log
+path and a rerun command on failure, a closing table with counts and total time, `--list`, and
+`./test.sh <step>`. *Colour means one thing each*: bold cyan header, dim detail, green pass, bold
+red fail, yellow skip, switched once by `NO_COLOR`, `FORCE_COLOR`, `GITHUB_ACTIONS` and
+`[ -t 1 ]`. Descriptions sit in one `step_what` function, so the call sites did not change. Logs
+are kept when a step fails and deleted when all pass.
+
+**Rejected.** *A shared library sourced from `dotfiles`*: the self-contained rule stands, a
+clone and CI must run `./test.sh` unchanged, so the block is copied. *A description argument at
+every `run_step` call*: `skip_step` calls would need the same string a second time, and `--list`
+would have nothing to print for a step behind a flag. *Converting all 100 files now*: 57 have no
+runner at all, and forks, upstream clones and do-not-touch repos stay out; a repo is converted
+when its `test.sh` is next touched. *Streaming output in the captured runner*: a green run would
+be hundreds of lines again; the two `py-fastapi` templates and `dotfiles/test.sh` already
+streamed and keep doing so, without the last-line summary.
+
+**Cost.** The runner block is about 60 lines, copied into each script, and can drift between
+copies. Nothing checks a repo's `test.sh` against the rule yet (`TODO.md`). Under GitHub Actions
+the captured runner now emits colour, where before it did not.
+
+**Verified.** 2026-11-12. `/bin/bash -n` and `shellcheck -S warning` clean on all eleven changed
+scripts (`dotfiles/test.sh` at default severity). Real runs: `templates/ts-web/minimal-mvp`
+`./test.sh --ci` → `All checks passed  12 step(s), 2 skipped`; `node-express/minimal-mvp` → `13
+step(s), 2 skipped`; `vercel-stack --ci --offline` → `18 step(s), 5 skipped`. `NO_COLOR=1
+FORCE_COLOR=1 ./test.sh cli | grep -c $'\033'` → `0`; `FORCE_COLOR=1` through a pipe shows the
+codes. Every converted script: `--help` exits 0, `--list` exits 0, an unknown flag and an unknown
+step name exit 2. `dotfiles` `./test.sh` (522s): 18 of 19 suites pass; `docs` fails two `synced:` checks
+because the live `~/dev/CLAUDE.md` and `~/.claude/CLAUDE.md` are the `claude-md-reach` copies,
+which this branch does not hold (`claude/dev-CLAUDE.md` is unchanged here). NOT YET green end to end: `ts-web/production-ready` and
+`node-express/production-ready` fail `format` (prettier on `CHANGELOG.md` and
+`docs/DECISIONS.md`), `rn-supabase` fails `lint` (an eslint import-resolver error), and
+`forparents`, `german-industry` and both `py-fastapi` templates have a venv whose interpreter
+(Python 3.14) is gone. None of these causes is in `test.sh`; all are in `~/dev/TODO.md`.
+
+## D69 — One launchd register, checked weekly · 2026-11-13
+
+Numbered 69 because D68 is taken on the unmerged `claude-md-reach` branch.
+
+**Problem.** Launch agents on this Mac come from at least four places: plist copies in `macos/`,
+templates inside project repos rendered by an `install` subcommand, an installer script outside
+any repo, and apps or `brew services` that write their own. `docs/system-overview.md` named two of
+them. Nothing recorded an install, a change or a removal, so drift went unseen. On 2026-11-13 two
+written agents had never been installed, and three installed plists no longer matched their
+copies in `macos/`. Pieter, the same day: "anytime launchd changes, that should be documented
+somewhere."
+
+**Decision.** One register, `private/registers/launchd.md`: a row per agent in
+`~/Library/LaunchAgents`, ours and third-party, with its trigger, what it runs, the source of its
+plist, whether it should be installed, the date of its last change, and the decision it points
+to. Changes get a dated line below the table. Every install, change or removal updates it in the
+same session (a hard rule in `~/dev/CLAUDE.md`). `scripts/audit/60-launchd.sh` compares the
+directory with the register on every `dotaudit`: WARN for an unrecorded install, a recorded agent
+that is missing, or one installed against the register; INFO when an installed plist differs from
+its source.
+
+**Rejected.** *A public `docs/launchd.md`*: agent labels and paths show personal data flows and the
+backup layout, which this repo keeps out of public view (the same reason as BACKUP.md D2). *A
+section per repo, with no central list*: nothing then sees the whole machine, and app-installed
+agents belong to no repo. *Generating the register from `launchctl list`*: that would record what
+is there, not what should be, and the check would have nothing to compare against.
+
+**Verified.** `./scripts/test-dev-audit.sh` → 100 passed, 0 failed, including 8 new cases for the
+four WARNs, the drift INFO, a template not compared, and a missing register. On this Mac
+`dev-audit.sh --only launchd --no-report` → 0 WARN, 2 INFO (`launchd-source-drift` on two agents
+whose `macos/` copies are stale; open in `~/dev/TODO.md`). `./test.sh`: every suite passes (coverage, shellcheck and entry after the module joined the `sh` lint list), except `docs`, which already failed before this change. That failure is the `synced` check: `~/dev/CLAUDE.md` and `~/.claude/CLAUDE.md` differ from their `claude/` sources (unmerged branch work, `~/dev/TODO.md`).
+

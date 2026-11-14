@@ -15,13 +15,18 @@ once, enforced by rejecting and redrawing — never by fixed positions.
 
   -l, --length N      characters (default 20; at least one per class in use)
       --no-symbols    letters and digits only
-      --symbols SET   symbol set instead of the default  !@#$%^&*()-_=+[]{}:;,.?
+      --symbols SET   symbol set instead of the default  !@#$%*-_  (the eight that
+                      website forms almost always accept; for the wide set pass
+                      --symbols '!@#$%^&*()-_=+[]{}:;,.?')
       --no-ambiguous  drop  0 O 1 l I |  from every class (for reading aloud, paper)
 
 Passphrase: N words drawn from the wordlist, joined by the separator.
 
   -w, --words N       passphrase of N words instead of a password
-      --sep CHAR      separator between words (default -)
+      --sep CHAR      separator between words (default -). Words that contain
+                      the separator are never drawn — with the default that is
+                      four of the EFF list (drop-down, felt-tip, t-shirt, yo-yo),
+                      leaving 7772 — so N words always read as N words.
 
 Both modes:
 
@@ -30,7 +35,7 @@ Both modes:
   -q, --quiet         no entropy line on stderr
 
 Output: the password(s) on stdout, one per line, nothing else. One line on
-stderr says how strong it is, e.g.  entropy: 130.9 bits (20 chars, 94-symbol
+stderr says how strong it is, e.g.  entropy: 122.4 bits (20 chars, 70-symbol
 alphabet, every class present)  — exact, so the class rule is already priced in.
 
 Env:  PWD_GEN_WORDLIST  wordlist, one word per line (`#` comments and the EFF
@@ -57,7 +62,7 @@ from pathlib import Path
 
 DEFAULT_LENGTH = 20
 DEFAULT_WORDS_SEP = "-"
-DEFAULT_SYMBOLS = "!@#$%^&*()-_=+[]{}:;,.?"
+DEFAULT_SYMBOLS = "!@#$%*-_"  # accepted by almost every website form (D64)
 AMBIGUOUS = "0O1lI|"
 REPO = Path(__file__).resolve().parent.parent
 DEFAULT_WORDLIST = REPO / "config" / "pwd-gen" / "wordlist.txt"
@@ -200,8 +205,17 @@ def load_wordlist(args):
               file=sys.stderr)
     else:
         die(1, f"no wordlist: {DEFAULT_WORDLIST} is missing and PWD_GEN_WORDLIST is unset")
+    # A word holding the separator would make an N-word passphrase read as N+1
+    # words, so it is never drawn; the entropy line counts what is left.
+    left_out = ""
+    if args.sep:
+        usable = [w for w in words if args.sep not in w]
+        if len(usable) < len(words):
+            left_out = f" after leaving out {len(words) - len(usable)} that contain the separator"
+        words = usable
     if len(words) < MIN_WORDLIST:
-        die(1, f"wordlist {source} has {len(words)} distinct words; need at least {MIN_WORDLIST}")
+        die(1, f"wordlist {source} has {len(words)} distinct words{left_out}; "
+               f"need at least {MIN_WORDLIST}")
     return words, source
 
 
