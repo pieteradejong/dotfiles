@@ -669,7 +669,7 @@ cat > "$LD/launchd.md" <<REG
 | \`com.test.missing\` | yes | daily | x | \`app\` | - | - |
 REG
 LDOUT="$(mktemp -d)"
-DEV_ROOT="$FIXTURE_ROOT" LAUNCHD_REGISTER="$LD/launchd.md" LAUNCH_AGENTS_DIR="$LD/agents" \
+DEV_ROOT="$FIXTURE_ROOT" SKIPLIST_FILE="$SKIPLIST_FIXTURE" LAUNCHD_REGISTER="$LD/launchd.md" LAUNCH_AGENTS_DIR="$LD/agents" \
   "$AUDIT" --only launchd --out "$LDOUT" --quiet >/dev/null 2>&1
 TSVLD="$(ls "$LDOUT"/findings-*.tsv)"
 assert_finding    "$TSVLD" WARN com.test.unlisted  launchd-unregistered
@@ -679,7 +679,7 @@ assert_finding    "$TSVLD" INFO com.test.drifted   launchd-source-drift
 assert_no_finding "$TSVLD" com.test.listed   launchd-source-drift
 assert_no_finding "$TSVLD" com.test.template launchd-source-drift
 assert_no_finding "$TSVLD" com.test.listed   launchd-unregistered
-DEV_ROOT="$FIXTURE_ROOT" LAUNCHD_REGISTER="$LD/none.md" LAUNCH_AGENTS_DIR="$LD/agents" \
+DEV_ROOT="$FIXTURE_ROOT" SKIPLIST_FILE="$SKIPLIST_FIXTURE" LAUNCHD_REGISTER="$LD/none.md" LAUNCH_AGENTS_DIR="$LD/agents" \
   "$AUDIT" --only launchd --out "$LDOUT" --quiet >/dev/null 2>&1
 assert_finding    "$TSVLD" WARN - launchd-no-register
 rm -rf "$LD" "$LDOUT"
