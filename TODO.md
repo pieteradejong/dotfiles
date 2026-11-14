@@ -6,6 +6,20 @@ only; this file is public. Workspace-wide items: `~/dev/TODO.md`. Decisions: `do
 
 ## Verify after the next scheduled runs
 
+- [ ] D70, 2026-11-14: check the first scheduled 07:00 run of `com.pieterdejong.dailyreport` (Sun
+      2026-11-15): `~/dev/audit-reports/daily/daily-2026-11-15.md` exists, its window starts at the
+      2026-11-14 run, Administrative work is a real diff (no baseline note), the notification
+      appeared, `launchctl list` shows exit 0 or 1. Record it in D70's `Verified:`.
+- [ ] D70, 2026-11-14: after the 03:00 backup that follows, `rclone lsf
+      gdrive:Backups/dev-backup/audit-reports/daily/` lists the reports. Note that the `dev` target
+      currently ends FAIL (check differences), which the report flags daily. Record it in D70.
+- [ ] D71, 2026-11-14: open `maintenance-app` in the browser and check the four views over the
+      real report (the Chrome extension was not connected, so only HTTP checks ran). Record in D71.
+- [ ] D70, 2026-11-14: `security-audit.log` holds a 2026-11-10 line pointing at a report in a
+      Claude scratchpad. A test or by-hand run appended to the real log, and `maintenance-status`
+      reads its last line. Find which run and make it use a fixture log.
+- [ ] D71, 2026-11-14: optional follow-ups: a *Daily* tile on `dashboard.html`, and backfilling
+      history from old logs (the app starts at the first daily report).
 - [ ] D63, 2026-11-10: run `./test.sh --docker` once (`colima start`; pulls `debian:bookworm-slim`),
       and see the `toolchain`, `coverage` and `scan` suites pass in CI on the next push.
 - [ ] D63, 2026-11-10: decide on `ruff format`: 10 Python files would be reformatted. Either one

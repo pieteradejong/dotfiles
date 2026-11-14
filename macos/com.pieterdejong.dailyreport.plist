@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Daily maintenance and work report: scripts/daily-report.py, every day at 07:00 (D70).
+  07:00 is after the 03:00 docs backup and the overnight convos runs, so their results are in it.
+  Install:   cp macos/com.pieterdejong.dailyreport.plist ~/Library/LaunchAgents/
+             launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.pieterdejong.dailyreport.plist
+  Run now:   launchctl kickstart gui/$(id -u)/com.pieterdejong.dailyreport
+  If the Mac is asleep at 07:00, launchd runs the job once on wake.
+  Exit 1 means "something needs action", not a failure; bin/maintenance-status knows that.
+  The script path goes through $HOME so no absolute home path is published here.
+  Register: private/registers/launchd.md (D69). Documented in docs/maintenance.md.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.pieterdejong.dailyreport</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>-c</string>
+        <string>mkdir -p "$HOME/Library/Logs/daily-report" &amp;&amp; exec /opt/homebrew/bin/python3 "$HOME/dev/dotfiles/scripts/daily-report.py" --summary &gt;&gt; "$HOME/Library/Logs/daily-report/launchd.out" 2&gt;&amp;1</string>
+    </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>7</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+    <key>RunAtLoad</key>
+    <false/>
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>Nice</key>
+    <integer>10</integer>
+    <key>LowPriorityIO</key>
+    <true/>
+</dict>
+</plist>

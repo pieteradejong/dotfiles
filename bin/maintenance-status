@@ -17,6 +17,9 @@
 #            run's Self-check verdict, and overdue when older than 8 days.
 #   audit    the last line of the security audit's log: FAIL count, new
 #            findings; overdue when older than 8 days.
+#   daily    the newest ~/dev/audit-reports/daily/daily-*.md (D70): its "to act
+#            on" count; overdue when older than DAILY_MAX_AGE_DAYS (2). Its exit 1
+#            means "something to act on", so it is not one of the others below.
 #   others   every other com.pieterdejong.* launchd job whose last run exited
 #            non-zero (from `launchctl list`).
 #
@@ -45,6 +48,8 @@
 #       AUDIT_LOG         default: ~/Library/Logs/security-audit/security-audit.log
 #       LAUNCHCTL         default: launchctl (tests stub it)
 #       MAX_AGE_DAYS      default: 8
+#       DAILY_DIR         default: $DEV_ROOT/audit-reports/daily
+#       DAILY_MAX_AGE_DAYS default: 2
 #       DEV_ROOT          default: ~/dev (the tree the live scan covers)
 #       SKIPLIST_FILE     default: private/audit/skiplist.conf in this repo
 #       MAX_DETAIL        default: 5 audit FAIL lines before "… N more"
@@ -69,6 +74,8 @@ CLEANUP_LOG="${CLEANUP_LOG:-$HOME/.weekly-disk-cleanup.log}"
 AUDIT_LOG="${AUDIT_LOG:-$HOME/Library/Logs/security-audit/security-audit.log}"
 LAUNCHCTL="${LAUNCHCTL:-launchctl}"
 MAX_AGE_DAYS="${MAX_AGE_DAYS:-8}"
+DAILY_DIR="${DAILY_DIR:-$DEV_ROOT/audit-reports/daily}"
+DAILY_MAX_AGE_DAYS="${DAILY_MAX_AGE_DAYS:-2}"
 W="⚠"
 
 now="$(date +%s)"
@@ -109,10 +116,25 @@ else
   fi
 fi
 
+# --- daily report (D70): only once one exists, so a Mac without the job prints nothing new ---
+daily_last="$(find "$DAILY_DIR" -maxdepth 1 -name 'daily-*.md' 2>/dev/null | sort | tail -n 1)"
+if [ -n "$daily_last" ]; then
+  d="$(age_days "$daily_last")"
+  n_act="$(sed -n 's/^\*\*\([0-9][0-9]*\) to act on.*/\1/p' "$daily_last" | head -n 1)"
+  if [ "$d" -gt "$DAILY_MAX_AGE_DAYS" ]; then
+    add "$W daily report overdue: last ${d}d ago"
+  elif [ -n "$n_act" ] && [ "$n_act" -gt 0 ]; then
+    add "$W daily report ${d}d ago: $n_act to act on (maintenance-app)"
+  else
+    add "daily report ${d}d ago: nothing to act on"
+  fi
+fi
+
 # --- every other launchd job of ours: a non-zero last exit while not running ---
 # `launchctl list` columns: PID (or -), last exit status, label.
 others="$("$LAUNCHCTL" list 2>/dev/null | awk -F'\t' '
   $3 ~ /^com\.pieterdejong\./ && $3 != "com.pieterdejong.weeklycleanup" && $3 != "com.pieterdejong.securityaudit" \
+    && $3 != "com.pieterdejong.dailyreport" \
     && $1 == "-" && $2 != "0" { sub(/^com\.pieterdejong\./, "", $3); printf "%s %s\n", $3, $2 }')"
 if [ -n "$others" ]; then
   while read -r name code; do

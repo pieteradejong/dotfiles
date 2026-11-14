@@ -54,6 +54,11 @@
 #                                                init.sh/test.sh/npm for --apply)
 #   models      scripts/test-model-versions.py (newer local models vs the llm lineup,
 #                                                against fixture ollama.com pages; offline)
+#   daily       scripts/test-daily-report.py    (the daily report over a fake HOME and ~/dev:
+#                                                job statuses, skip/fork repos untouched,
+#                                                TODO diff, privacy, file modes; offline)
+#   app         scripts/test-maintenance-app.py (the local web app on a free loopback port:
+#                                                token, Host check, day paths, escaping, CSP)
 #   restore     scripts/test/assertions.sh       (--docker only: a clean restore in a
 #                                                debian container ends in the expected state)
 #   entry       scripts/test-entrypoints.sh     (init.sh and run.sh: help, usage errors,
@@ -75,7 +80,7 @@ for a in "$@"; do
     --verbose) VERBOSE="--verbose" ;;
     --docker)  DOCKER=1 ;;
     --list)    LIST=1 ;;
-    toolchain|coverage|scan|shellcheck|zsh-syntax|ruff|bin|gate|tools|dotaudit|containers|maint|pwdgen|logs|docs|claudemd|templates|models|entry|restore) ONLY="$a" ;;
+    toolchain|coverage|scan|shellcheck|zsh-syntax|ruff|bin|gate|tools|dotaudit|containers|maint|pwdgen|logs|docs|claudemd|templates|models|daily|app|entry|restore) ONLY="$a" ;;
     -h|--help) awk 'NR > 2 && /^#/ { sub(/^# ?/, ""); print; next } NR > 2 { exit }' "$0"; exit 0 ;;
     *) echo "unknown argument: $a" >&2; exit 2 ;;
   esac
@@ -120,6 +125,7 @@ bin/media-backup
 bin/weekly-cleanup-check
 bin/notify-local
 bin/maintenance-status
+bin/maintenance-app
 "
 
 # zsh scripts. shellcheck has no zsh support, so these get `zsh -n` instead of a
@@ -175,6 +181,10 @@ scripts/template-versions.py
 scripts/test-template-versions.py
 scripts/model-versions.py
 scripts/test-model-versions.py
+scripts/daily-report.py
+scripts/test-daily-report.py
+scripts/maintenance-app.py
+scripts/test-maintenance-app.py
 "
 
 # Colour: on for a terminal, off when piped. NO_COLOR turns it off, FORCE_COLOR turns it on
@@ -211,6 +221,8 @@ suite_what() {
     claudemd)   echo "the CLAUDE.md fact check, against stub tools" ;;
     templates)  echo "template dependency drift, against fixture registries (offline)" ;;
     models)     echo "newer local models against the llm lineup, from fixture pages (offline)" ;;
+    daily)      echo "the daily report over a fake HOME and ~/dev: jobs, repos, TODO diff, privacy (offline)" ;;
+    app)        echo "the local web app on a loopback port: token, Host check, paths, escaping, CSP" ;;
     entry)      echo "init.sh and run.sh: help, usage errors, --check never installs" ;;
     restore)    echo "a clean restore in a debian container ends in the expected state" ;;
     *)          echo "(no description: add one to suite_what)" ;;
@@ -371,6 +383,8 @@ run_suite docs     python3 scripts/test-docs.py $VERBOSE
 run_suite claudemd python3 scripts/test-claude-md-check.py $VERBOSE
 run_suite templates python3 scripts/test-template-versions.py $VERBOSE
 run_suite models   python3 scripts/test-model-versions.py $VERBOSE
+run_suite daily    python3 scripts/test-daily-report.py $VERBOSE
+run_suite app      python3 scripts/test-maintenance-app.py $VERBOSE
 # shellcheck disable=SC2329 # invoked through run_suite
 restore_docker() {
   if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then

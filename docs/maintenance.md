@@ -12,6 +12,8 @@ Replaces the old `weekly-cleanup.md` and `mac-maintenance.md`.
 | [Security & privacy audit](#weekly-security--privacy-audit) | `scripts/security-audit.sh` | Sundays 10:00 | `scripts/security-audit.sh --quick --no-notify` | read-only always; `--quick` skips the slow steps (`--templates` keeps step 8) | `~/dev/audit-reports/security-audit-YYYY-MM-DD.md` · `~/Library/Logs/security-audit/` | `./test.sh tools` | `macos/com.pieterdejong.securityaudit.plist` | D15, D28, D30, D55 |
 | [Template drift](#template-dependency-drift) | `scripts/template-versions.py` | section 8 of each audit (check only) | `scripts/template-versions.py --quiet` | read-only; `--apply` bumps, needs the Node of the template's `.nvmrc` | `~/dev/audit-reports/template-versions-YYYY-MM-DD.{md,tsv}` | `./test.sh templates`, `ruff` | — | D55 |
 | [Model lineup drift](#local-model-lineup) | `scripts/model-versions.py` | section 9 of each audit (check only), `--quick` included | `scripts/model-versions.py` | read-only always; never pulls | `~/dev/audit-reports/model-versions-YYYY-MM-DD.md` | `./test.sh models`, `ruff` | — | D61 |
+| [Daily report](#daily-report-and-web-app) | `scripts/daily-report.py` | daily 07:00 | `scripts/daily-report.py --stdout` | `--stdout`/`--json` write nothing | `~/dev/audit-reports/daily/daily-YYYY-MM-DD.{md,json}` · [notification and status line](#reports) · Drive via the nightly `dev` backup | `./test.sh daily`, `ruff` | `macos/com.pieterdejong.dailyreport.plist` | D70 |
+| [Web app](#daily-report-and-web-app) | `bin/maintenance-app` → `scripts/maintenance-app.py` | on demand | `maintenance-app` | read-only always; `127.0.0.1`, per-run token | browser (it opens the URL) | `./test.sh app`, `ruff` | — | D71 |
 | [Dashboard](#dashboard) | `scripts/audit-dashboard.py` | after each audit | `scripts/audit-dashboard.py` | reads reports, writes one HTML file | `~/dev/audit-reports/dashboard.html` | `./test.sh tools`, `ruff` | — | D28 |
 | [Disk cleanup](#weekly-disk-cleanup) | `bin/weekly-disk-cleanup.sh` | Sundays 09:00 | `weekly-disk-cleanup.sh` | `--dry-run` | `~/.weekly-disk-cleanup.log` · [notification and status line](#reports) | `./test.sh bin` (static + `--dry-run`, never a real run) | `macos/com.pieterdejong.weeklycleanup.plist` | D18, D20, D27, D60 |
 | [Mac maintenance](#mac-maintenance-manual) | `scripts/mac-maintenance.sh` | by hand | `scripts/mac-maintenance.sh` | `--dry-run` | `~/maintenance-YYYYMMDD.log` · [notification](#reports) | `./test.sh maint` (real run on a fake HOME, notifier stubbed) | — | D29, D60 |
@@ -26,9 +28,11 @@ launchd runs a calendar job once on wake if the Mac was asleep at the scheduled 
 was off, that week's run is skipped. launchd starts every job with a bare `PATH`, so each script
 sets its own.
 
-**Check what is loaded:** `launchctl list | grep com.pieterdejong` — five agents: `securityaudit`,
-`weeklycleanup`, `docsbackup`, `rcdev`, `rcdev-projects`. The second column is the last exit
-status; the audit's is `1` whenever its last report had a FAIL, which is by design.
+**Check what is loaded:** `launchctl list | grep com.pieterdejong` — our agents include
+`securityaudit`, `weeklycleanup`, `dailyreport`, `docsbackup`, `rcdev`, `rcdev-projects`; the full
+list, with the ones from project repos, is the private launchd register (D69). The second column
+is the last exit status; the audit's and the daily report's are `1` whenever there is something to
+act on, which is by design.
 
 **Repo copies of the plists:** `macos/`. `weeklycleanup` and `docsbackup` hold absolute paths and
 are stored with a literal `$HOME` marker that `dotfiles restore` expands
@@ -147,6 +151,43 @@ Forks and upstream clones appear in it like any other repo; their findings are n
 there (the do-not-touch register).
 
 ---
+
+## Daily report and web app
+
+[`scripts/daily-report.py`](../scripts/daily-report.py), scheduled by
+[`macos/com.pieterdejong.dailyreport.plist`](../macos/com.pieterdejong.dailyreport.plist) at 07:00,
+after the 03:00 docs backup. It writes one markdown report a day and a JSON copy, both mode 600, to
+`~/dev/audit-reports/daily/`. The report has five sections:
+
+- **Needs action:** a failed or missing job, a finding from a run inside the window, today's
+  commits not yet on GitHub.
+- **Scheduled jobs:** one row per agent in the launchd register (D69).
+- **Administrative work:** decisions, TODO items opened and ticked, `[Unreleased]` lines,
+  register changes.
+- **Git work:** commits per own repo.
+- **Claude sessions:** session-log entries, and transcripts counted, never read.
+
+The window runs from the previous report. Administrative work is a diff against the previous run's
+snapshot in `~/.cache/daily-report/`, so the first run only records a baseline. No git command runs
+in a `skip:` repo, and the backup report's file names are left out. The Google Drive copy is the
+nightly `dev` target of the docs backup, which already syncs `~/dev/audit-reports/`.
+
+```zsh
+~/dev/dotfiles/scripts/daily-report.py --stdout   # today so far, writes nothing
+~/dev/dotfiles/scripts/daily-report.py            # write the report (what the job does)
+maintenance-app                                   # the web app, opened in the browser
+```
+
+`maintenance-app` serves the reports on `127.0.0.1`, on a free port, behind a per-run token:
+- today's tiles and Needs action;
+- a jobs × 30 days grid;
+- trends of administrative work and activity;
+- each day's report;
+- *today so far*, collected live and written nowhere;
+- the weekly dashboard.
+
+It is read-only and stops with Ctrl-C. Why it is built this way: [D70](design-decisions.md#d70--a-daily-markdown-report-of-what-the-jobs-did-and-what-work-was-done-local-backed-up-by-the-nightly-dev-sync--2026-11-14),
+[D71](design-decisions.md#d71--maintenance-app-a-local-web-app-over-the-daily-reports-stdlib-only--2026-11-14).
 
 ## Weekly disk cleanup
 
@@ -408,6 +449,8 @@ cd ~/dev/dotfiles
 ./test.sh docs       # these docs: links, anchors, index, CLAUDE.md in sync
 ./test.sh coverage   # every tracked script is linted, every scripts/test-* runs (D63)
 ./test.sh entry      # init.sh and run.sh
+./test.sh daily      # daily-report.py over a fake HOME and ~/dev (jobs, skip/fork repos, TODO diff, privacy)
+./test.sh app        # maintenance-app on a loopback port (token, Host check, paths, escaping, CSP)
 ./test.sh --docker   # adds the restore test in a debian container (colima start first)
 ./init.sh --check    # what this repo needs, installing nothing
 ./run.sh             # warnings, gate status, dotfiles drift
@@ -439,6 +482,8 @@ the rejected alternatives and the `Verified:` line.
 - [D61](design-decisions.md#d61--the-weekly-audit-names-newer-local-models-for-the-llm-lineup-it-never-swaps-one--2026-11-10) — the weekly audit names newer local models for the llm lineup; it never swaps one.
 - [D62](design-decisions.md#d62--warnings-name-each-finding-in-red-in-every-new-terminal-secret-files-are-scanned-live--2026-11-10) — warnings name each finding, in red, in every new terminal; secret files are scanned live.
 - [D63](design-decisions.md#d63--initsh-and-runsh-join-testsh-and-testsh-checks-its-own-coverage--2026-11-10) — `init.sh` and `run.sh` join `test.sh`, and `test.sh` checks its own coverage.
+- [D70](design-decisions.md#d70--a-daily-markdown-report-of-what-the-jobs-did-and-what-work-was-done-local-backed-up-by-the-nightly-dev-sync--2026-11-14) — a daily markdown report of jobs and administrative work; local, on Drive through the nightly `~/dev` backup.
+- [D71](design-decisions.md#d71--maintenance-app-a-local-web-app-over-the-daily-reports-stdlib-only--2026-11-14) — `maintenance-app`: a local, read-only, token-guarded web app over the daily reports; stdlib only.
 
 ## Open items
 

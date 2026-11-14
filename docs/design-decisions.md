@@ -2139,3 +2139,146 @@ four WARNs, the drift INFO, a template not compared, and a missing register. On 
 `dev-audit.sh --only launchd --no-report` → 0 WARN, 2 INFO (`launchd-source-drift` on two agents
 whose `macos/` copies are stale; open in `~/dev/TODO.md`). `./test.sh`: every suite passes (coverage, shellcheck and entry after the module joined the `sh` lint list), except `docs`, which already failed before this change. That failure is the `synced` check: `~/dev/CLAUDE.md` and `~/.claude/CLAUDE.md` differ from their `claude/` sources (unmerged branch work, `~/dev/TODO.md`).
 
+
+## D70 — A daily markdown report of what the jobs did and what work was done; local, backed up by the nightly `~/dev` sync · 2026-11-14
+
+**Problem.** Each scheduled job writes its own log: the docs backup, the convos pipeline, the
+weekly audit and cleanup, `rcdev`. `maintenance-status` (D60, D62) flags failures at session
+start, but nothing says what was *done* on a given day, and nothing covers the administrative work
+around it: decisions written, TODO items opened and ticked, changelog lines, register changes,
+commits, Claude sessions. Pieter, 2026-11-14: the maintenance scripts and launchd should produce a
+daily report of work done, as a local file and a notification, backed up to a Google Drive folder,
+covering every `com.pieterdejong` job, git work and Claude sessions, with the emphasis on
+administrative work; in markdown, his default format for communication.
+
+**Decision.**
+- `scripts/daily-report.py` (stdlib Python) writes `~/dev/audit-reports/daily/daily-YYYY-MM-DD.md`
+  and a `.json` beside it (mode 600, directory 700). The markdown is rendered from the JSON, so
+  the two can't disagree. Launch agent `com.pieterdejong.dailyreport` runs it daily at 07:00,
+  after the 03:00 backup, and it ends with a counts-only `notify-local` notification.
+- Sections: Needs action, Scheduled jobs (one row per agent in the launchd register, D69),
+  Administrative work, Git work, Claude sessions.
+- The window runs from the previous report, so a missed day is covered by the next run.
+- Administrative work is a diff against the previous run's snapshot of checkbox, decision,
+  `[Unreleased]` and register-change lines. `~/dev` itself is not a git repo, and uncommitted work
+  counts too.
+- What counts as needing action:
+  - a failed or missing job;
+  - a finding from a run inside the window;
+  - today's commits not yet on GitHub.
+
+  Standing dirty or unpushed state is only counted, because the weekly `dotaudit` already reports
+  it.
+- **Drive:** no new upload code. `~/dev/audit-reports/` is already in the nightly `dev` target of
+  `~/docs/.backup/backup_docs.py`, so each report reaches
+  `gdrive:Backups/dev-backup/audit-reports/daily/` at the next 03:00 run, versioned and
+  hash-checked.
+- **Privacy, by construction:**
+  - no git command runs in a `skip:` repo, and the owner of each remote is read from
+    `.git/config`, not git;
+  - no file names from the backup report, and no transcript content: Claude sessions are counted
+    from modification times only;
+  - nothing is written inside a git repo, and no private name is hard-coded: the register and the
+    skiplist supply them at run time.
+- `maintenance-status` shows `daily report Nd ago: N to act on`, and `overdue` after 2 days. The
+  job's exit 1 means "something to act on", so it is left out of the "last run failed" check, like
+  the audit's.
+
+**Rejected.**
+- *Email or a Claude Docs page:* D60 retired email, and both would send the report off the Mac.
+- *An immediate `rclone copy` from this repo:* that would put Drive code and a remote name in a
+  public repo, and uploads belong to `~/docs/.backup`. The cost of the alternative is a lag of
+  about 20 h, accepted.
+- *Folding it into `maintenance-status`:* that runs per session, not per day, and keeps no
+  record.
+- *Reading admin work from `git log -p`:* it misses `~/dev/TODO.md` and `~/dev/SESSIONS.md` (not
+  in git) and anything not yet committed.
+- *Flagging every dirty or unpushed repo daily:* that was 61 and 25 repos on the first run. The
+  same list every day stops being read.
+
+**Cost.**
+- The snapshot heuristics are text-based. A TODO tick that also rewords the line is paired with
+  the vanished open item, which is usually right.
+- A decision is a `##`/`###` heading or a `| D… |` table row in a `DECISIONS.md` or
+  `design-decisions.md`.
+- The first run records a baseline and can only report decisions dated inside its window.
+- About 6 s per run.
+
+**Verified: PARTIAL.** 2026-11-14:
+- `./test.sh daily`: `scripts/test-daily-report.py`, 12 hermetic cases, pass. They cover:
+  - each job status;
+  - a failed backup target under Needs action, with its file names kept out;
+  - skip-listed and fork repos never touched by git (a recording git wrapper);
+  - a TODO tick and add, a new decision with its Verified status, and a new CHANGELOG line across
+    two runs;
+  - transcripts counted, never read;
+  - modes 600/700;
+  - a dry run writes nothing;
+  - writing inside a git repo is refused (exit 3);
+  - an unreadable source is named, with exit 2;
+  - the notification holds counts only.
+- `./test.sh bin`: 191 passed, including 4 new `maintenance-status` daily cases.
+- The real run gave `daily-2026-11-14.md`: 2 to act on. One is the docs-backup `dev` failure
+  (12 differences); the other is today's commits not on GitHub in three repos. 111 own repos were
+  scanned, 18 others left out, and the memorial repo is named only as skip-listed.
+- The agent is loaded (`launchctl list` → `com.pieterdejong.dailyreport`, exit 0, 07:00).
+  `dotaudit --only launchd` → 0 FAIL, 0 WARN.
+- **NOT YET:** the first scheduled 07:00 run, and the report on Drive after the following 03:00
+  backup (`dotfiles/TODO.md`).
+
+## D71 — `maintenance-app`: a local web app over the daily reports, stdlib only · 2026-11-14
+
+**Problem.** Pieter asked for a local web app that visualises the daily reports. A markdown file a
+day shows one day; trends and the per-job history need a view across days.
+
+**Decision.** `bin/maintenance-app` starts `scripts/maintenance-app.py`, a stdlib
+`ThreadingHTTPServer` on `127.0.0.1`, on any free port by default (`--port N` to pick one). A
+fixed default (8765) was tried first and was taken by another local server, and with a fresh
+token every run a fixed port buys nothing. It prints the URL and opens it in the browser.
+
+- **Pages:**
+  - `/` shows the latest day's tiles and Needs action (ticks kept in local storage), a job grid of
+    jobs × the last 30 days, and the trends: administrative work and activity per day;
+  - `/day/<date>` shows that day's markdown, rendered escape-first, and `/day/<date>.md` serves it
+    raw;
+  - `/live` shows today so far: `daily-report.py`'s collector runs in memory and writes nothing;
+  - `/dashboard` is the weekly `dashboard.html`;
+  - `/api/…` serves the same data as JSON.
+- **Reuse:** charts, escaping and CSS come from `audit-dashboard.py`, loaded with `importlib`.
+- **Guards:**
+  - loopback bind;
+  - a per-run token: in the opened URL once, then an HttpOnly SameSite=Strict cookie, and 403
+    without it;
+  - a Host-header allowlist against DNS rebinding;
+  - day paths must match `YYYY-MM-DD`, so nothing outside the reports is served;
+  - every report string is escaped;
+  - a CSP of `default-src 'none'`;
+  - no POST, and no handler writes.
+- It runs on demand: there is no launch agent, so there is no register row.
+
+**Rejected.**
+- *A project from `templates/ts-web` (Vite + React):* npm dependencies, exact pins, lockfile, CI
+  and a repo of its own, for one local page that a stdlib server already serves (`supply-chain.md`
+  § adding dependencies).
+- *Extending the static `dashboard.html`:* it is rebuilt weekly by the audit, has no live view,
+  and one page can't hold per-day detail.
+- *Serving the reports directory as static files:* that would expose every report and
+  `dashboard.html` path without the token check or the day-path allowlist.
+
+**Cost.** History starts with the first daily report: there is no backfill from older logs. Trends
+need two days. `/live` takes about 6 s, the collector's time.
+
+**Verified: PARTIAL.** 2026-11-14:
+- `./test.sh app`: `scripts/test-maintenance-app.py`, 12 cases against the real server on a free
+  loopback port, pass. They cover:
+  - the pages render;
+  - a `<script>` commit subject and Needs-action line come back escaped;
+  - a missing or wrong token gives 403, and the token in the URL becomes an HttpOnly
+    SameSite=Strict cookie with a 303;
+  - a foreign Host gives 403 (`localhost:<port>` is allowed);
+  - `..`, encoded `..`, malformed and unknown days give 404;
+  - the CSP, `nosniff` and `no-store` headers are present;
+  - POST gives 501;
+  - `lsof` shows `127.0.0.1` only;
+  - the reports directory is unchanged afterwards.
+- **NOT YET:** the four views checked in the browser over the real report (`dotfiles/TODO.md`).

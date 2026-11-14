@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+#
+# maintenance-app — local web app over the daily maintenance reports (D71).
+#
+# Usage: maintenance-app [--port N] [--no-open] [--reports DIR]
+#
+# Serves ~/dev/audit-reports/daily/ on 127.0.0.1 only, behind a per-run token,
+# read-only, and opens it in the browser. Ctrl-C stops it. The server is
+# scripts/maintenance-app.py; its --help lists the pages and the guards.
+set -euo pipefail
+case "${1:-}" in -h|--help) sed -n '2,/^$/s/^# \{0,1\}//p' "$0"; exit 0 ;; esac
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec python3 "$SCRIPT_DIR/../scripts/maintenance-app.py" "$@"

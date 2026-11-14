@@ -1090,6 +1090,27 @@ CLEANUP_LOG="$MSD/none" AUDIT_LOG="$MSD/none" LAUNCHCTL=/nonexistent DEV_ROOT="$
 grep -q 'maintenance-status' "$(dirname "$BIN_DIR")/claude/hooks/session-start.sh" \
   && pass "the SessionStart hook prints the maintenance line" || fail "the SessionStart hook prints the maintenance line"
 
+# Daily report (D70): its own part of the line; exit 1 ("to act on") is not a failed job.
+mkdir -p "$MSD/daily"
+printf '#!/bin/sh\nprintf -- "-\\t1\\tcom.pieterdejong.dailyreport\\n"\n' > "$MSD/launchctl-daily"; chmod +x "$MSD/launchctl-daily"
+msd() { CLEANUP_LOG="$MSD/none" AUDIT_LOG="$MSD/none" LAUNCHCTL="$MSD/launchctl-daily" DEV_ROOT="$MSD/dev" \
+  SKIPLIST_FILE="$MSD/none" DAILY_DIR="$MSD/daily" "$MS" > "$OUT" 2>&1; }
+msd
+grep -q 'daily' "$OUT" && fail "no daily report yet, yet a daily part: $(cat "$OUT")" \
+  || pass "no daily report yet: no daily part, and dailyreport's exit 1 is not 'last run failed'"
+printf '# Daily report\n\n**3 to act on · jobs 5 ok**\n' > "$MSD/daily/daily-2026-11-13.md"
+msd
+grep -qF '⚠ daily report 0d ago: 3 to act on (maintenance-app)' "$OUT" && ! grep -q 'dailyreport: last run failed' "$OUT" \
+  && pass "the daily report's to-act count is shown, and its exit 1 is not a failure" || fail "daily to act: $(cat "$OUT")"
+printf '# Daily report\n\n**nothing to act on · jobs 6 ok**\n' > "$MSD/daily/daily-2026-11-14.md"
+msd
+grep -qF 'daily report 0d ago: nothing to act on' "$OUT" \
+  && pass "the newest daily report is the one read" || fail "daily newest: $(cat "$OUT")"
+touch -t 202001010000 "$MSD/daily/daily-2026-11-14.md"
+msd
+grep -q '⚠ daily report overdue: last [0-9]*d ago' "$OUT" \
+  && pass "a daily report older than 2 days is overdue" || fail "daily overdue: $(cat "$OUT")"
+
 header "maintenance-status details: live secret-file scan, audit FAILs, colour, --quiet (D62)"
 
 # A clean state: fresh logs, OK verdict, no failed launchd job, nothing on disk.
