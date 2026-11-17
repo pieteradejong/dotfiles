@@ -301,6 +301,7 @@ this existed.
 | Committer identity is the noreply address | [security §6](security-and-privacy.md#6-committer-identity) | warn / **block** | gate | `committer-email` |
 | No file over 50 MB | [media](#media-and-large-binaries) | block / block | gate | `large-files` |
 | No media or weights, no image over 5 MB | [media](#media-and-large-binaries) | `media-file` block / block | gate | `tracked-media` |
+| No personal data sets in git, private repos included | [security §1](security-and-privacy.md#1-principles-and-data-tiers) | `personal-originals`, `personal-data-store` block / block | gate | `tracked-data` |
 | Exact version pins | [dependencies](#dependencies) | `unpinned-dependency` block / block | gate | `unpinned-deps`, `unpinned-deps-skipped` |
 | One package manager per project | [dependencies](#dependencies) | `multiple-lockfiles` block / block | gate | `multiple-lockfiles` |
 | Actions pinned by commit SHA | [tier B5](#tier-b--additionally-any-repo-pushed-within-12-months) | `unpinned-action` block / block | gate | `unpinned-action` |
@@ -319,6 +320,7 @@ this existed.
 | Audit output never inside a git repo | [security §13](security-and-privacy.md#13-audit-tool-design-rules) | assistant only | — | — |
 | Confirm before outward-facing actions | [AI and external services](ai-and-external-services.md) | assistant only | — | — |
 | Never relicense or reshape a fork | [licensing](#licensing) | standards skip forks | — | forks skipped |
+| Web UI vetted for mobile before it is done | `~/dev/CLAUDE.md` hard rule; `claude/skills/mobile-vetting` (D75) | assistant only (the skill's audit, exit 0) | — | — |
 | README, description, archive, default branch, deploy target (A1, A2, A5, B4, B6) | [tiers](#github-standard--tiers) | — | — | not checked: `private/registers/github-baseline.md` by hand |
 
 ---

@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Edge fixture: patterns the audit must not flag</title>
+<link rel="stylesheet" href="edge.css">
+<script defer src="/_vercel/insights/script.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 16px/1.5 system-ui, sans-serif; }
+  main { padding: 0 16px; min-height: 100svh; }
+  button { font: inherit; min-height: 44px; min-width: 44px; }
+  .tip { opacity: 0; }
+  @media (hover: hover) { .card:hover .tip { opacity: 1; } }
+  .menu { display: none; }
+  .nav:hover .menu, .nav:focus-within .menu { display: block; }
+  .nav > a { display: inline-block; min-height: 44px; min-width: 44px; padding: 10px; }
+  label.check { display: flex; align-items: center; gap: 8px; min-height: 44px; min-width: 44px; }
+  .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); font-size: 10px; }
+  .scroller { overflow-x: auto; }
+  .scroller > div { width: 1200px; }
+  .card { position: relative; }
+  .card:hover { transform: translateY(-2px); opacity: 0.9; }
+  ul.toc { list-style: none; padding: 0; }
+  ul.toc a { display: block; line-height: 18px; margin-bottom: 10px; }
+  .scroller table { min-width: 40rem; }
+</style>
+</head>
+<body>
+<main>
+  <nav class="nav"><a href="#a">Menu</a><div class="menu"><a href="#b">Item</a></div></nav>
+  <p>Running text with an <a href="#c">inline link</a> inside it, which WCAG 2.5.8 exempts.</p>
+  <p>A claim with a footnote<sup><a href="#fn1">1</a></sup> in the middle of a sentence, also exempt.</p>
+  <label class="check"><input type="checkbox"> Remember me</label>
+  <span class="sr-only">Screen-reader-only text</span>
+  <div class="card">Card<span class="tip">extra on hover-capable devices</span></div>
+  <div class="scroller"><div>A wide table inside its own horizontal scroller</div></div>
+  <ul class="toc"><li><a href="#t1">First section</a></li><li><a href="#t2">Second section</a></li><li><a href="#t3">Third section</a></li></ul>
+  <div class="scroller"><table><tr><td>Wide table cell one</td><td>Wide table cell two</td></tr></table></div>
+  <p style="width: 120px; overflow-wrap: anywhere; font-family: monospace">sha256 5665e22bd1feac42cbcfc69a1b2c3d4e5f60718293a4b5c6</p>
+  <p lang="en" style="width: 90px; hyphens: auto">Internationalization considerations</p>
+  <p>A claim backed by two sources<sup><a href="#s1">[1]</a><a href="#s2">[2]</a></sup> sits in a sentence; spacing alone would fail them.</p>
+  <button type="button">OK</button>
+</main>
+</body>
+</html>

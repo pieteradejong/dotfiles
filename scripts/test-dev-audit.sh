@@ -268,6 +268,22 @@ YML
   printf 'x' > "$d/media/clip.MP4"
   printf 'x' > "$d/model.safetensors"
   head -c $((6 * 1024 * 1024)) /dev/zero > "$d/media/huge.png"
+  # tracked-data FAIL (D74): a locked original and a Notes store. -f: the global gitignore
+  # ignores both, which is the point of it; the audit must still see them once tracked.
+  mkdir -p "$d/originals_read_only/objects" "$d/raw"
+  printf 'x' > "$d/originals_read_only/objects/ab12"
+  printf 'x' > "$d/raw/NoteStore.sqlite-wal"
+  git -C "$d" add -f originals_read_only/objects/ab12 raw/NoteStore.sqlite-wal >/dev/null 2>&1
+  commit_all "$d"
+
+  # data-warn: databases and exports outside fixtures (WARN), plus exempt test data.
+  d="$(mkrepo data-warn)"
+  mkdir -p "$d/exports" "$d/tests/fixtures" "$d/backend/data"
+  printf 'x' > "$d/exports/contacts.vcf"
+  printf 'x' > "$d/app.SQLITE"
+  printf 'x' > "$d/tests/fixtures/sample.db"
+  printf 'x' > "$d/backend/data/test_demographics.db"
+  printf '# docs about originals\n' > "$d/originals.md"
   commit_all "$d"
 
   # docs-only: markdown and a LICENSE, no code manifest. Owes no scripts.
@@ -587,6 +603,8 @@ assert_finding "$TSV12" FAIL no-license-repo no-security-ci
 assert_finding "$TSV12" FAIL standards-bad   unpinned-deps
 assert_finding "$TSV12" FAIL standards-bad   multiple-lockfiles
 assert_finding "$TSV12" FAIL standards-bad   tracked-media
+assert_finding "$TSV12" FAIL standards-bad   tracked-data
+assert_finding "$TSV12" WARN data-warn       tracked-data
 assert_finding "$TSV12" FAIL standards-bad   unpinned-action
 assert_finding "$TSV12" FAIL standards-bad   gitignore-env
 assert_finding "$TSV12" WARN standards-bad   gitignore-gaps
@@ -620,7 +638,7 @@ else
 fi
 
 # ...and stays silent on the clean repo's edge cases.
-for c in no-security-ci unpinned-deps unpinned-deps-skipped multiple-lockfiles tracked-media unpinned-action gitignore-gaps; do
+for c in no-security-ci unpinned-deps unpinned-deps-skipped multiple-lockfiles tracked-media tracked-data unpinned-action gitignore-gaps; do
   assert_no_finding "$TSV12" clean-repo "$c"
 done
 # The retired INFO check is gone, not duplicated.
@@ -642,6 +660,16 @@ MEDIA_MSG="$(LC_ALL=C grep '	standards-bad	tracked-media	' "$TSV12" | cut -f5)"
 case "$MEDIA_MSG" in
   *clip.MP4*model.safetensors*huge.png*|*clip.MP4*huge.png*model.safetensors*) pass "tracked-media names video (any case), weights and the oversized image" ;;
   *) fail "tracked-media message incomplete: $MEDIA_MSG" ;;
+esac
+case "$(LC_ALL=C grep '	standards-bad	tracked-data	' "$TSV12" | cut -f5)" in
+  *originals_read_only/objects/ab12*raw/NoteStore.sqlite-wal*) pass "tracked-data FAIL names the original and the Notes store" ;;
+  *) fail "tracked-data FAIL message wrong: $(LC_ALL=C grep '	standards-bad	tracked-data	' "$TSV12" | cut -f5)" ;;
+esac
+DATA_MSG="$(LC_ALL=C grep '	data-warn	tracked-data	' "$TSV12" | cut -f5)"
+case "$DATA_MSG" in
+  *sample.db*|*test_demographics*|*originals.md*) fail "tracked-data flags exempt test data or a doc: $DATA_MSG" ;;
+  *app.SQLITE*exports/contacts.vcf*|*exports/contacts.vcf*app.SQLITE*) pass "tracked-data WARN names the DB (any case) and the export, not test fixtures" ;;
+  *) fail "tracked-data WARN message incomplete: $DATA_MSG" ;;
 esac
 case "$(LC_ALL=C grep '	standards-bad	multiple-lockfiles	' "$TSV12" | cut -f5)" in
   *web*) pass "multiple-lockfiles names the directory holding both" ;;

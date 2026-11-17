@@ -147,12 +147,14 @@ newrepo files
 for f in .env config/.env.production id_rsa certs/server.pem keys/app.key .deploy-env .netrc home/.pypirc \
          .env.test tests/fixtures/id_rsa config/test/.env spec/keys/deploy.key \
          .git-credentials home/.git-credentials infra/prod.tfstate infra/prod.tfstate.backup \
-         vault.kdbx login.keychain-db .docker/config.json home/.docker/config.json office.ovpn; do
+         vault.kdbx login.keychain-db .docker/config.json home/.docker/config.json office.ovpn \
+         originals_read_only/a.txt x/originals_read_only/objects/ab/cd NoteStore.sqlite x/NoteStore.sqlite-wal \
+         chat.db y/Messages/chat.db-shm; do
   mkdir -p "$(dirname "$f")"; echo x > "$f"; git add -f "$f"
   expect 1 "$f is blocked" git commit -qm "add $f"
   unstage_all
 done
-for f in .env.example config/.env.template id_rsa.pub; do
+for f in .env.example config/.env.template id_rsa.pub docs/originals.md originals_read_only.md notes/chat.dbx.md; do
   mkdir -p "$(dirname "$f")"; echo 'KEY=' > "$f"; git add -f "$f"
   expect 0 "$f is allowed" git commit -qm "add $f"
 done

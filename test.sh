@@ -6,7 +6,8 @@
 #   ./test.sh gate            one suite: toolchain | coverage | scan | shellcheck |
 #                                        zsh-syntax | ruff | bin | gate | tools |
 #                                        dotaudit | containers | maint | pwdgen | logs |
-#                                        docs | claudemd | templates | models | entry |
+#                                        docs | claudemd | templates | latestdeps | models |
+#                                        entry |
 #                                        restore
 #   ./test.sh --verbose       pass --verbose through to each suite
 #   ./test.sh --docker        also run the restore suite (needs Docker: colima start);
@@ -52,6 +53,9 @@
 #   templates   scripts/test-template-versions.py (template dependency drift against
 #                                                fixture registries; offline, stub
 #                                                init.sh/test.sh/npm for --apply)
+#   latestdeps  scripts/test-latest-deps.py     (latest-deps.py over fixture git repos and
+#                                                PyPI: scope and skips, every verdict, the real
+#                                                checkout untouched, --summary, --apply; offline)
 #   models      scripts/test-model-versions.py (newer local models vs the llm lineup,
 #                                                against fixture ollama.com pages; offline)
 #   daily       scripts/test-daily-report.py    (the daily report over a fake HOME and ~/dev:
@@ -59,6 +63,10 @@
 #                                                TODO diff, privacy, file modes; offline)
 #   app         scripts/test-maintenance-app.py (the local web app on a free loopback port:
 #                                                token, Host check, day paths, escaping, CSP)
+#   notes       scripts/test-notes-app.py       (notes search on a free loopback port over a
+#                                                fixture folder: search, escaping, guards)
+#   mobile      scripts/test-mobile-vetting.sh  (the mobile-vetting skill's audit over two
+#                                                fixture pages; skipped without its npm ci)
 #   restore     scripts/test/assertions.sh       (--docker only: a clean restore in a
 #                                                debian container ends in the expected state)
 #   entry       scripts/test-entrypoints.sh     (init.sh and run.sh: help, usage errors,
@@ -80,7 +88,7 @@ for a in "$@"; do
     --verbose) VERBOSE="--verbose" ;;
     --docker)  DOCKER=1 ;;
     --list)    LIST=1 ;;
-    toolchain|coverage|scan|shellcheck|zsh-syntax|ruff|bin|gate|tools|dotaudit|containers|maint|pwdgen|logs|docs|claudemd|templates|models|daily|app|entry|restore) ONLY="$a" ;;
+    toolchain|coverage|scan|shellcheck|zsh-syntax|ruff|bin|gate|tools|dotaudit|containers|maint|pwdgen|logs|docs|claudemd|templates|latestdeps|models|daily|app|notes|mobile|entry|restore) ONLY="$a" ;;
     -h|--help) awk 'NR > 2 && /^#/ { sub(/^# ?/, ""); print; next } NR > 2 { exit }' "$0"; exit 0 ;;
     *) echo "unknown argument: $a" >&2; exit 2 ;;
   esac
@@ -126,6 +134,7 @@ bin/weekly-cleanup-check
 bin/notify-local
 bin/maintenance-status
 bin/maintenance-app
+bin/notes-app
 "
 
 # zsh scripts. shellcheck has no zsh support, so these get `zsh -n` instead of a
@@ -150,7 +159,9 @@ scripts/dothelp.sh
 scripts/test-dev-audit.sh
 scripts/test-dotfiles-setup.sh
 scripts/test-entrypoints.sh
+scripts/test-mobile-vetting.sh
 scripts/test/assertions.sh
+claude/skills/mobile-vetting/scripts/ios-simulator.sh
 "
 
 # Tracked scripts deliberately in no lint list. Reason after the path.
@@ -179,12 +190,16 @@ scripts/test-docs.py
 scripts/test-pwd-gen.py
 scripts/template-versions.py
 scripts/test-template-versions.py
+scripts/latest-deps.py
+scripts/test-latest-deps.py
 scripts/model-versions.py
 scripts/test-model-versions.py
 scripts/daily-report.py
 scripts/test-daily-report.py
 scripts/maintenance-app.py
 scripts/test-maintenance-app.py
+scripts/notes-app.py
+scripts/test-notes-app.py
 "
 
 # Colour: on for a terminal, off when piped. NO_COLOR turns it off, FORCE_COLOR turns it on
@@ -220,9 +235,12 @@ suite_what() {
     docs)       echo "policy doc links, anchors and index; workspace CLAUDE.md in sync; mermaid diagrams" ;;
     claudemd)   echo "the CLAUDE.md fact check, against stub tools" ;;
     templates)  echo "template dependency drift, against fixture registries (offline)" ;;
+    latestdeps) echo "projects against latest stable in throwaway clones: scope, verdicts, --apply (offline)" ;;
     models)     echo "newer local models against the llm lineup, from fixture pages (offline)" ;;
     daily)      echo "the daily report over a fake HOME and ~/dev: jobs, repos, TODO diff, privacy (offline)" ;;
     app)        echo "the local web app on a loopback port: token, Host check, paths, escaping, CSP" ;;
+    notes)      echo "notes search on a loopback port: AND/phrase/ranking, escaping, ids, token, Host, CSP" ;;
+    mobile)     echo "the mobile-vetting audit: a clean fixture passes, a broken one trips every check (skips without npm ci)" ;;
     entry)      echo "init.sh and run.sh: help, usage errors, --check never installs" ;;
     restore)    echo "a clean restore in a debian container ends in the expected state" ;;
     *)          echo "(no description: add one to suite_what)" ;;
@@ -382,9 +400,12 @@ run_suite logs     bash scripts/test-logs.sh $VERBOSE
 run_suite docs     python3 scripts/test-docs.py $VERBOSE
 run_suite claudemd python3 scripts/test-claude-md-check.py $VERBOSE
 run_suite templates python3 scripts/test-template-versions.py $VERBOSE
+run_suite latestdeps python3 scripts/test-latest-deps.py $VERBOSE
 run_suite models   python3 scripts/test-model-versions.py $VERBOSE
 run_suite daily    python3 scripts/test-daily-report.py $VERBOSE
 run_suite app      python3 scripts/test-maintenance-app.py $VERBOSE
+run_suite notes    python3 scripts/test-notes-app.py $VERBOSE
+run_suite mobile   bash scripts/test-mobile-vetting.sh
 # shellcheck disable=SC2329 # invoked through run_suite
 restore_docker() {
   if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then

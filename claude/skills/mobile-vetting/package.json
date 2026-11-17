@@ -1,0 +1,10 @@
+{
+  "name": "mobile-vetting-audit",
+  "private": true,
+  "type": "module",
+  "description": "Mobile audit script for the mobile-vetting Claude skill (dotfiles D75)",
+  "license": "MIT",
+  "dependencies": {
+    "@playwright/test": "1.63.0"
+  }
+}

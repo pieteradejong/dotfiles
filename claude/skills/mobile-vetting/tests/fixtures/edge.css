@@ -1,0 +1,2 @@
+/* Linked same-origin sheet: env() inside a shorthand, which engines may drop when serializing. */
+body { padding: 0 env(safe-area-inset-right) 0 env(safe-area-inset-left); }

@@ -118,7 +118,9 @@ dotfiles/
 │   └── lib/visibility.sh           # is this push going somewhere public?
 ├── claude/
 │   ├── hooks/guard-git-bypass.sh   # Claude Code hook: the assistant cannot bypass the gate
-│   └── hooks/guard-github-write.sh # Claude Code hook: no content writes through the GitHub API
+│   ├── hooks/guard-github-write.sh # Claude Code hook: no content writes through the GitHub API
+│   └── skills/mobile-vetting/      # Claude skill: mobile audit for any web UI (D75; symlinked into
+│                                   #   ~/.claude/skills; npm ci --prefix there; ./test.sh mobile)
 ├── bin/            # On PATH - general commands, run in place from here
 │   ├── llm                         # prompt a local model, never the cloud (docs/llm.md)
 │   └── weekly-disk-cleanup.sh      # only copy; launchd runs this path

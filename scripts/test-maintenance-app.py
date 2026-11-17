@@ -31,13 +31,18 @@ def day(date, status, commits, subject="normal"):
         "needs_action": [f"backup failed {EVIL}"] if status == "failed" else [], "incomplete": [],
         "jobs": [{"name": "docsbackup", "label": "com.pieterdejong.docsbackup", "trigger": "daily 03:00",
                   "cadence": "daily", "status": status, "last_exit": 0, "last_run": None, "result": "r", "note": ""}],
+        "backups": [{"name": "offsite", "source": "`~/stuff`", "dest": "crypt:offsite",
+                     "encrypted": "yes", "schedule": "daily 03:00", "verify": "cryptcheck",
+                     "status": "stale" if status == "failed" else "ok", "last_run": f"{date} 03:05:00",
+                     "result": f"last OK run 50 h ago {EVIL}" if status == "failed" else "last run OK"}],
         "admin": {"decisions": [], "changelog": [], "registers": [], "todo_opened": [], "todo_ticked": [],
                   "baseline": False},
         "git": [{"repo": "~/dev/x", "branch": "main", "commits": [{"sha": "abc", "subject": subject}] * commits,
                  "dirty": 0, "unpushed": 0}],
         "sessions": {"logs": [], "claude": []},
         "counts": {"needs_action": int(status == "failed"), "jobs_ok": int(status == "ok"),
-                   "jobs_bad": int(status == "failed"), "decisions": 1, "changelog": 0, "registers": 0,
+                   "jobs_bad": int(status == "failed"),
+                   "backups_ok": int(status == "ok"), "backups_bad": int(status == "failed"), "decisions": 1, "changelog": 0, "registers": 0,
                    "todo_opened": 2, "todo_ticked": 1, "commits": commits, "claude_sessions": 3, "session_logs": 0},
     }
 
@@ -102,6 +107,28 @@ class App(unittest.TestCase):
         self.assertEqual(r.status, 200)
         for s in ("Needs action", "Scheduled jobs", "Trends", "2026-11-14", "docsbackup", "<svg"):
             self.assertIn(s, body)
+
+    def test_backups_section(self):
+        _, body = self.get("/")
+        sec = body[body.index("<h2>Backups</h2>"):body.index("<h2>Trends</h2>")]
+        self.assertIn("offsite", sec)
+        self.assertIn("crypt:offsite", sec)
+        self.assertIn('<i class="s-bad"></i>stale', sec)          # latest day: stale is red
+        self.assertIn('class="c s-ok"', sec)                        # 2026-11-13 cell in the grid
+        self.assertIn('class="c s-bad"', sec)                       # 2026-11-14 cell
+        self.assertIn("Backups ok", body)                           # tile
+        self.assertNotIn(EVIL, sec)
+        self.assertIn("&lt;script&gt;", sec)
+
+    def test_report_without_backups_key(self):
+        """Reports written before D72 have no "backups": the overview still renders."""
+        old = {k: v for k, v in day("2026-11-01", "ok", 0).items() if k != "backups"}
+        app = __import__("importlib.util").util
+        spec = app.spec_from_file_location("ma", SCRIPT)
+        mod = app.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        self.assertIn("None recorded yet", mod.job_grid([old], "backups"))
+        self.assertIn("No backup targets", mod.backup_table(old))
 
     def test_day_page_and_raw(self):
         r, body = self.get("/day/2026-11-14")

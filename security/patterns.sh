@@ -40,6 +40,8 @@ aws-credentials|*.aws/credentials
 # established baseline does not shift under it; the gate only ever sees new
 # changes, so it can be stricter from day one. Promote a rule into
 # TRACKED_FILE_RULES once the workspace is clean of it.
+# personal-originals / personal-data-store (D74): locked originals of personal data and the
+# Apple Notes / Messages stores never go into git, private repos included (~/dev/CLAUDE.md).
 GATE_FILE_RULES='
 private-key|*.pem
 private-key|*.ppk
@@ -60,6 +62,16 @@ keychain|*.keychain-db
 docker-auth|.docker/config.json
 docker-auth|*/.docker/config.json
 vpn-config|*.ovpn
+personal-originals|originals_read_only/*
+personal-originals|*/originals_read_only/*
+personal-data-store|NoteStore.sqlite
+personal-data-store|NoteStore.sqlite-*
+personal-data-store|*/NoteStore.sqlite
+personal-data-store|*/NoteStore.sqlite-*
+personal-data-store|chat.db
+personal-data-store|chat.db-*
+personal-data-store|*/chat.db
+personal-data-store|*/chat.db-*
 '
 
 # Secret-shaped content. Matched with grep -l (filenames only), never -o.
@@ -131,6 +143,12 @@ MEDIA_EXT_ERE='\.(mp4|mov|m4v|avi|mkv|webm|wmv|flv|mpg|mpeg|mp3|wav|flac|aac|ogg
 # Images are fine in git until they are this big.
 IMAGE_EXT_ERE='\.(png|jpe?g|gif|webp|tiff?|heic|bmp|psd)$'
 IMAGE_MAX_BYTES=$((5 * 1024 * 1024))
+# Personal data in git (D74), for dotaudit `tracked-data`. FAIL: locked originals and the
+# Apple Notes / Messages stores (the gate also blocks these by name). WARN: databases and
+# exports that are often personal, except test fixtures.
+DATA_ORIGINALS_ERE='(^|/)(originals_read_only|originals)/|(^|/)(NoteStore\.sqlite|chat\.db)(-[a-z]+)?$'
+DATA_EXT_ERE='\.(sqlite|sqlite3|db|jsonl|mbox|vcf|ics)$'
+DATA_EXEMPT_ERE='(^|/)(tests?|fixtures?|testdata|__fixtures__)/|(^|/)test_[^/]*$'
 
 # Lockfiles, grouped by ecosystem: two from one group in one directory means two
 # package managers for one project.

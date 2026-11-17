@@ -6,6 +6,15 @@ only; this file is public. Workspace-wide items: `~/dev/TODO.md`. Decisions: `do
 
 ## Verify after the next scheduled runs
 
+- [ ] D78, 2026-11-16: after the first Saturday run with the Expo phase (2026-11-21), read `~/dev/audit-reports/latest-deps/expo-2026-11-21.md`. Commit any `applied` bump in its repo with a CHANGELOG line (and a DECISIONS entry for an SDK major). Check that `reverted` and `broken-by-latest` checkouts are byte-identical. Check the daily report's *All launchd jobs* section and its Expo counts the next morning. Record it in D78's `Verified:`.
+- [ ] D76, 2026-11-16: check the `latestdeps` agent's first Saturday run (2026-11-21): the report in `~/dev/audit-reports/latest-deps/`, how long it took, nothing left in `~/Library/Caches/latest-deps`, `git status` clean in the projects. Then section 10 in the Sunday audit (2026-11-22) and the daily report's `latestdeps` row. Record it in D76's `Verified:`.
+- [ ] D76, 2026-11-16: add a `--ci` flag (skip the local gate scan) to every project the first report marks `needs-ci`, and fix or skip-list the `already-failing` ones. Each is a change in that project's repo, with its own CHANGELOG line.
+- [ ] D74, 2026-11-15: `~/dev/CLAUDE.md` § Where this file reaches says to re-run `codex-agents-sync` after editing it, but no such tool exists in dotfiles (searched `bin/`, `scripts/`, `claude/`). Either write it (build `~/.codex/AGENTS.md` from the workspace file, the global file and the do-not-touch register) or correct the sentence. Until then Codex lacks the new data rule. Record it in D74's `Verified:`.
+- [ ] D72, 2026-11-15: open `maintenance-app` after the next daily report (07:00) and check the
+      Backups tile, table and grid over the real register. The new encrypted target shows
+      `missing` until its remote is set up (`~/dev/TODO.md`). Record it in D72's `Verified:`.
+- [ ] D73, 2026-11-15: use `notes-app` in the browser: search a word, a phrase, open a note, and
+      check the highlighting and the light/dark styling. Record it in D73's `Verified:`.
 - [ ] D70, 2026-11-14: check the first scheduled 07:00 run of `com.pieterdejong.dailyreport` (Sun
       2026-11-15): `~/dev/audit-reports/daily/daily-2026-11-15.md` exists, its window starts at the
       2026-11-14 run, Administrative work is a real diff (no baseline note), the notification
@@ -54,6 +63,8 @@ only; this file is public. Workspace-wide items: `~/dev/TODO.md`. Decisions: `do
 
 ## Needs Pieter
 
+- [ ] D78, 2026-11-16: six launchd plists point at programs that no longer exist (the daily report's *All launchd jobs*, flag `program missing`): two Homebrew agents in `~/Library/LaunchAgents` (mongodb-community@5.0, rabbitmq) and four daemons in `/Library/LaunchDaemons` (an old postgresql@14, istatmenus installer helper, an ExpressVPN daemon, an Edge updater). Decide which to remove. The `/Library` ones need `sudo` (`launchctl bootout system/<label>`, then the plist to the Trash), and every removal is one approval per step.
+- [x] D76, 2026-11-16: approve installing the launch agent `com.pieterdejong.latestdeps` (Saturdays 22:00): `cp macos/com.pieterdejong.latestdeps.plist ~/Library/LaunchAgents/ && launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.pieterdejong.latestdeps.plist`, then flip its row in the launchd register to `yes` with a dated § Changes line. Done 2026-11-16 (D78 session): installed, register row `yes`, `launchctl list` shows it.
 - [x] **Committed 2026-10-23.** `claude/settings.json` had an uncommitted `statusLine` block (model · directory, via `jq`) from an earlier session; commit it with a CHANGELOG line or drop it. Left out of the 2026-10-22 merge on purpose — 2026-10-22, D41 merge (`c6d3ed2`)
 - [ ] Push branch `prompt-followup` (D37, commit `007a3a0`) and fast-forward `main`, 2026-10-17 —
       waits for Pieter's go-ahead (push is outward-facing). The D38 `pwd-gen` work was left in the
@@ -138,6 +149,30 @@ Planned additions, each with its reference doc. Nothing here is built yet. Sourc
       watchdog treats the symptom. Doc § 3.
 
 ## Tooling
+
+- [ ] 2026-11-16 (D77): confirm in a fresh session that the workflow skills load unasked (they are
+      linked and their private repo is pushed). Open items for the skills themselves:
+      `~/dev/skills/TODO.md`.
+- [ ] 2026-11-16 (D77): this session's edits here (D77, the changelog line, `claude/dev-CLAUDE.md`,
+      this file, `docs/SESSIONS.md`) are uncommitted, on a branch that already held other
+      uncommitted work. Commit them with that work or on their own.
+- [ ] 2026-11-16 (D77): `codex-agents-sync` is not on this branch (it is in the `dotfiles-wt-claude-md`
+      worktree), so `~/.codex/AGENTS.md` was not rebuilt after the § Session workflow edit to
+      `claude/dev-CLAUDE.md`. Re-run it once that branch lands.
+- [ ] 2026-11-16 (D75): CI runs `./test.sh mobile`, but without the skill's npm deps and WebKit its audit
+      and template cases skip, leaving only the static and simulator-stub cases. Add to `ci.yml`:
+      `npm ci --prefix claude/skills/mobile-vetting` and
+      `npx --prefix claude/skills/mobile-vetting playwright install --with-deps webkit chromium`. On Linux
+      the Chrome lookup finds nothing and Playwright's Chromium is used. Then make a skip a failure under CI.
+- [ ] 2026-11-16 (D75): `scripts/sync-dotfiles.sh restore` should create the
+      `~/.claude/skills/mobile-vetting` symlink and run its `npm ci`. It was made by hand this session, and
+      `init.sh` never writes into `$HOME`. Add a case to `scripts/test-dotfiles-setup.sh`.
+- [ ] 2026-11-16 (D75): `scripts/ios-simulator.sh` has only run against stub `xcrun`. This Mac has no
+      iPhone simulator runtime. Install one (Xcode → Settings → Components), run it on a real page, and
+      check the boot, screenshot and shutdown steps.
+- [ ] 2026-11-16 (D75): a new Claude Code session under `~/dev` lists `mobile-vetting` and loads it on its
+      own for a UI change (trigger check), without being named. This session only saw it appear in the
+      skill list.
 
 - [ ] 2026-11-14: `scripts/test-dev-audit.sh` § 9 (full run against `~/dev`, fork exhaustion) passes no
       skip list. On CI, which has no `private/`, `dev-audit.sh` exits 2 at once, so the case passes without

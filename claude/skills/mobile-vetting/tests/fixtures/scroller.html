@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scroller fixture: the page scrolls inside body, not the document</title>
+<style>
+  html, body { height: 100%; overflow: auto; margin: 0; }
+  body { font: 16px/1.5 system-ui, sans-serif; padding: 0 16px; }
+  section { height: 900px; }
+  .wide { width: 600px; }
+</style>
+</head>
+<body>
+  <section>First screen</section>
+  <section>Second screen</section>
+  <div class="wide">A 600 px block inside the body scroller</div>
+</body>
+</html>

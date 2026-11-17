@@ -48,6 +48,32 @@ BACKUP = """# Backup run 2026-11-14 03:00
   - 1× `projects/secret-name/file.md: sizes differ`
 """
 
+BACKUP_REGISTER = """# Backup state
+
+## Coverage by source
+
+| Data | Size |
+|---|---|
+| `~/notes` | 1 MB |
+
+## Targets
+
+| Target | Source | Destination | Encrypted | Schedule | Runs via | Verify | State file | Decision / doc |
+|---|---|---|---|---|---|---|---|---|
+| `fine` | `~/a` | `gdrive:a` | no | daily 03:00 | x | check | `{t}/bstate/fine.json` | - |
+| `broken` | `~/b` | `gdrive:b` | no | daily 03:00 | x | check | `{t}/bstate/broken.json` | - |
+| `old` | `~/c` | `gdrive:c` | no | daily 03:00 | x | check | `{t}/bstate/old.json` | - |
+| `trial` | `~/d` | `crypt:d` | yes | daily 03:00 | x | cryptcheck | `{t}/bstate/trial.json` | - |
+| `new` | `~/e` | `gdrive:e` | no | daily 03:00 | x | check | `{t}/bstate/new.json` | - |
+| `byhand` | `~/f` | `s3://f` | no | manual | x | sha256 | — | - |
+
+## Scheduled jobs
+
+| Job | Schedule | State |
+|---|---|---|
+| `not-a-target` | daily 03:00 | x |
+"""
+
 SKIPLIST = "skip:memorial:do-not-touch\nfork:theirs:upstream\n"
 
 
@@ -62,11 +88,23 @@ class DailyReport(unittest.TestCase):
         (t / "register.md").write_text(REGISTER)
         (t / "skiplist.conf").write_text(SKIPLIST)
         (t / "backup.md").write_text(BACKUP)
+        (t / "backup-state.md").write_text(BACKUP_REGISTER.replace("{t}", str(t)))
+        (t / "bstate").mkdir()
+        for name, ok, dry, fin in (("fine", True, False, "2026-11-14T03:10:00.123456"),
+                                   ("broken", False, False, "2026-11-14T03:20:00"),
+                                   ("old", True, False, "2026-11-12T03:00:00"),
+                                   ("trial", True, True, "2026-11-14T04:00:00")):
+            (t / "bstate" / f"{name}.json").write_text(json.dumps(
+                {"target": name, "ok": ok, "dry_run": dry, "finished": fin, "log": f"/x/logs/{name}-secret-name.log"}))
         (t / "audit.log").write_text(
             f"2026-11-08 10:20:00\t3 FAIL\t2 WARN\t0 new\t1 resolved\t{self.dev}/audit-reports/security-audit-2026-11-08.md\n")
         self.lc_out = ("-\t1\tcom.pieterdejong.docsbackup\n-\t1\tcom.pieterdejong.securityaudit\n"
                        "-\t0\tcom.pieterdejong.nightly\n4242\t0\tcom.pieterdejong.rcdev\n")
-        self.write_exec(t / "bin/launchctl", f'#!/bin/sh\ncat "{t}/lc.txt"\n')
+        # `launchctl print system/<label>` reads t/print/system_<label>; missing means not loaded.
+        self.write_exec(t / "bin/launchctl", f'#!/bin/sh\nif [ "$1" = print ]; then f="{t}/print/$(echo "$2" | tr / _)"; '
+                        f'[ -f "$f" ] && cat "$f" && exit 0; exit 113; fi\ncat "{t}/lc.txt"\n')
+        for d in ("Library/LaunchAgents", "Library/LaunchDaemons", "print"):
+            (t / d).mkdir(parents=True)
         (t / "lc.txt").write_text(self.lc_out)
         self.git_calls = t / "git-calls.txt"
         real_git = subprocess.run(["sh", "-c", "command -v git"], check=False, capture_output=True, text=True).stdout.strip()
@@ -89,8 +127,9 @@ class DailyReport(unittest.TestCase):
                         DAILY_OUT=str(self.dev / "audit-reports/daily"), DAILY_STATE_DIR=str(t / "state"),
                         LAUNCHD_REGISTER=str(t / "register.md"), SKIPLIST_FILE=str(t / "skiplist.conf"),
                         LAUNCHCTL=str(t / "bin/launchctl"), LAUNCH_AGENTS_DIR=str(self.home / "Library/LaunchAgents"),
+                        LAUNCHD_SYSTEM_DIRS=f"{t / 'Library/LaunchAgents'}:{t / 'Library/LaunchDaemons'}",
                         AUDIT_LOG=str(t / "audit.log"), CLEANUP_LOG=str(t / "none.log"),
-                        BACKUP_REPORT=str(t / "backup.md"), RCDEV_LOG_DIR=str(t / "rc"),
+                        BACKUP_REPORT=str(t / "backup.md"), BACKUP_REGISTER=str(t / "backup-state.md"), RCDEV_LOG_DIR=str(t / "rc"),
                         CLAUDE_PROJECTS=str(self.home / ".claude/projects"), GIT=str(t / "bin/git"),
                         NOTIFY_BIN=str(t / "bin/no-notify"))
 
@@ -137,6 +176,94 @@ class DailyReport(unittest.TestCase):
         self.assertTrue(any("docs backup failed: dev" in a for a in data["needs_action"]))
         self.assertTrue(any("nightly: due Fri 05:00" in a or "nightly: due" in a for a in data["needs_action"]))
         self.assertIn("## Needs action", md)
+
+    def test_latest_deps_counts_only(self):
+        t = Path(self.env["LAUNCHD_REGISTER"]).parent
+        (t / "register.md").write_text(REGISTER + "| `com.pieterdejong.latestdeps` | yes | Saturdays 22:00 | ld | `x` | - | - |\n")
+        (t / "lc.txt").write_text(self.lc_out + "-\t1\tcom.pieterdejong.latestdeps\n")
+        out = self.dev / "audit-reports/latest-deps"
+        out.mkdir(parents=True)
+        (out / "latest-deps-2026-11-13.tsv").write_text(
+            "project\tverdict\tapplied\tkind\tname\n"
+            "secret-proj\tbroken-by-latest\t\tpypi\ta\nsecret-proj\tbroken-by-latest\t\tpypi\tb\n"
+            "fine-proj\tok\tall\tnpm\tc\nold-proj\tskipped\t\t-\t-\n")
+        os.utime(out / "latest-deps-2026-11-13.tsv", (1794600000, 1794600000))  # 2026-11-13, inside the 24 h window
+        _r, md, data = self.report()
+        job = self.job(data, "latestdeps")
+        self.assertEqual(job["result"], "1 broken-by-latest · 1 ok · 1 skipped")
+        self.assertNotEqual(job["status"], "failed", "exit 1 means findings, not a failed run")
+        self.assertTrue(any("projects against latest stable: 1 broken-by-latest" in a for a in data["needs_action"]))
+        self.assertNotIn("secret-proj", md + json.dumps(data))
+        # The Expo phase report (D78): applied bumps wait for a commit; counts only.
+        (out / "expo-2026-11-13.tsv").write_text(
+            "project\tverdict\tapplied\tkind\tname\nsecret-app\tapplied\tall\tnpm\texpo\n"
+            "secret-app\tapplied\tall\tnpm\treact-native\nother-app\tcurrent\t\t-\t-\n")
+        (t / "state/state.json").unlink()  # same 24 h window again
+        _r, md, data = self.report()
+        self.assertIn("Expo: 1 applied · 1 current", self.job(data, "latestdeps")["result"])
+        self.assertTrue(any("Expo on latest stable: 1 applied" in a for a in data["needs_action"]))
+        self.assertNotIn("secret-app", md + json.dumps(data))
+
+    def plist(self, d, label, **keys):
+        import plistlib
+        with open(d / f"{label}.plist", "wb") as fh:
+            plistlib.dump({"Label": label, **keys}, fh)
+
+    def test_all_launchd_jobs_listed_and_flagged(self):
+        t = self.t
+        self.plist(self.home / "Library/LaunchAgents", "com.vendor.updater", ProgramArguments=["/bin/sh", "-c", "x"])
+        self.plist(self.home / "Library/LaunchAgents", "com.pieterdejong.stray", Program="/bin/sh")
+        self.plist(t / "Library/LaunchAgents", "com.vendor.agent", Program=str(t / "gone/agent"))
+        self.plist(t / "Library/LaunchDaemons", "com.vendor.daemon", Program="/bin/sh")
+        (t / "print/system_com.vendor.daemon").write_text("\tstate = not running\n\tlast exit code = 78\n")
+        (t / "lc.txt").write_text(self.lc_out + "-\t0\tcom.vendor.updater\n")
+        _r, md, data = self.report()
+        jobs = {j["label"]: j for j in data["launchd"]}
+        self.assertEqual((jobs["com.vendor.updater"]["state"], jobs["com.vendor.updater"]["last_exit"]), ("loaded", 0))
+        self.assertEqual((jobs["com.vendor.daemon"]["state"], jobs["com.vendor.daemon"]["last_exit"]), ("not running", 78))
+        self.assertEqual(jobs["com.vendor.agent"]["state"], "not loaded")
+        self.assertIn("program missing", jobs["com.vendor.agent"]["flags"])
+        self.assertIn("own, not in the register", jobs["com.pieterdejong.stray"]["flags"])
+        self.assertNotIn("new", " ".join(f for j in jobs.values() for f in j["flags"]), "first run is the baseline")
+        act = " ".join(data["needs_action"])
+        self.assertIn("launchd job(s) whose program no longer exists: com.vendor.agent", act)
+        self.assertIn("own launch agent(s) missing from the launchd register: com.pieterdejong.stray", act)
+        self.assertIn("## All launchd jobs", md)
+        self.assertIn("| `com.vendor.daemon` | " + str(t / "Library/LaunchDaemons") + " | not running | 78 | /bin/sh | — |", md)
+        self.assertIn("launchd 5 jobs, 2 flagged", md)
+        # Next run: a job that appeared since is flagged new; the known ones are not.
+        self.plist(t / "Library/LaunchDaemons", "com.vendor.sneaky", Program="/bin/sh")
+        state = json.loads((t / "state/state.json").read_text())
+        self.assertIn("com.vendor.daemon", state["launchd_seen"])
+        _r, _md, data = self.report()
+        jobs = {j["label"]: j for j in data["launchd"]}
+        self.assertEqual(jobs["com.vendor.sneaky"]["flags"], ["new"])
+        self.assertNotIn("new", jobs["com.vendor.daemon"]["flags"])
+        self.assertIn("new launchd job(s) since the last report: com.vendor.sneaky", " ".join(data["needs_action"]))
+
+    def test_backup_targets_from_register(self):
+        _, md, data = self.report()
+        st = {b["name"]: b["status"] for b in data["backups"]}
+        self.assertEqual(st, {"fine": "ok", "broken": "failed", "old": "stale", "trial": "dry run",
+                              "new": "missing", "byhand": "manual"})  # Targets section only
+        self.assertEqual((data["counts"]["backups_ok"], data["counts"]["backups_bad"]), (1, 3))
+        act = " ".join(data["needs_action"])
+        for name in ("broken", "old", "new"):
+            self.assertIn(f"backup {name}:", act)
+        for name in ("fine", "trial", "byhand"):
+            self.assertNotIn(f"backup {name}:", act)
+        self.assertIn("## Backups", md)
+        self.assertIn("| `trial` | `~/d` → `crypt:d` | yes |", md)
+        self.assertIn("backups 1 ok, 3 failed/stale", md)
+        self.assertNotIn("secret-name", md + json.dumps(data))  # the log path in state is never shown
+
+    def test_missing_backup_register_is_incomplete(self):
+        env = dict(self.env, BACKUP_REGISTER=str(self.t / "missing.md"))
+        r = self.run_report("--json", env=env)
+        self.assertEqual(r.returncode, 2)
+        data = json.loads(r.stdout)
+        self.assertIn("backup register", data["incomplete"])
+        self.assertEqual(data["backups"], [])
 
     def test_backup_file_names_never_reported(self):
         _, md, data = self.report()

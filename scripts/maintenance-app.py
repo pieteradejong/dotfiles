@@ -3,7 +3,8 @@
 
 Reads ~/dev/audit-reports/daily/daily-*.json (written by scripts/daily-report.py) and serves:
 
-  /                  today's tiles and Needs action, the job grid (jobs x last 30 days),
+  /                  today's tiles and Needs action, the job grid (jobs x last 30 days), the
+                     backup targets (table + grid, D72),
                      administrative work and activity per day, the list of days
   /day/YYYY-MM-DD    one day's report, its markdown rendered (escape first, then a small subset)
   /day/YYYY-MM-DD.md that day's markdown, as text
@@ -45,7 +46,8 @@ GRID_DAYS = 30
 CSP = ("default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; "
        "form-action 'none'; frame-ancestors 'none'; base-uri 'none'")
 STATUS_CLASS = {"ok": "s-ok", "running": "s-ok", "idle": "s-idle", "not due": "s-idle",
-                "pending": "s-pend", "failed": "s-bad", "missing": "s-bad"}
+                "pending": "s-pend", "failed": "s-bad", "missing": "s-bad",
+                "stale": "s-bad", "manual": "s-idle", "once": "s-idle", "dry run": "s-pend"}
 
 
 def load(name, file):
@@ -68,6 +70,7 @@ table.jobs th.d{font-weight:400;color:var(--mut);font-size:10px;writing-mode:ver
 .pill{display:inline-block;border-radius:9px;padding:0 8px;font-size:12px;color:#fff}
 .act li{list-style:none;padding:3px 0}.act input{margin-right:8px}.act li.done{opacity:.45;text-decoration:line-through}
 .md table{margin:6px 0}.md td,.md th{text-align:left;vertical-align:top}.md code{font-size:12px}
+table.bk{width:100%}table.bk td,table.bk th{text-align:left;vertical-align:top;padding:4px 8px;font-size:13px}
 .days a{margin-right:10px}.live{float:right;font-size:13px}
 """
 
@@ -176,6 +179,7 @@ def page(title, body):
 def tiles(d):
     c = d["counts"]
     items = [("To act on", c["needs_action"], ""), ("Jobs ok", c["jobs_ok"], f"{c['jobs_bad']} failed or missing"),
+             ("Backups ok", c.get("backups_ok", 0), f"{c.get('backups_bad', 0)} failed, missing or stale"),
              ("Decisions", c["decisions"], f"{c['changelog']} CHANGELOG lines"),
              ("TODO ticked", c["todo_ticked"], f"{c['todo_opened']} opened"),
              ("Commits", c["commits"], f"{len(d['git'])} repos"),
@@ -193,17 +197,20 @@ def needs_action(d):
         for a in d["needs_action"]) + "</ul>"
 
 
-def job_grid(all_days):
+def job_grid(all_days, key="jobs"):
+    """Rows x last GRID_DAYS days for d[key]: "jobs" (launchd) or "backups" (targets, D72)."""
     recent = all_days[-GRID_DAYS:]
     names = []
     for d in recent:
-        names += [j["name"] for j in d["jobs"] if j["name"] not in names]
+        names += [j["name"] for j in d.get(key, []) if j["name"] not in names]
+    if not names:
+        return '<p class="mut">None recorded yet.</p>'
     head = "<tr><th></th>" + "".join(f'<th class="d">{esc(d["date"][5:])}</th>' for d in recent) + "</tr>"
     rows = []
     for n in names:
         cells = []
         for d in recent:
-            j = next((x for x in d["jobs"] if x["name"] == n), None)
+            j = next((x for x in d.get(key, []) if x["name"] == n), None)
             st = j["status"] if j else "none"
             tip = f'{d["date"]} {n}: {st}' + (f' — {j["result"]}' if j and j["result"] else "")
             cells.append(f'<td class="c {STATUS_CLASS.get(st, "s-none")}" title="{esc(tip)}">'
@@ -211,9 +218,23 @@ def job_grid(all_days):
         rows.append(f"<tr><th>{esc(n)}</th>{''.join(cells)}</tr>")
     legend = "".join(f'<span class="key"><i class="{c}"></i>{esc(s)}</span>'
                      for s, c in (("ok / running", "s-ok"), ("failed / missing", "s-bad"),
-                                  ("not due / idle", "s-idle"), ("pending", "s-pend")))
+                                  ("not due / idle / manual", "s-idle"), ("pending / dry run", "s-pend")))
     return (f'<div class="legend">{legend}</div><div class="grid-wrap"><table class="jobs">{head}'
             f'{"".join(rows)}</table></div>')
+
+
+def backup_table(d):
+    rows = d.get("backups", [])
+    if not rows:
+        return '<p class="mut">No backup targets in this report (register: private/registers/backup-state.md § Targets).</p>'
+    head = "".join(f"<th>{h}</th>" for h in ("Target", "Source → destination", "Encrypted", "Schedule", "Verify",
+                                               "Status", "Last run", "Result"))
+    body = "".join(
+        f'<tr><td><code>{esc(b["name"])}</code></td><td>{esc(b["source"])} → {esc(b["dest"])}</td>'
+        f'<td>{esc(b["encrypted"])}</td><td>{esc(b["schedule"])}</td><td>{esc(b["verify"])}</td>'
+        f'<td><span class="key"><i class="{STATUS_CLASS.get(b["status"], "s-none")}"></i>{esc(b["status"])}</span></td>'
+        f'<td>{esc(b["last_run"] or "—")}</td><td>{esc(b["result"])}</td></tr>' for b in rows)
+    return f'<div class="grid-wrap"><table class="bk"><tr>{head}</tr>{body}</table></div>'
 
 
 def trends(all_days):
@@ -244,6 +265,8 @@ def overview(reports):
             f'{esc(d["window"]["until"])}).</p>{tiles(d)}'
             f'<section><h2>Needs action</h2>{needs_action(d)}</section>'
             f'<section><h2>Scheduled jobs, last {GRID_DAYS} days</h2>{job_grid(all_days)}</section>'
+            f'<section><h2>Backups</h2>{backup_table(d)}<h3>Last {GRID_DAYS} days</h3>'
+            f'{job_grid(all_days, "backups")}</section>'
             f'<section><h2>Trends</h2>{trends(all_days)}</section>'
             f'<section class="days"><h2>Days</h2>{links}</section>')
     return page("Maintenance", body)
@@ -269,7 +292,7 @@ class App(BaseHTTPRequestHandler):
         data = body.encode() if isinstance(body, str) else body
         self.send_response(code)
         for k, v in (("Content-Type", ctype), ("Content-Length", str(len(data))),
-                     ("Content-Security-Policy", CSP), ("X-Content-Type-Options", "nosniff"),
+                     ("Content-Security-Policy", self.server.cfg.get("csp", CSP)), ("X-Content-Type-Options", "nosniff"),
                      ("Referrer-Policy", "no-referrer"), ("Cache-Control", "no-store"), *extra):
             self.send_header(k, v)
         self.end_headers()
@@ -280,7 +303,8 @@ class App(BaseHTTPRequestHandler):
         cfg = self.server.cfg
         if self.headers.get("Host", "") not in cfg["hosts"]:
             return False
-        cookie = re.search(r"(?:^|;\s*)ma=([A-Za-z0-9_\-]+)", self.headers.get("Cookie", ""))
+        # The cookie name is per app: cookies ignore the port, so two apps on 127.0.0.1 would share "ma".
+        cookie = re.search(rf"(?:^|;\s*){cfg.get('cookie', 'ma')}=([A-Za-z0-9_\-]+)", self.headers.get("Cookie", ""))
         given = (query.get("t") or [""])[0] or (cookie.group(1) if cookie else "")
         return hmac.compare_digest(given.encode(), cfg["token"].encode())
 

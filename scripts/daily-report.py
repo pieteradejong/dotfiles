@@ -9,7 +9,11 @@ and the modification times of Claude Code transcripts. Writes two files (mode 60
   <out>/daily-YYYY-MM-DD.json   the same data; the markdown is rendered from it, and
                                 scripts/maintenance-app.py reads it
 
-Sections: Needs action · Scheduled jobs · Administrative work · Git work · Claude sessions.
+Sections: Needs action · Scheduled jobs · All launchd jobs · Backups · Administrative work · Git
+work · Claude sessions. All launchd jobs (D78) lists every plist in ~/Library/LaunchAgents,
+/Library/LaunchAgents and /Library/LaunchDaemons, ours and third-party: label, state, last exit
+and program. It flags a job new since the previous report, an own agent missing from the register,
+and a job whose program no longer exists; system daemons are read with `launchctl print system/…`.
 The window is the time since the previous report (state in $DAILY_STATE_DIR), else 24 h, so a
 missed day is covered by the next run. Administrative work is a diff of the checkbox, decision,
 changelog and register lines against the previous run's snapshot, because ~/dev itself is not a
@@ -56,9 +60,15 @@ REGISTER = Path(os.environ.get("LAUNCHD_REGISTER") or REPO / "private" / "regist
 SKIPLIST = Path(os.environ.get("SKIPLIST_FILE") or REPO / "private" / "audit" / "skiplist.conf")
 LAUNCHCTL = os.environ.get("LAUNCHCTL", "launchctl")
 AGENTS_DIR = Path(os.environ.get("LAUNCH_AGENTS_DIR") or HOME / "Library" / "LaunchAgents")
+SYSTEM_LAUNCHD_DIRS = [Path(x) for x in (os.environ.get("LAUNCHD_SYSTEM_DIRS")
+                                         or "/Library/LaunchAgents:/Library/LaunchDaemons").split(":") if x]
 AUDIT_LOG = Path(os.environ.get("AUDIT_LOG") or HOME / "Library/Logs/security-audit/security-audit.log")
 CLEANUP_LOG = Path(os.environ.get("CLEANUP_LOG") or HOME / ".weekly-disk-cleanup.log")
 BACKUP_REPORT = Path(os.environ.get("BACKUP_REPORT") or HOME / "docs/.backup/reports/latest.md")
+BACKUP_REGISTER = Path(os.environ.get("BACKUP_REGISTER") or REPO / "private" / "registers" / "backup-state.md")
+LATEST_DEPS_OUT = Path(os.environ.get("LATEST_DEPS_OUT") or DEV_ROOT / "audit-reports" / "latest-deps")
+BACKUP_STALE = timedelta(hours=36)
+BACKUP_BAD = ("failed", "missing", "stale")
 RCDEV_LOGS = Path(os.environ.get("RCDEV_LOG_DIR") or HOME / "Library/Logs/claude-remote-control")
 CLAUDE_PROJECTS = Path(os.environ.get("CLAUDE_PROJECTS") or HOME / ".claude" / "projects")
 GIT = os.environ.get("GIT", "git")
@@ -158,8 +168,9 @@ def due_in(cad, since, until):
     return None
 
 
-def launchctl_list():
-    """label -> (pid or None, last exit int or None); None when launchctl can't be run."""
+def launchctl_list(prefix=PREFIX):
+    """label -> (pid or None, last exit int or None) for labels starting with prefix ("" = all);
+    None when launchctl can't be run."""
     try:
         r = subprocess.run([LAUNCHCTL, "list"], capture_output=True, text=True, timeout=20, check=False)
     except (OSError, subprocess.TimeoutExpired):
@@ -167,7 +178,7 @@ def launchctl_list():
     out = {}
     for line in r.stdout.splitlines():
         parts = line.split("\t")
-        if len(parts) == 3 and parts[2].startswith(PREFIX):
+        if len(parts) == 3 and parts[2].startswith(prefix) and parts[2] != "Label":
             pid = None if parts[0] == "-" else parts[0]
             try:
                 code = int(parts[1])
@@ -175,6 +186,60 @@ def launchctl_list():
                 code = None
             out[parts[2]] = (pid, code)
     return out
+
+
+def launchctl_print_system(label):
+    """(state, last exit) of a system-domain job; None when launchctl can't be run."""
+    try:
+        r = subprocess.run([LAUNCHCTL, "print", f"system/{label}"], capture_output=True, text=True,
+                           timeout=10, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if r.returncode != 0:
+        return ("not loaded", None)
+    st = re.search(r"^\s*state = (.+)$", r.stdout, re.MULTILINE)
+    code = re.search(r"last exit code = (-?\d+)", r.stdout)
+    return (st.group(1).strip() if st else "loaded", int(code.group(1)) if code else None)
+
+
+def launchd_inventory(lc_all, registered, seen):
+    """Every launchd plist on the Mac, ours and third-party (D78). seen: labels of the previous
+    report, or None on the first run (then nothing is "new")."""
+    rows = []
+    for d in [AGENTS_DIR, *SYSTEM_LAUNCHD_DIRS]:
+        if not d.is_dir():
+            continue
+        where = "~/" + str(d.relative_to(HOME)) if HOME in d.parents else str(d)
+        for f in sorted(d.glob("*.plist")):
+            try:
+                with open(f, "rb") as fh:
+                    pl = plistlib.load(fh)
+            except (OSError, plistlib.InvalidFileException, ValueError):
+                pl = {}
+            label = str(pl.get("Label") or f.stem)
+            args = pl.get("ProgramArguments") or []
+            prog = str(pl.get("Program") or (args[0] if args else "") or "")
+            if d.name == "LaunchDaemons":
+                ps = launchctl_print_system(label)
+                state, code = ps if ps else ("unknown", None)
+            elif lc_all is None:
+                state, code = "unknown", None
+            else:
+                st = lc_all.get(label)
+                state = "not loaded" if st is None else ("running" if st[0] else "loaded")
+                code = st[1] if st else None
+            flags = []
+            if seen is not None and label not in seen:
+                flags.append("new")
+            if label.startswith(PREFIX) and label not in registered:
+                flags.append("own, not in the register")
+            if prog.startswith("/") and not Path(prog).exists():
+                flags.append("program missing")
+            if pl.get("Disabled") is True:
+                flags.append("disabled")
+            rows.append({"label": label, "where": where, "state": state, "last_exit": code,
+                         "program": prog, "own": label.startswith(PREFIX), "flags": flags})
+    return rows
 
 
 def ev_audit():
@@ -233,6 +298,51 @@ def ev_backup():
     return ev
 
 
+def ev_latestdeps():
+    """The newest latest-deps report (D76): verdict counts only, never project names."""
+    reps = sorted(LATEST_DEPS_OUT.glob("latest-deps-????-??-??.tsv"))
+    if not reps:
+        return {"ran": None, "result": "no report yet"}
+    lines = reps[-1].read_text().splitlines()
+    cols = lines[0].split("\t")
+    verdicts = {}
+    for ln in lines[1:]:
+        r = dict(zip(cols, ln.split("\t")))
+        verdicts.setdefault(r.get("project"), r.get("verdict", ""))
+    n = {}
+    for v in verdicts.values():
+        n[v] = n.get(v, 0) + 1
+    order = ("broken-by-latest", "needs-ci", "error", "already-failing", "ok-patch-minor", "ok", "current", "skipped")
+    ev = {"ran": mtime(reps[-1]), "result": " · ".join(f"{n[v]} {v}" for v in order if n.get(v)) or "empty report",
+          "ok_exit": {0, 1}}
+    bad = [f"{n[v]} {v}" for v in order[:4] if n.get(v)]
+    acts = []
+    if bad:
+        acts.append("projects against latest stable: " + ", ".join(bad) + f" — {rel(reps[-1].with_suffix('.md'))}")
+    # The Expo phase (D78): bumps written into checkouts wait for a commit; counts only, no names.
+    ereps = sorted(LATEST_DEPS_OUT.glob("expo-????-??-??.tsv"))
+    if ereps:
+        elines = ereps[-1].read_text().splitlines()
+        ecols = elines[0].split("\t")
+        ev_ = {}
+        for ln in elines[1:]:
+            r = dict(zip(ecols, ln.split("\t")))
+            ev_.setdefault(r.get("project"), r.get("verdict", ""))
+        en = {}
+        for v in ev_.values():
+            en[v] = en.get(v, 0) + 1
+        ebad = [f"{en[v]} {v}" for v in ("applied", "reverted", "broken-by-latest", "needs-ci", "error",
+                                           "already-failing") if en.get(v)]
+        ev["result"] += " · Expo: " + (" · ".join(f"{c} {v}" for v, c in sorted(en.items())) or "none")
+        if ebad:
+            acts.append("Expo on latest stable: " + ", ".join(ebad)
+                        + " (applied = written uncommitted: review, CHANGELOG line, commit)"
+                        + f" — {rel(ereps[-1].with_suffix('.md'))}")
+    if acts:
+        ev["act"] = "; ".join(acts)
+    return ev
+
+
 def ev_logfile(path, since):
     """Generic: activity in a job's own log, as counts only (never its lines: they hold file names)."""
     ran = mtime(path)
@@ -277,7 +387,8 @@ def job_status(row, lc, since, until, incomplete):
         job.update(status="failed", result="installed but not loaded (launchctl list)")
         return job, f"{short}: installed but not loaded"
     sources = {"securityaudit": (AUDIT_LOG, ev_audit), "weeklycleanup": (CLEANUP_LOG, ev_cleanup),
-               "docsbackup": (BACKUP_REPORT, ev_backup)}
+               "docsbackup": (BACKUP_REPORT, ev_backup),
+               "latestdeps": (LATEST_DEPS_OUT, ev_latestdeps)}
     try:
         if short in sources:
             src, fn = sources[short]
@@ -313,6 +424,72 @@ def job_status(row, lc, since, until, incomplete):
     elif cad["kind"] == "watch" and ev["result"].startswith("no activity"):
         job["status"] = "idle"
     return job, act
+
+
+# --- backups (D72) ----------------------------------------------------------------------------
+
+def parse_backup_register(path):
+    """backup-state.md § Targets -> one dict per row. Only that section's table is read."""
+    rows, inside, header = [], False, None
+    for line in read(path).splitlines():
+        if line.startswith("## "):
+            inside = line.strip() == "## Targets"
+            continue
+        if not inside or not line.strip().startswith("|"):
+            continue
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if header is None:
+            header = [c.lower() for c in cells]
+            continue
+        if set("".join(cells)) <= set("-: "):
+            continue
+        m = re.fullmatch(r"`([^`]+)`", cells[0])
+        if not m or len(cells) < len(header):
+            continue
+        r = dict(zip(header, cells))
+        sf = re.fullmatch(r"`([^`]+)`", r.get("state file", ""))
+        rows.append({"name": m.group(1), "source": r.get("source", ""), "dest": r.get("destination", ""),
+                     "encrypted": r.get("encrypted", ""), "schedule": r.get("schedule", ""),
+                     "verify": r.get("verify", ""),
+                     "state": Path(os.path.expanduser(sf.group(1))) if sf else None})
+    return rows
+
+
+def backup_status(row, until):
+    """Status from the target's state JSON (ok, dry_run, finished) only; its log is never read."""
+    sched = row["schedule"].lower()
+    scheduled = bool(re.search(r"\d{1,2}:\d{2}", sched))
+    b = {k: row[k] for k in ("name", "source", "dest", "encrypted", "schedule", "verify")}
+    b.update(status="manual" if sched.startswith("manual") else "once" if sched.startswith("once") else "ok",
+             last_run=None, result="")
+    if row["state"] is None:
+        b["result"] = "no state file (runs by hand)"
+        return b, None
+    try:
+        st = json.loads(read(row["state"]))
+        fin = datetime.fromisoformat(st["finished"]).replace(microsecond=0)
+    except FileNotFoundError:
+        if scheduled:
+            b.update(status="missing", result="never ran (no state file yet)")
+            return b, f"backup {row['name']}: never ran ({rel(row['state'])} missing)"
+        b["result"] = "no run yet"
+        return b, None
+    except (OSError, ValueError, KeyError, TypeError) as e:
+        b.update(status="failed", result=f"state unreadable ({type(e).__name__})")
+        return b, f"backup {row['name']}: state file unreadable — {rel(row['state'])}"
+    b["last_run"] = fin.isoformat(sep=" ")
+    if not st.get("ok"):
+        b.update(status="failed", result="last run failed" + (" (dry run)" if st.get("dry_run") else ""))
+        return b, f"backup {row['name']}: last run {fin:%a %H:%M} failed — {rel(row['state'].parent.parent / 'reports' / 'latest.md')}"
+    if st.get("dry_run"):
+        b.update(status="dry run", result="last run was a dry run; nothing uploaded")
+        return b, None
+    if scheduled and until - fin > BACKUP_STALE:
+        hours = int((until - fin).total_seconds() // 3600)
+        b.update(status="stale", result=f"last OK run {hours} h ago")
+        return b, f"backup {row['name']}: last OK run {hours} h ago (scheduled {row['schedule']})"
+    b["result"] = "last run OK"
+    return b, None
 
 
 # --- repos ------------------------------------------------------------------------------------
@@ -509,10 +686,32 @@ def collect(since=None, state=None):
         incomplete.append("launchctl list")
     if not rows and lc:
         rows = [{"label": k, "installed": True, "trigger": ""} for k in sorted(lc)]
+    lc_all = launchctl_list("")
+    seen = state.get("launchd_seen")
+    launchd = launchd_inventory(lc_all, {r["label"] for r in rows}, set(seen) if seen is not None else None)
+    for flag, text in (("new", "new launchd job(s) since the last report"),
+                       ("own, not in the register", "own launch agent(s) missing from the launchd register"),
+                       ("program missing", "launchd job(s) whose program no longer exists")):
+        hit = [j for j in launchd if flag in j["flags"]]
+        if hit:
+            act.append(f"{text}: " + ", ".join(f"{j['label']} ({j['where']})" for j in hit[:8])
+                       + (" …" if len(hit) > 8 else ""))
     jobs = []
     for row in rows:
         job, a = job_status(row, lc, since, until, incomplete)
         jobs.append(job)
+        if a:
+            act.append(a)
+
+    try:
+        brows = parse_backup_register(BACKUP_REGISTER)
+    except OSError:
+        brows = []
+        incomplete.append("backup register")
+    backups = []
+    for row in brows:
+        b, a = backup_status(row, until)
+        backups.append(b)
         if a:
             act.append(a)
 
@@ -545,7 +744,8 @@ def collect(since=None, state=None):
     data = {
         "date": until.date().isoformat(), "generated": until.isoformat(sep=" "),
         "window": {"since": since.isoformat(sep=" "), "until": until.isoformat(sep=" ")},
-        "needs_action": act, "incomplete": incomplete, "jobs": jobs, "admin": admin, "git": git_rows,
+        "needs_action": act, "incomplete": incomplete, "jobs": jobs, "launchd": launchd, "backups": backups,
+        "admin": admin, "git": git_rows,
         "repos_scanned": len(repos), "repos_not_own": n_other, "repos_skipped": sorted(skip),
         "standing": standing,
         "sessions": sessions,
@@ -559,6 +759,10 @@ def counts(d):
     return {"needs_action": len(d["needs_action"]),
             "jobs_ok": sum(j["status"] in ("ok", "running", "not due", "idle") for j in d["jobs"]),
             "jobs_bad": sum(j["status"] in ("failed", "missing") for j in d["jobs"]),
+            "launchd": len(d.get("launchd", [])),
+            "launchd_flagged": sum(bool(j["flags"]) for j in d.get("launchd", [])),
+            "backups_ok": sum(b["status"] == "ok" for b in d.get("backups", [])),
+            "backups_bad": sum(b["status"] in BACKUP_BAD for b in d.get("backups", [])),
             "decisions": len(a["decisions"]), "changelog": len(a["changelog"]), "registers": len(a["registers"]),
             "todo_opened": len(a["todo_opened"]), "todo_ticked": len(a["todo_ticked"]),
             "commits": sum(len(g["commits"]) for g in d["git"]),
@@ -570,6 +774,8 @@ def summary(d):
     c = d["counts"]
     head = f"{c['needs_action']} to act on" if c["needs_action"] else "nothing to act on"
     return (f"{head} · jobs {c['jobs_ok']} ok, {c['jobs_bad']} failed/missing · "
+            f"launchd {c.get('launchd', 0)} jobs, {c.get('launchd_flagged', 0)} flagged · "
+            f"backups {c.get('backups_ok', 0)} ok, {c.get('backups_bad', 0)} failed/stale · "
             f"{c['decisions']} decisions, {c['todo_ticked']} TODO ticked, {c['todo_opened']} opened · "
             f"{c['commits']} commits · {c['claude_sessions']} Claude sessions")
 
@@ -593,6 +799,26 @@ def render_md(d):
                  f"{'—' if j['last_exit'] is None else j['last_exit']} | {md_cell(res)} |")
     if not d["jobs"]:
         L.append("| — | — | — | — | — | no jobs found |")
+    L += ["", "## All launchd jobs", "",
+          ("Every plist in ~/Library/LaunchAgents, /Library/LaunchAgents and /Library/LaunchDaemons, ours "
+           "and third-party (D78). State and last exit come from `launchctl`."), "",
+          "| Job | Where | State | Last exit | Program | Flags |", "|---|---|---|---|---|---|"]
+    for j in sorted(d.get("launchd", []), key=lambda j: (not j["flags"], not j["own"], j["where"], j["label"])):
+        L.append(f"| `{md_cell(j['label'])}` | {md_cell(j['where'])} | {md_cell(j['state'])} | "
+                 f"{'—' if j['last_exit'] is None else j['last_exit']} | {md_cell(j['program']) or '—'} | "
+                 f"{md_cell(', '.join(j['flags'])) or '—'} |")
+    if not d.get("launchd"):
+        L.append("| — | — | — | — | — | no launchd plists found |")
+    L += ["", "## Backups", "",
+          "One row per target in `private/registers/backup-state.md` § Targets (D72); status from each target's state file.",
+          "", "| Target | Source → Destination | Encrypted | Schedule | Verify | Status | Last run | Result |",
+          "|---|---|---|---|---|---|---|---|"]
+    for b in d.get("backups", []):
+        L.append(f"| `{b['name']}` | {md_cell(b['source'])} → {md_cell(b['dest'])} | {md_cell(b['encrypted'])} | "
+                 f"{md_cell(b['schedule'])} | {md_cell(b['verify'])} | {b['status']} | {b['last_run'] or '—'} | "
+                 f"{md_cell(b['result'])} |")
+    if not d.get("backups"):
+        L.append("| — | — | — | — | — | — | — | no backup targets found |")
     L += ["", "## Administrative work", ""]
     if a["baseline"]:
         L += [("First run: the snapshot was recorded now, so TODO, CHANGELOG and register changes are "
@@ -696,8 +922,9 @@ def main(argv):
         base = args.out / f"daily-{data['date']}"
         write_private(base.with_suffix(".json"), json.dumps(data, indent=2) + "\n")
         write_private(base.with_suffix(".md"), render_md(data))
-        write_private(STATE_DIR / "state.json", json.dumps({"until": data["window"]["until"].replace(" ", "T"),
-                                                            "snapshot": snap}) + "\n")
+        write_private(STATE_DIR / "state.json", json.dumps({
+            "until": data["window"]["until"].replace(" ", "T"), "snapshot": snap,
+            "launchd_seen": sorted({j["label"] for j in data["launchd"]})}) + "\n")
         print(f"Daily report: {base}.md")
         if not args.no_notify and os.access(NOTIFY, os.X_OK):
             subprocess.run([NOTIFY, "Daily report", summary(data)], check=False, timeout=20)

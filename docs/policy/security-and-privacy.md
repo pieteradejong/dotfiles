@@ -39,6 +39,12 @@ scraped. Every rule below follows from that.
 | **B** | Inside the tree, gitignored | [Five-layer guard](#12-five-layer-guard-for-paths-that-must-never-be-committed) | The app truly needs a fixed in-repo path |
 | **C** | Synthetic fixtures committed; real data local only | Light | Tests need shape, not substance |
 
+Whatever the tier, **personal data never goes into git, private repos included** (`~/dev/CLAUDE.md`
+hard rule, D74). Fixtures are invented, never copied from real data, names and titles included. The
+gate blocks locked originals (`originals_read_only/`) and the Notes and Messages stores by name,
+dotaudit `tracked-data` flags tracked databases and exports, and the global gitignore ignores the
+same paths.
+
 ### Trust zones: who can see what
 
 Every destination falls into one of three zones. The gate guards the step from private to public.

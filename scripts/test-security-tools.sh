@@ -288,6 +288,15 @@ exit 1
 EOF2
 chmod +x "$A/bin/model-versions"
 export MODEL_VERSIONS="$A/bin/model-versions"
+# Stub latest-deps.py: section 10 only reads the newest report, so --summary is all it is asked.
+cat > "$A/bin/latest-deps" <<'EOF2'
+#!/bin/bash
+[ "$1" = --summary ] || exit 9
+printf 'WARN\tweb: broken-by-latest (see latest-deps-2030-01-05.tsv)\n'
+printf 'INFO\tlatest-deps 2030-01-05: 1 broken-by-latest · 3 ok\n'
+EOF2
+chmod +x "$A/bin/latest-deps"
+export LATEST_DEPS="$A/bin/latest-deps"
 printf 'recovery\n' > "$A/dev/github-recovery-codes.txt"
 git init -q "$A/dev/projects/app"
 printf 'x\n' > "$A/dev/projects/app/deploy.key"
@@ -347,6 +356,8 @@ grep -q '^- py: packages current (0 held)$' "$report" 2>/dev/null && pass "a cur
 grep -q 'WARN\*\* template-versions.py exit 2 — the check is incomplete: fetch failed: example' "$report" 2>/dev/null \
   && pass "a failed fetch makes the section say it is incomplete" || fail "incomplete check not reported"
 grep -q '^## 9. Local model lineup$' "$report" 2>/dev/null && pass "report has the model lineup section, under --quick too" || fail "section 9 missing"
+grep -q '^## 10. Projects against latest stable$' "$report" 2>/dev/null && pass "report has the latest-stable section, under --quick too" || fail "section 10 missing"
+grep -q '^- \*\*WARN\*\* web: broken-by-latest' "$report" 2>/dev/null && pass "a project broken by latest stable is a WARN" || fail "latest-deps WARN missing"
 # shellcheck disable=SC2016 # the backticks are literal markdown
 grep -q '^- \*\*WARN\*\* embed `vec:0.6b`: newer local candidate(s): vec-2:740m' "$report" 2>/dev/null \
   && pass "a newer local model candidate is a WARN" || fail "model candidate WARN missing"

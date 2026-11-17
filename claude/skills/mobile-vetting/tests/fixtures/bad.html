@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Bad fixture</title>
+<style>
+  body { margin: 0; font: 14px sans-serif; }
+  .hero { height: 100vh; }
+  .wide { width: 1200px; background: #ddd; }
+  .icon { display: inline-block; width: 16px; height: 16px; }
+  .small { font-size: 10px; }
+  input { font-size: 13px; }
+  .tip { opacity: 0; }
+  .card:hover .tip { opacity: 1; }
+  .banner { position: fixed; left: 0; right: 0; bottom: 0; height: 60vh; background: #fee; }
+</style>
+</head>
+<body>
+  <div class="hero">Hero</div>
+  <div class="wide">A fixed-width 1200 px block</div>
+  <a class="icon" href="#x" aria-label="close">x</a><a class="icon" href="#y" aria-label="share">y</a>
+  <p class="small">Fine print in 10 px</p>
+  <p style="width: 40px; overflow-wrap: anywhere; font-size: 16px; letter-spacing: 2px">Contact</p>
+  <table><tr><td>Ja<sup><a href="#f3">[3]</a><a href="#f2">[2]</a></sup></td></tr></table>
+  <div class="card">Card<span class="tip">only on hover</span></div>
+  <input type="text" aria-label="name">
+  <img alt="wide" width="1200" height="20" src="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%221200%22 height=%2220%22/%3E">
+  <div class="banner">Cookie banner covering most of the screen</div>
+  <img alt="missing" src="missing-image.png">
+  <script>throw new Error('fixture error')</script>
+</body>
+</html>

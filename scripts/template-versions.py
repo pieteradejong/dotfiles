@@ -19,9 +19,10 @@ A target is held below latest by:
   - a row in TEMPLATE_HOLDS (TSV: template or *, package, bound like <6.1.0 or <=6.0.3,
     reason, decision ref; # comments): the target is the newest release inside the bound
   - @types/node: the newest release in the .nvmrc major
-  - Expo templates: expo itself goes to the newest release of its pinned SDK major, and
-    every package that SDK's bundledNativeModules.json names goes to the version it names
-    (the base of its ~ range), not npm latest
+  - Expo templates: expo itself goes to npm's `latest` (the newest stable SDK, majors
+    included, D78) or the newest release inside an expo hold, and every package that
+    release's bundledNativeModules.json names goes to the version it names (the base of
+    its ~ range), not npm latest
 
 Usage:  scripts/template-versions.py                        check, markdown table on stdout
         scripts/template-versions.py --quiet                rows that need action only
@@ -206,6 +207,16 @@ def bundled_native_modules(expo_version):
     return _get(f"{JSDELIVR}/expo@{expo_version}/bundledNativeModules.json")
 
 
+def expo_latest(template, holds):
+    """The expo release to move to: npm `latest`, SDK majors included (D78), or the newest
+    stable release inside an expo hold for this template."""
+    lat = npm_latest("expo")
+    h = hold_for(holds, template, "expo")
+    if h and not in_bound(lat, h["bound"]):
+        return newest(npm_versions("expo"), lambda v, b=h["bound"]: in_bound(v, b)) or lat
+    return lat
+
+
 # --- holds ---------------------------------------------------------------------------------------
 
 def load_holds():
@@ -297,8 +308,7 @@ def check_npm(t, tdir, holds, errors):
     bnm, expo_target = {}, None
     try:
         if expo_pin:
-            major = vtuple(expo_pin)[0]
-            expo_target = newest(npm_versions("expo"), lambda v: vtuple(v)[0] == major)
+            expo_target = expo_latest(t, holds)
             bnm = bundled_native_modules(expo_target)
     except FetchError as e:
         errors.append(str(e))
@@ -316,7 +326,7 @@ def check_npm(t, tdir, holds, errors):
         h = hold_for(holds, t, name)
         try:
             if name == "expo" and expo_target:
-                target, note = expo_target, f"newest of SDK {vtuple(spec)[0]}"
+                target, note = expo_target, f"latest stable, SDK {vtuple(expo_target)[0]}"
             elif name in bnm:
                 target = re.sub(r"^[~^>=<\s]+", "", bnm[name])
                 note = f"expo@{expo_target} bundledNativeModules"

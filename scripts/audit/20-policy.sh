@@ -14,7 +14,7 @@
 # is noise, not signal.
 
 # CANONICAL_HOLDER ("Peter" and "Pieter Arthur" both exist in the tree and are
-# drift, not intent), MEDIA_EXT_ERE, IMAGE_EXT_ERE, IMAGE_MAX_BYTES,
+# drift, not intent), MEDIA_EXT_ERE, IMAGE_EXT_ERE, IMAGE_MAX_BYTES, DATA_*_ERE,
 # JS_LOCKFILES, PY_LOCKFILES, NPM_RANGE_ERE, ACTION_PINNED_ERE, SECURITY_CI_ERE
 # and OWN_GITHUB_OWNER live in security/patterns.sh, shared with the gate so the
 # two can never disagree about what the standard is.
@@ -69,6 +69,7 @@ audit_policy() {
     check_pins        "$repo" "$name" "$tracked"
     check_lockfiles   "$repo" "$name" "$tracked"
     check_media       "$repo" "$name" "$tracked"
+    check_data        "$repo" "$name" "$tracked"
     check_actions     "$repo" "$name" "$tracked"
     check_logs_audit  "$repo" "$name" "$tracked"
     check_docs_dupes  "$repo" "$name"
@@ -423,6 +424,24 @@ EOF
   hits="$(printf '%s\n%s' "$hits" "$big" | LC_ALL=C grep -v '^$')" || true
   [ -n "$hits" ] && \
     finding FAIL "$CAT" "$name" tracked-media "media, weights or images over $((IMAGE_MAX_BYTES / 1048576)) MB tracked: $(_list "$hits")"
+  return 0
+}
+
+# --- personal data -------------------------------------------------------------
+# CLAUDE.md hard rule: "Personal data never goes into git, not even a private
+# repo" (D74). FAIL for locked originals and the Notes / Messages stores; WARN
+# for databases and exports outside test fixtures, which are often personal but
+# can be legitimate (an app's schema DB, public statistics). One finding per repo.
+check_data() {
+  local repo="$1" name="$2" tracked="$3" strong weak
+  strong="$(printf '%s\n' "$tracked" | LC_ALL=C grep -E -- "$DATA_ORIGINALS_ERE")" || true
+  weak="$(printf '%s\n' "$tracked" | LC_ALL=C grep -iE -- "$DATA_EXT_ERE" \
+          | LC_ALL=C grep -vE -- "$DATA_EXEMPT_ERE" | LC_ALL=C grep -vE -- "$DATA_ORIGINALS_ERE")" || true
+  if [ -n "$strong" ]; then
+    finding FAIL "$CAT" "$name" tracked-data "personal data tracked (originals or a Notes/Messages store): $(_list "$strong")${weak:+; also databases or exports: $(_list "$weak")}"
+  elif [ -n "$weak" ]; then
+    finding WARN "$CAT" "$name" tracked-data "databases or exports tracked; personal data belongs outside git (D74): $(_list "$weak")"
+  fi
   return 0
 }
 

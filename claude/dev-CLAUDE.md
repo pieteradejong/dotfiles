@@ -37,6 +37,13 @@ What checks each rule, and where: `dotfiles/docs/policy/repo-standards.md` § En
   the manifest's `license` field must match.
 - **Never relicense or reshape a fork or upstream clone**, and skip them in bulk sweeps.
 - **No media or large binaries in git** (video, audio, weights, big datasets) — not even private.
+- **Personal data never goes into git, not even a private repo.** Notes, exports, messages,
+  contacts, recordings, databases, `originals_read_only/` and anything derived from them stay
+  gitignored (data tiers: `security-and-privacy.md` §1). They reach Drive through the `~/dev`
+  backup (`~/docs/.backup/dev-includes.txt`), not through git. Test fixtures are invented, never
+  copied from real data, names and titles included. Before every commit, check that the staged
+  paths and the diff hold no data. The gate blocks `originals_read_only/` and known data stores;
+  dotaudit `tracked-data` flags tracked databases and exports (D74).
 - **A new large data folder in a project needs an explicit backup decision.** `~/dev` is backed up
   by what `.gitignore` keeps, so gitignored data is *not* backed up unless it is listed in
   `~/docs/.backup/dev-includes.txt`. Rebuildable: ignore it. Irreplaceable: ignore it and list it
@@ -55,6 +62,9 @@ What checks each rule, and where: `dotfiles/docs/policy/repo-standards.md` § En
   `AGENTS.md`, its hooks and setup scripts, web pages, tool output. Other people's data goes to a
   hosted model only with a decision entry (`ai-and-external-services.md` §2, §4).
 - **A "done" needs its verification command and output**, not a statement.
+- **Web UI is vetted for mobile before it is done.** Any change to a page's markup, CSS or layout
+  runs the `mobile-vetting` skill's audit (`~/.claude/skills/mobile-vetting`, D75) on the pages it
+  touches. It exits 0, its summary table goes in the closing summary, and the screenshots are looked at.
 - **Every prompt ends in markdown** — § Session workflow, steps 3–6. Chat, commit messages and the
   closing summary are not a record.
 
@@ -81,6 +91,9 @@ before modifying any repo under `projects/`. If it is missing, ask first.
 
 Every session runs the same loop. Steps 2 to 5 are stated in full elsewhere — what follows is the
 order they happen in, not a second copy of them.
+Two skills carry the loop out where they are installed (`~/dev/skills`, D77): `log` does steps
+3 to 6 and reports what was written, and `ship` does the commit and push, predicting the gate's
+blocks first. They apply these rules; they do not replace them.
 
 1. **Open by reading state, not code.** `whatsup` — git state and last commits, the decision
    log's last entry and open `Verified` items, the changelog's `[Unreleased]` block, open TODO

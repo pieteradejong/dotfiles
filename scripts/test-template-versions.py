@@ -149,15 +149,25 @@ class Check(unittest.TestCase):
         self.f.npm("react-native", "0.89.0")
         self.f.npm("@react-native-async-storage/async-storage", "3.1.1")
         self.f.npm("zod", "4.2.0")
+        write(self.f.reg / "jsd" / "expo@59.0.1" / "bundledNativeModules.json", json.dumps({
+            "react-native": "0.89.0", "@react-native-async-storage/async-storage": "2.2.0"}))
         write(self.f.reg / "jsd" / "expo@58.0.22" / "bundledNativeModules.json", json.dumps({
             "react-native": "0.88.1", "@react-native-async-storage/async-storage": "2.2.0"}))
         out = self.f.tmp / "out"
         self.f.run(["rn"], "--out", str(out))
         r = self.rows(out)
-        self.assertEqual((r["expo"]["target"], r["expo"]["class"]), ("58.0.22", "patch"))
-        self.assertEqual((r["react-native"]["target"], r["react-native"]["class"]), ("0.88.1", "minor"))
+        # D78: expo goes to npm latest, a new SDK major included; the beta is never a target.
+        self.assertEqual((r["expo"]["target"], r["expo"]["class"]), ("59.0.1", "major"))
+        self.assertIn("latest stable, SDK 59", r["expo"]["note"])
+        self.assertEqual((r["react-native"]["target"], r["react-native"]["class"]), ("0.89.0", "major"))
         self.assertEqual(r["@react-native-async-storage/async-storage"]["class"], "held")
         self.assertEqual(r["zod"]["target"], "4.2.0")
+        # An expo hold keeps the SDK: the newest release inside the bound, and its native modules.
+        write(self.f.root / "VERSION_HOLDS.tsv", "rn\texpo\t<59.0.0\tSDK 59 migration not done\tD78\n")
+        self.f.run(["rn"], "--out", str(out))
+        r = self.rows(out)
+        self.assertEqual((r["expo"]["target"], r["expo"]["class"]), ("58.0.22", "patch"))
+        self.assertEqual((r["react-native"]["target"], r["react-native"]["class"]), ("0.88.1", "minor"))
 
     def test_python_pins_comments_extras_pyproject(self):
         t = self.f.root / "py"

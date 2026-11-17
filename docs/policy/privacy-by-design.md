@@ -103,3 +103,5 @@ would be embarrassing to write, the design is wrong, not the page.
 4. Other people's data? Tier A, local processing, decision entry (§5).
 5. Logs and error reports checked for leaked Personal data
    ([secure development §6](secure-development.md#6-errors-and-logging)).
+6. The data itself stays out of git, private repos included; test fixtures are invented
+   ([security §1](security-and-privacy.md#1-principles-and-data-tiers), D74).

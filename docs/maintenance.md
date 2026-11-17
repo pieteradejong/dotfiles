@@ -11,9 +11,11 @@ Replaces the old `weekly-cleanup.md` and `mac-maintenance.md`.
 |---|---|---|---|---|---|---|---|---|
 | [Security & privacy audit](#weekly-security--privacy-audit) | `scripts/security-audit.sh` | Sundays 10:00 | `scripts/security-audit.sh --quick --no-notify` | read-only always; `--quick` skips the slow steps (`--templates` keeps step 8) | `~/dev/audit-reports/security-audit-YYYY-MM-DD.md` · `~/Library/Logs/security-audit/` | `./test.sh tools` | `macos/com.pieterdejong.securityaudit.plist` | D15, D28, D30, D55 |
 | [Template drift](#template-dependency-drift) | `scripts/template-versions.py` | section 8 of each audit (check only) | `scripts/template-versions.py --quiet` | read-only; `--apply` bumps, needs the Node of the template's `.nvmrc` | `~/dev/audit-reports/template-versions-YYYY-MM-DD.{md,tsv}` | `./test.sh templates`, `ruff` | — | D55 |
+| [Latest-stable test run](#latest-stable-test-run-of-the-projects) | `scripts/latest-deps.py` | Saturdays 22:00 | `scripts/latest-deps.py --project NAME` | `--dry-run` clones nothing; read-only toward the projects, except the Expo phase, which writes a passing Expo bump into a clean checkout, uncommitted (D78); `--apply NAME` writes a passing set, uncommitted | `~/dev/audit-reports/latest-deps/latest-deps-YYYY-MM-DD.{md,tsv}` and `expo-YYYY-MM-DD.{md,tsv}` · `~/Library/Logs/latest-deps/launchd.out` · section 10 of the audit · the daily report | `./test.sh latestdeps`, `ruff` | `macos/com.pieterdejong.latestdeps.plist` | D76, D78 |
 | [Model lineup drift](#local-model-lineup) | `scripts/model-versions.py` | section 9 of each audit (check only), `--quick` included | `scripts/model-versions.py` | read-only always; never pulls | `~/dev/audit-reports/model-versions-YYYY-MM-DD.md` | `./test.sh models`, `ruff` | — | D61 |
 | [Daily report](#daily-report-and-web-app) | `scripts/daily-report.py` | daily 07:00 | `scripts/daily-report.py --stdout` | `--stdout`/`--json` write nothing | `~/dev/audit-reports/daily/daily-YYYY-MM-DD.{md,json}` · [notification and status line](#reports) · Drive via the nightly `dev` backup | `./test.sh daily`, `ruff` | `macos/com.pieterdejong.dailyreport.plist` | D70 |
 | [Web app](#daily-report-and-web-app) | `bin/maintenance-app` → `scripts/maintenance-app.py` | on demand | `maintenance-app` | read-only always; `127.0.0.1`, per-run token | browser (it opens the URL) | `./test.sh app`, `ruff` | — | D71 |
+| [Notes search](#notes-search) | `bin/notes-app` → `scripts/notes-app.py` | on demand | `notes-app` | read-only always; `127.0.0.1`, per-run token | browser (it opens the URL) | `./test.sh notes`, `ruff` | — | D73 |
 | [Dashboard](#dashboard) | `scripts/audit-dashboard.py` | after each audit | `scripts/audit-dashboard.py` | reads reports, writes one HTML file | `~/dev/audit-reports/dashboard.html` | `./test.sh tools`, `ruff` | — | D28 |
 | [Disk cleanup](#weekly-disk-cleanup) | `bin/weekly-disk-cleanup.sh` | Sundays 09:00 | `weekly-disk-cleanup.sh` | `--dry-run` | `~/.weekly-disk-cleanup.log` · [notification and status line](#reports) | `./test.sh bin` (static + `--dry-run`, never a real run) | `macos/com.pieterdejong.weeklycleanup.plist` | D18, D20, D27, D60 |
 | [Mac maintenance](#mac-maintenance-manual) | `scripts/mac-maintenance.sh` | by hand | `scripts/mac-maintenance.sh` | `--dry-run` | `~/maintenance-YYYYMMDD.log` · [notification](#reports) | `./test.sh maint` (real run on a fake HOME, notifier stubbed) | — | D29, D60 |
@@ -61,6 +63,7 @@ Read-only toward every repo. Why it is built this way: [design decisions D15](de
 | 6 | Loose files | credential-shaped files (`*.pem`, `*.key`, `.env*`, recovery codes, …) outside any repo (FAIL), or untracked and not ignored inside one (WARN). A file outside any repo that a `.gitignore` in its directory or an ancestor already ignores — generated env files in `templates/`, say — is listed as info | move it to the password manager, or add it to `.gitignore` |
 | 7 | Account | SSH keys on the GitHub account, `gh` token scopes | remove any key you cannot place |
 | 8 | Templates | `template-versions.py --summary --out <report dir>` over the eight curated templates; skipped under `--quick` unless `--templates` | a template has bumps to take, or a runner/action to update by hand — see [Template dependency drift](#template-dependency-drift) |
+| 10 | Latest stable | `latest-deps.py --summary`: reads the newest Saturday report, runs nothing; also under `--quick` | a project is `broken-by-latest`, `needs-ci`, `already-failing` or `error`, or the newest report is over 8 days old — see [Latest-stable test run](#latest-stable-test-run-of-the-projects) |
 
 The report lands in `~/dev/audit-reports/` (mode 600, never inside a git repo) with the
 dotaudit and sweep reports from the same run beside it. A notification shows counts only:
@@ -157,11 +160,18 @@ there (the do-not-touch register).
 [`scripts/daily-report.py`](../scripts/daily-report.py), scheduled by
 [`macos/com.pieterdejong.dailyreport.plist`](../macos/com.pieterdejong.dailyreport.plist) at 07:00,
 after the 03:00 docs backup. It writes one markdown report a day and a JSON copy, both mode 600, to
-`~/dev/audit-reports/daily/`. The report has five sections:
+`~/dev/audit-reports/daily/`. The report has these sections:
 
 - **Needs action:** a failed or missing job, a finding from a run inside the window, today's
   commits not yet on GitHub.
 - **Scheduled jobs:** one row per agent in the launchd register (D69).
+- **All launchd jobs:** every plist in `~/Library/LaunchAgents`, `/Library/LaunchAgents` and
+  `/Library/LaunchDaemons`, ours and third-party, with state, last exit and program. A job that is
+  new since the previous report, an own agent missing from the register, and a job whose program
+  no longer exists go to Needs action (D78).
+- **Backups:** one row per target in the backup-state register's `## Targets` table, with the
+  status from each target's state file: `ok`, `failed`, `stale` (a scheduled target over 36 h old),
+  `missing`, `dry run`, `manual` or `once` (D72).
 - **Administrative work:** decisions, TODO items opened and ticked, `[Unreleased]` lines,
   register changes.
 - **Git work:** commits per own repo.
@@ -181,13 +191,28 @@ maintenance-app                                   # the web app, opened in the b
 `maintenance-app` serves the reports on `127.0.0.1`, on a free port, behind a per-run token:
 - today's tiles and Needs action;
 - a jobs × 30 days grid;
+- the backup targets: a table of the latest day and a targets × 30 days grid (D72);
 - trends of administrative work and activity;
 - each day's report;
 - *today so far*, collected live and written nowhere;
 - the weekly dashboard.
 
 It is read-only and stops with Ctrl-C. Why it is built this way: [D70](design-decisions.md#d70--a-daily-markdown-report-of-what-the-jobs-did-and-what-work-was-done-local-backed-up-by-the-nightly-dev-sync--2026-11-14),
-[D71](design-decisions.md#d71--maintenance-app-a-local-web-app-over-the-daily-reports-stdlib-only--2026-11-14).
+[D71](design-decisions.md#d71--maintenance-app-a-local-web-app-over-the-daily-reports-stdlib-only--2026-11-14),
+[D72](design-decisions.md#d72--backups-are-listed-per-target-in-a-register-and-shown-in-the-daily-report-and-maintenance-app--2026-11-15).
+
+## Notes search
+
+```zsh
+notes-app                      # search ~/notes in the browser
+notes-app --notes ~/other      # another folder (or NOTES_DIR)
+```
+
+`notes-app` holds every plain-text note in memory and serves a search page on `127.0.0.1`, on a
+free port, behind a per-run token. Every term must match, `"quoted words"` match as a phrase, and
+title matches come first. It reads the folder and nothing else, writes nothing, and stops with
+Ctrl-C. Why it is built this way:
+[D73](design-decisions.md#d73--notes-app-local-read-only-full-text-search-over-the-notes-folder-on-maintenance-apps-handler--2026-11-15).
 
 ## Weekly disk cleanup
 
@@ -451,6 +476,7 @@ cd ~/dev/dotfiles
 ./test.sh entry      # init.sh and run.sh
 ./test.sh daily      # daily-report.py over a fake HOME and ~/dev (jobs, skip/fork repos, TODO diff, privacy)
 ./test.sh app        # maintenance-app on a loopback port (token, Host check, paths, escaping, CSP)
+./test.sh notes      # notes-app on a loopback port (search, escaping, ids, token, Host, CSP)
 ./test.sh --docker   # adds the restore test in a debian container (colima start first)
 ./init.sh --check    # what this repo needs, installing nothing
 ./run.sh             # warnings, gate status, dotfiles drift
@@ -459,6 +485,63 @@ cd ~/dev/dotfiles
 What is only asserted statically, never executed for real: `weekly-disk-cleanup.sh` (it deletes).
 Everything else in this table runs for real against a fixture HOME or workspace, so a test can
 never touch the real `~/.Trash`, caches, reports, launchd agents, Keychain or mailbox.
+
+### Latest-stable test run of the projects
+
+On Saturdays at 22:00, [`scripts/latest-deps.py`](../scripts/latest-deps.py) tests every own project under
+`~/dev/projects` that has a manifest and a `./test.sh` against the latest stable packages. The exact pins
+stay as they are. Each project gets a throwaway `git clone --shared` of its committed HEAD in
+`~/Library/Caches/latest-deps/`. In it the script runs `./init.sh` and `./test.sh` as pinned, then bumps every
+exact npm and PyPI pin to latest stable and runs both again. If that fails, it retries with patch/minor only.
+Then it deletes the clone. Nothing in the project or its `.git` is written. Forks, upstream clones, repos with
+no origin, every project the do-not-touch register names, `scratch/`, and the private skip list
+(`private/registers/latest-deps-skip.txt`, `name<TAB>reason`) are skipped, each with its reason in the report.
+
+| Verdict | Meaning | What to do |
+|---|---|---|
+| `ok` | pinned and latest both pass | `latest-deps.py --apply NAME`, then `./init.sh && ./test.sh`, a CHANGELOG line, a DECISIONS entry for any major |
+| `ok-patch-minor` | the majors break it; patch/minor alone pass | `--apply NAME` takes only the patch/minor set; look at the named majors |
+| `broken-by-latest` | pinned passes, latest fails | read the log tail in the `.md`; fix, or hold the version in `private/registers/latest-deps-holds.tsv` (D55 format) |
+| `already-failing` | the pinned run fails, so latest can't be judged | fix the project's own suite first (often a missing `.env` or a network step) |
+| `needs-ci` | `test.sh` runs the gate and has no `--ci`, and latest failed | add a `--ci` flag that skips the local gate scan, as in the templates |
+| `error` | clone, setup or a registry fetch failed, or a command timed out | rerun with `--project NAME`; `LATEST_DEPS_CMD_TIMEOUT` (900 s) |
+
+```zsh
+~/dev/dotfiles/scripts/latest-deps.py --dry-run                 # scope, skips and planned bumps; clones nothing
+~/dev/dotfiles/scripts/latest-deps.py --project NAME            # one project now
+~/dev/dotfiles/scripts/latest-deps.py --summary                 # what the audit's section 10 reads
+~/dev/dotfiles/scripts/latest-deps.py --apply NAME              # write the passing set, uncommitted
+```
+
+#### Expo on latest stable (D78)
+
+After that run, the same job moves every Expo app to the latest stable Expo. That covers apps at a
+project's root or up to two levels down (`mobile/`, `apps/mobile/`), plus `LATEST_DEPS_EXPO_EXTRA`
+(default: the `rn-supabase` template). expo goes to npm's `latest`, a new SDK major included, and
+every package its `bundledNativeModules.json` names goes to that version. Range pins become exact.
+The bump is tested in a clone first. If that passes and the checkout is clean, it is written into
+the checkout, uncommitted, and `./init.sh` and `./test.sh` run there. A failure restores
+`package.json` and `package-lock.json`. Nothing is ever committed.
+
+| Verdict | Meaning | What to do |
+|---|---|---|
+| `applied` | the bump is in the checkout, uncommitted, and its `./test.sh` passed | review the diff, add a CHANGELOG line (and a DECISIONS entry for an SDK major), commit |
+| `reverted` | passed in the clone, failed in the checkout; manifests restored | read the log tail in `expo-DATE.md`; often a local-only step |
+| `passed-dirty` | passed in the clone; not written, because the checkout has uncommitted work | commit or stash, then `latest-deps.py --expo-only --project NAME` |
+| `broken-by-latest` | latest Expo fails in the clone | do the SDK migration, or hold it: `NAME<TAB>expo<TAB><59.0.0<TAB>reason<TAB>ref` in `latest-deps-holds.tsv` |
+
+A project whose GitHub owner isn't `pieteradejong` joins through `private/registers/latest-deps-owners.txt`.
+A project whose `./test.sh` needs specific arguments (eu27: `--no-live`) gets a line in
+`private/registers/latest-deps-args.tsv`.
+
+```zsh
+~/dev/dotfiles/scripts/latest-deps.py --expo-only --dry-run     # the Expo plan; clones nothing
+~/dev/dotfiles/scripts/latest-deps.py --expo-only --project NAME
+```
+
+Installed 2026-11-16 with `cp macos/com.pieterdejong.latestdeps.plist ~/Library/LaunchAgents/ &&
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.pieterdejong.latestdeps.plist`; its row in the
+launchd register is `yes`. Why: [D76](design-decisions.md#d76--every-own-project-is-tested-weekly-against-latest-stable-in-a-throwaway-clone-the-pins-stay-put--2026-11-16).
 
 ## Decisions
 
@@ -484,6 +567,10 @@ the rejected alternatives and the `Verified:` line.
 - [D63](design-decisions.md#d63--initsh-and-runsh-join-testsh-and-testsh-checks-its-own-coverage--2026-11-10) — `init.sh` and `run.sh` join `test.sh`, and `test.sh` checks its own coverage.
 - [D70](design-decisions.md#d70--a-daily-markdown-report-of-what-the-jobs-did-and-what-work-was-done-local-backed-up-by-the-nightly-dev-sync--2026-11-14) — a daily markdown report of jobs and administrative work; local, on Drive through the nightly `~/dev` backup.
 - [D71](design-decisions.md#d71--maintenance-app-a-local-web-app-over-the-daily-reports-stdlib-only--2026-11-14) — `maintenance-app`: a local, read-only, token-guarded web app over the daily reports; stdlib only.
+- [D72](design-decisions.md#d72--backups-are-listed-per-target-in-a-register-and-shown-in-the-daily-report-and-maintenance-app--2026-11-15) — backups listed per target in a register, shown in the daily report and `maintenance-app`.
+- [D73](design-decisions.md#d73--notes-app-local-read-only-full-text-search-over-the-notes-folder-on-maintenance-apps-handler--2026-11-15) — `notes-app`: local, read-only full-text search over the notes folder.
+- [D76](design-decisions.md#d76--every-own-project-is-tested-weekly-against-latest-stable-in-a-throwaway-clone-the-pins-stay-put--2026-11-16) — every own project tested weekly against latest stable in a throwaway clone; the pins stay put.
+- [D78](design-decisions.md#d78--expo-follows-latest-stable-and-is-applied-unattended-the-daily-report-lists-every-launchd-job--2026-11-16) — Expo follows npm latest, SDK majors included, and a passing bump is written into a clean checkout, uncommitted; the daily report lists every launchd job on the Mac.
 
 ## Open items
 

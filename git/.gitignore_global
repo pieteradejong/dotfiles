@@ -34,3 +34,12 @@ __pycache__/
 .terraform/
 
 **/.claude/settings.local.json
+
+# Personal data (D74): never in git, private repos included (~/dev/CLAUDE.md hard rule). Locked
+# originals and the Apple Notes / Messages stores. They reach Drive through the ~/dev backup's
+# dev-includes.txt, which lists them explicitly, not through git.
+originals_read_only/
+NoteStore.sqlite
+NoteStore.sqlite-*
+chat.db
+chat.db-*

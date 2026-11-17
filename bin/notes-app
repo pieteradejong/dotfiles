@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+#
+# notes-app — local, read-only full-text search over a folder of plain-text notes (D73).
+#
+# Usage: notes-app [--port N] [--no-open] [--notes DIR]
+#
+# Indexes ~/notes (or --notes DIR, or $NOTES_DIR) in memory and serves a search page on
+# 127.0.0.1 only, behind a per-run token, and opens it in the browser. Nothing is written.
+# Ctrl-C stops it. The server is scripts/notes-app.py; its --help lists the pages and guards.
+set -euo pipefail
+case "${1:-}" in -h|--help) sed -n '2,/^$/s/^# \{0,1\}//p' "$0"; exit 0 ;; esac
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec python3 "$SCRIPT_DIR/../scripts/notes-app.py" "$@"

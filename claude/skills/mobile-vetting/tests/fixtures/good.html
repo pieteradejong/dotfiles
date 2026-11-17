@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Good fixture</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 16px/1.5 system-ui, sans-serif; padding: 16px env(safe-area-inset-right) 16px env(safe-area-inset-left); }
+  main { max-width: 40rem; margin: 0 auto; padding: 0 16px; min-height: 100dvh; }
+  button, input { font: inherit; }
+  nav a, button { display: inline-flex; align-items: center; min-height: 44px; min-width: 44px; padding: 0 12px; }
+  input { font-size: 16px; min-height: 44px; width: 100%; }
+  img { max-width: 100%; height: auto; }
+  .menu { display: none; }
+  .nav:hover .menu, .nav:focus-within .menu { display: block; }
+</style>
+</head>
+<body>
+<main>
+  <nav class="nav"><a href="#a">Home</a> <a href="#b">About</a><div class="menu"><a href="#c">More</a></div></nav>
+  <h1>A page that works on a phone</h1>
+  <p>Running text with an <a href="#d">inline link</a> that is exempt from the tap-target size rule.</p>
+  <label for="q">Search</label>
+  <input id="q" type="search">
+  <button type="button">Go</button>
+</main>
+</body>
+</html>

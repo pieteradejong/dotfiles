@@ -24,6 +24,8 @@
 #   9. models     newer local models on ollama.com that could replace one in the
 #                 llm lineup (model-versions.py --summary; check only, never pulls).
 #                 Runs under --quick too: one search page per role, a few seconds
+#  10. latest     the newest weekly latest-stable test run of the projects
+#                 (latest-deps.py --summary: reads the Saturday report, runs nothing)
 #
 # Usage: security-audit.sh [--quick] [--templates] [--history] [--no-notify] [--out DIR]
 #   --quick      skip steps 2, 4 and 8 (the slow ones)
@@ -64,6 +66,7 @@ BYPASS_LOG="${SECURITY_GATE_BYPASS_LOG:-$HOME/.local/state/security-gate/bypass.
 QUICK=0; FORCE_HISTORY=0; NOTIFY=1; TEMPLATES=0
 TEMPLATE_VERSIONS="${TEMPLATE_VERSIONS:-$SCRIPT_DIR/template-versions.py}"
 MODEL_VERSIONS="${MODEL_VERSIONS:-$SCRIPT_DIR/model-versions.py}"
+LATEST_DEPS="${LATEST_DEPS:-$SCRIPT_DIR/latest-deps.py}"
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -270,6 +273,20 @@ if [ "$mrc" -ge 2 ] && ! grep -q 'incomplete' "$WORK/models"; then
 fi
 # shellcheck disable=SC2016 # the backticks are markdown code spans, not expansions
 info_ "full table: \`model-versions-$STAMP.md\` in this directory; a candidate is a lead, not a swap (docs/maintenance.md)"
+
+# --- 10. latest deps ------------------------------------------------------------------
+section "10. Projects against latest stable"
+"$LATEST_DEPS" --summary > "$WORK/latest" 2> "$WORK/latest.err"
+while IFS="$(printf '\t')" read -r level text; do
+  case "$level" in
+    FAIL) fail_ "$text" ;;
+    WARN) warn_ "$text" ;;
+    INFO) info_ "$text" ;;
+  esac
+done < "$WORK/latest"
+[ -s "$WORK/latest" ] || warn_ "latest-deps.py --summary printed nothing: $(head -1 "$WORK/latest.err")"
+# shellcheck disable=SC2016 # the backticks are markdown code spans, not expansions
+info_ "full table: \`~/dev/audit-reports/latest-deps/\`; take a passing set with \`latest-deps.py --apply NAME\`"
 
 # --- since last run ---------------------------------------------------------------------------------
 # FAIL/WARN lines of this run against the newest *full* report in OUT_DIR (a

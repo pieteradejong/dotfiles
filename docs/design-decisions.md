@@ -2282,3 +2282,409 @@ need two days. `/live` takes about 6 s, the collector's time.
   - `lsof` shows `127.0.0.1` only;
   - the reports directory is unchanged afterwards.
 - **NOT YET:** the four views checked in the browser over the real report (`dotfiles/TODO.md`).
+
+## D72 — Backups are listed per target in a register, and shown in the daily report and `maintenance-app` · 2026-11-15
+
+**Problem.** Pieter asked for the backups to be documented "the same way we document launchd
+processes in a local web app". The daily report showed the nightly backup as one launchd job with
+its targets squeezed into one Result cell, and backups that run by hand or once did not appear at
+all. A target that never ran, or a provider whose remote was never configured, was invisible.
+
+**Decision.** The same three pieces as launchd (D69, D70, D71):
+- **Register:** a `## Targets` table in the private backup-state register, one row per target:
+  source, destination, encrypted, schedule (`daily HH:MM`, `manual` or `once`), runs via, verify,
+  and the state file the backup script writes per target. It sits next to the existing
+  coverage-by-source table rather than in a new register, so one file says what is backed up.
+- **Report:** `daily-report.py` reads that table (`BACKUP_REGISTER` overrides the path) and each
+  target's state JSON, and only `ok`, `dry_run` and `finished` from it. It never reads a log or the
+  log path, so no file name reaches the report. Status is `ok`, `failed`, `stale` (a scheduled
+  target whose last real run is over 36 h old), `missing` (scheduled, never ran), `dry run`,
+  `manual` or `once`. `failed`, `stale` and `missing` go to Needs action. The report gains a
+  `## Backups` table, `backups` in the JSON, and backup counts in the summary line. A missing
+  register is named under `incomplete`, as the launchd one is.
+- **App:** `maintenance-app` gains a *Backups ok* tile, a table of the latest day's targets and a
+  targets × 30 days grid. `job_grid()` takes a key (`jobs` or `backups`) rather than being copied.
+  Reports from before this decision have no `backups` key and render "None recorded yet".
+
+The backup script also learned to fail loudly when a target's rclone remote is not configured
+(`rclone listremotes`): it syncs nothing for that target, notifies, and records the failure, so the
+report shows `failed` rather than a silent gap.
+
+**Rejected.**
+- *A separate `backups.md` register:* the coverage table already lives in backup-state, and two
+  backup registers would drift.
+- *Parsing the backup's `latest.md` report per target:* a `--target` run overwrites it with one
+  target, and it is a rendering, not state.
+- *Reading the rclone logs:* they hold file names (D27 privacy rule).
+- *One launchd row per target:* they are one agent; the register would no longer match
+  `~/Library/LaunchAgents`, which `dotaudit --only launchd` checks.
+
+**Cost.** A target added to the backup script but not to the register is not shown. That is the
+same rule as launchd: add the row in the same session as the target.
+
+**Verified: PARTIAL.** 2026-11-15:
+- `./test.sh daily`: 14 cases pass, two new. One builds a register with every status (ok, failed,
+  stale, dry run, missing, manual), a `## Scheduled jobs` table that must not be read, and state
+  files whose log path holds a marker that must not appear. The other covers a missing register.
+- `./test.sh app`: 14 cases pass, two new: the Backups section, tile, grid and escaping; and an old
+  report without `backups`.
+- `daily-report.py --json` over the real register lists all eight targets. Five are scheduled:
+  three are `ok`, one is `failed` (a real check failure that was already reported), and the new
+  target is `missing` until its remote is set up. The other three are `manual`/`once`.
+- The backup script's own `test.sh` (outside this repo): 40 passed, including the
+  missing-remote case.
+- **NOT YET:** the Backups section seen in the browser over a real daily report (`TODO.md`).
+
+## D73 — `notes-app`: local, read-only full-text search over the notes folder, on `maintenance-app`'s handler · 2026-11-15
+
+**Problem.** Pieter keeps ~120 short plain-text notes in one flat folder (file name = title, no
+extension) and wants them searchable in a local web app.
+
+**Decision.** `bin/notes-app` starts `scripts/notes-app.py`:
+- **Index:** every regular file under the folder is held in memory: about 0.5 MB today, so there is
+  no SQLite, FTS or index file. Before each request a directory listing (path, mtime, size) is
+  compared with the last one, and the index is rebuilt when it differs. Skipped: symlinks
+  (nothing outside the folder is read), dot-files and folders, files with a NUL byte in the first
+  8 KB, and files over 2 MB.
+- **Search:** case-insensitive. Every term must match the title or the body (AND), and `"quoted
+  words"` match as a phrase. Ranking is the number of terms in the title, then the most recent
+  first. Results show highlighted snippets. The highlighting escapes first, then wraps matches in
+  `<mark>`, so no note text is ever emitted raw.
+- **Pages:** `/` (recent notes, or `?q=` results), `/n/<id>` (one note, matches highlighted) and
+  `/api/search`. A note's id is the first 12 hex digits of the sha1 of its path inside the folder,
+  looked up in the index, so a request path never becomes a file path.
+- **Guards:** the request handler subclasses `maintenance-app`'s `App`, so the token, Host check,
+  security headers, HEAD and quiet logging are the same code. Two settings moved into the server
+  config for this. The cookie name is per app (`na` here, `ma` there), because cookies ignore the
+  port and two apps on 127.0.0.1 would otherwise overwrite each other's token. The CSP is per app,
+  because the search box needs `form-action 'self'`. The page has no script at all.
+
+**Rejected.**
+- *SQLite FTS5:* an index file to keep in sync, a write path, and no gain at this size; worth it
+  past tens of MB.
+- *A shared `localapp.py` module:* subclassing does the same with a two-line change to
+  `maintenance-app` and no new file.
+- *Editing notes in the browser:* that would put a write path into a tool whose guarantee is that
+  it writes nothing. Pieter chose read-only.
+- *`grep` on every request:* it can't rank by title, and it needs a subprocess per query.
+
+**Cost.** The whole folder is read on any change, which is fine at this size. Notes in another
+encoding are decoded as UTF-8 with replacement characters.
+
+**Verified: PARTIAL.** 2026-11-15:
+- `./test.sh notes`: 21 cases pass. The fixture folder has a colon, question mark, double space,
+  parentheses and non-ASCII in names, a nested folder, a dot-file, a binary file, a symlink out
+  and a note holding `<script>`. The cases cover:
+  - search ranking, AND, phrase, case and Unicode;
+  - the symlink target never indexed;
+  - every awkward name opening by id;
+  - escaping on every page;
+  - `..` and raw names giving 404;
+  - token and cookie name (the `ma` cookie is refused), Host, CSP, POST 501 and the loopback bind;
+  - a note added while the app runs being found, and the folder unchanged.
+- `./test.sh app` still passes after the handler change.
+- Over the real folder: 123 notes indexed, 403 without the token, results for a word and for a
+  phrase, and the folder's names, mtimes and sizes unchanged.
+- **NOT YET:** used in the browser (`TODO.md`).
+
+## D74 — Personal data never goes into git: a root hard rule, the gate, dotaudit and the global gitignore · 2026-11-15
+
+**Problem.** Pieter: "make sure to never let data go into git … ensure we have captured that in
+our root CLAUDE.md instructions." The data tiers (security §1) said where private data sets live,
+but the root `CLAUDE.md`, the file every session reads, had no hard rule for it. Nothing enforced
+it either: the gate blocked keys and credential files, dotaudit had `tracked-media` but nothing for
+data, and the global gitignore had no data entries. The same session had a near-miss: a
+`notes-app` test fixture briefly held real note titles in this public repo. A screen of every
+real title against the diff caught it before any commit.
+
+**Decision.** Four layers, each one cheap:
+1. **Hard rule** in `claude/dev-CLAUDE.md` (copied to `~/dev/CLAUDE.md`): personal data (notes,
+   exports, messages, contacts, recordings, databases, `originals_read_only/` and anything
+   derived) never goes into git, private repos included. It reaches Drive through the `~/dev`
+   backup's `dev-includes.txt`. Fixtures are invented, names and titles included. The staged
+   paths and diff are checked before every commit.
+2. **Gate** (`patterns.sh` `GATE_FILE_RULES`, commit and push, every repo):
+   `personal-originals` for `originals_read_only/*` at any depth; `personal-data-store` for
+   `NoteStore.sqlite`, `chat.db` and their `-wal`/`-shm` files.
+3. **dotaudit `tracked-data`** (`20-policy.sh` `check_data`, patterns in `patterns.sh`):
+   - FAIL for tracked originals (`originals_read_only/`, `originals/`) and those stores;
+   - WARN for `.sqlite`, `.sqlite3`, `.db`, `.jsonl`, `.mbox`, `.vcf` and `.ics`, except under
+     `test(s)/`, `fixture(s)/`, `testdata/` or a `test_*` name.
+4. **Global gitignore** (`git/.gitignore_global`, symlinked as `~/.gitignore_global`): the same
+   originals and stores. This doesn't change the backup: `dev_filelist.py` collects
+   `dev-includes.txt` paths with an explicit `--exclude`, without `--exclude-standard`.
+
+**Rejected.**
+- *Blocking every `*.db`/`*.sqlite` in the gate:* app schemas and public-statistics test DBs are
+  legitimate (one exists in a repo today). A WARN that names them is enough.
+- *The rule in memory only:* memory is per machine and per tool. The root file reaches every
+  Claude session under `~/dev`, and through `AGENTS.md`, Codex.
+- *Matching the singular `original/` too:* it is a common, generic folder name, and the one
+  personal store using it is being renamed (inotes decision 8).
+
+**Cost.** A store under another name (say `export.jsonl`) is only a WARN, not a block. The gate's
+patterns are names, not contents.
+
+**Verified: PARTIAL.** 2026-11-15:
+- `./test.sh gate` passes. The cases block `originals_read_only/a.txt`,
+  `x/originals_read_only/objects/ab/cd`, `NoteStore.sqlite`, `x/NoteStore.sqlite-wal`,
+  `chat.db` and `y/Messages/chat.db-shm`, and allow `docs/originals.md`,
+  `originals_read_only.md` and `notes/chat.dbx.md`. A first draft with `chat.db*` blocked that
+  last file, and the case caught it.
+- `./test.sh dotaudit` passes, with 5 new `tracked-data` cases: FAIL names the original and the
+  store; WARN names a `.SQLITE` and a `.vcf` but not a `tests/fixtures/` DB, a `test_*` DB or
+  `originals.md`; the clean repo stays silent.
+- `./test.sh docs` passes: the Enforcement row is in, and `~/dev/CLAUDE.md` is in sync.
+- Over the real workspace, `dev-audit.sh --only policy` gives 0 `tracked-data` findings, as the
+  read-only scan predicted.
+- The `~/dev` backup list is the same 63,236 files before and after the global ignore (sorted
+  compare).
+- `git check-ignore` ignores `x/originals_read_only/a` and `y/NoteStore.sqlite-wal`, and not
+  `y/chat.dbx.md` or `originals.md`.
+- **NOT YET:** `codex-agents-sync`, which the root file says to re-run after editing it, does not
+  exist anywhere in dotfiles, so Codex's `~/.codex/AGENTS.md` was not rebuilt (`TODO.md`).
+
+## D75 — `mobile-vetting`: a Claude skill with a scripted mobile audit, kept in dotfiles · 2026-11-16
+
+**Problem.** Pieter: "any web app needs to be fully vetted for mobile compatibility." Only one
+project (eu27-data-sovereignty, its #92) ran phone viewports in its tests; every other web project
+had no mobile check, and "done" for UI work meant a desktop look.
+
+**Decision.**
+1. **A personal Claude skill**, `claude/skills/mobile-vetting/`, symlinked to
+   `~/.claude/skills/mobile-vetting`. It's version-controlled and copyable, like the hooks, which also
+   run in place from dotfiles.
+2. **The check is a script**, `scripts/mobile-audit.mjs` (Playwright, `@playwright/test` pinned
+   exactly). It runs five devices (iPhone SE portrait and landscape, iPhone 17 Pro, Pixel 7, iPad
+   Mini) plus a throttled Pixel 7 load, writes `report.md`, `report.json` and full-page screenshots,
+   and exits 0 / 1 / 2. Each check id is documented with its fix in `references/checklist.md`.
+   Chromium runs on the installed Chrome (the same lookup as eu27); WebKit is Playwright's own.
+3. **Two layers.** The audit runs on demand against any URL. `templates/mobile.spec.ts` and
+   `templates/devices.ts` carry the FAIL-level checks into a project's own suite, so CI keeps them.
+4. **Real iOS Safari, when there is a simulator**: `scripts/ios-simulator.sh` screenshots through
+   `xcrun simctl`, and exits 3 (skipped) without one.
+5. **Turned on by a hard rule** in `claude/dev-CLAUDE.md`, not only by the skill's description: a
+   change to web UI is not done until the audit exits 0 and its table is in the summary.
+
+**Rejected.**
+- *A checklist only:* it can't be repeated, and "looks responsive" is a statement, not output.
+- *Lighthouse:* it covers one device per run, its scores are noisy, and it misses the iOS-specific
+  defects (focus zoom, safe areas, body-as-scroller) that cause most of the real breakage.
+- *The skill under `~/.claude/skills` only:* not backed up, and nobody else can copy it.
+- *Wiring the symlink into `init.sh`:* `init.sh` deliberately never writes into `$HOME`. The
+  restore script is the place (`TODO.md`).
+- *Pinning `@playwright/test` 1.62.1 to reuse the cached WebKit build:* the projects pin 1.63.0. One
+  78 MB WebKit download keeps the skill on the same version as the projects.
+
+**Cost.** WebKit stands in for iOS Safari, so the simulator pass, or a person, is still needed for
+browser bars and the keyboard. The checks are heuristics. Each exemption (inline links, the WCAG
+2.5.8 spacing exception, scroll containers, `@media (hover: hover)`) has a fixture that must stay clean.
+
+**Verified: PARTIAL.** 2026-11-16:
+- `./test.sh mobile` passes 108 cases. They cover the static checks (pin, lockfile, frontmatter,
+  check ids documented in both directions, named paths, the symlink), `ios-simulator.sh` against
+  five stub-`xcrun` setups, and the audit over 11 invented fixture pages. Pages that must pass:
+  `good`, `edge` (every exemption) and `rounding`. Pages that must fail with named ids: `bad`,
+  `scroller`, the four viewport and zoom pages, a 404, an unreachable server, and usage errors. The
+  template spec also runs in Playwright's runner: 25 passed on `good`, 25 failed on `bad`.
+- Mutation sweep: one check or exemption disabled at a time, 27 mutants, with the suite run on each.
+  26 were caught. The first pass had two survivors that pointed at real gaps, and fixtures were
+  added for them: no page lacked a viewport tag, and the inline-link exemption never decided a
+  case, since spacing alone passed every inline link. Three "kills" in the first pass were void (the
+  pattern held the sweep's field separator) and were re-run. One survivor stays, as an equivalent
+  mutant: the source-text fallback for `env(safe-area-inset-*)` is redundant in today's WebKit and
+  Chromium, which keep `env()` when they serialize a rule.
+- Real runs on two of Pieter's web apps. The first runs showed false positives: tables in scroll
+  containers, footnote links in a `<sup>`, 24 px links laid out at 23.99, hover lifts read as
+  reveals, and Vercel Analytics 404s on a local preview. Each one became an exemption with a
+  fixture. Reading the screenshots then turned up two defects that no check caught (words split
+  mid-word, and the page scrolling inside `<body>`), and those became `word-split` and
+  `body-scroller`. The remaining findings were confirmed by reading the DOM. They're in the
+  projects' TODO entries, not fixed here.
+- The full `./test.sh` run passed 22 of 23 suites, with `restore` skipped (it needs `--docker`).
+  `shellcheck` failed on two of the new test's description strings that began with `~` (SC2088).
+  They were reworded, and `./test.sh shellcheck` and `./test.sh mobile` (108/108) passed on the
+  rerun. The symlink is in place, and the skill shows up in this session's skill list.
+- **NOT YET** (`TODO.md` § Tooling): the simulator pass on a real simulator (none installed); CI
+  installing the browsers, so its audit cases don't skip; the symlink in `sync-dotfiles.sh
+  restore`; a fresh session triggering the skill unprompted.
+
+## D76 — Every own project is tested weekly against latest stable, in a throwaway clone; the pins stay put · 2026-11-16
+
+**Problem.** Pieter asked for the maintenance jobs to always test the projects against the latest
+stable packages. D55 covers only the eight curated templates. Roughly fifty own repos with a
+manifest and a `test.sh` drifted with nothing watching, and a breaking major showed up only when
+someone did the bump by hand. Pins are exact by rule (`supply-chain.md`), so "test against
+latest" can't mean letting the versions float.
+
+**Decision.**
+- `scripts/latest-deps.py` (stdlib Python). It reuses `template-versions.py`'s registry
+  lookups, classes, holds and npm/PyPI bump code by importing that file. For each project in
+  scope it makes a `git clone --shared` of the committed HEAD under `~/Library/Caches/latest-deps`.
+  It runs the project's `./init.sh` (or `npm ci`, or a `.venv` plus `pip install`) and
+  `./test.sh` as pinned, then bumps every exact npm and PyPI pin to latest stable and runs both
+  again. If that fails and majors are among the bumps, it starts over with patch/minor only.
+  Then it deletes the clone. The project and its `.git` are never written to.
+- Verdicts: `ok`, `ok-patch-minor`, `broken-by-latest`, `already-failing` (the pinned run fails,
+  so the latest run proves nothing), `needs-ci`, `error`, `current`, `skipped`. The report goes
+  to `~/dev/audit-reports/latest-deps/latest-deps-DATE.{md,tsv}`, mode 600.
+- Scope: own repos (origin owner `pieteradejong`) directly under `projects/` with a manifest and
+  a `test.sh`. Always skipped: other owners, no origin, every project the do-not-touch register
+  names, `scratch/`, and a private skip list (`private/registers/latest-deps-skip.txt`). Holds
+  go in `private/registers/latest-deps-holds.tsv` (the D55 format, with the project in the first
+  column). Both files are private because they name repos.
+- `./test.sh` gets `--ci` when it accepts one, as in D55. A `test.sh` that runs the gate without
+  a `--ci` flag can fail on the gate's CHANGELOG rule alone. So a failure there is reported as
+  `needs-ci`, never as `broken-by-latest`. No bypass of any kind.
+- Node comes from the project's `.nvmrc` through nvm. Each command has a timeout
+  (`LATEST_DEPS_CMD_TIMEOUT`, 900 s) and its whole process group is killed afterwards. The run
+  as a whole has a budget (`LATEST_DEPS_BUDGET`, 4 h).
+- It runs as its own launch agent, `com.pieterdejong.latestdeps`, on Saturdays at 22:00. The
+  Sunday audit's section 10 and the daily report read its newest report (`--summary` and verdict
+  counts) and never run it.
+- `--apply NAME` writes the versions that passed into the real checkout, uncommitted. That is
+  all of them for `ok` and the patch/minor ones for `ok-patch-minor`. It refuses a dirty tree, a
+  verdict that didn't pass, and a pin that has moved since the report. The CHANGELOG line and any
+  DECISIONS entry stay with the project.
+
+**Rejected.**
+- *Committing the bumps to a `deps/latest-*` branch in each repo* (offered 2026-11-16): weekly
+  commits in about fifty repos for a result a report carries just as well.
+- *Check-only drift table*: it shows what is behind, not whether latest works.
+- *An opt-in register, or a marker file in each repo*: a project nobody opted in would never be
+  tested, and a marker means a commit in every repo.
+- *A section inside `security-audit.sh`*: fifty installs and test suites would add an hour or
+  more to the Sunday audit.
+- *A single test run on latest, with no pinned run*: missing `.env` files, offline steps and
+  integration tests would all be blamed on the bump.
+- *`git worktree add`* (the first plan): it writes worktree metadata into each project's `.git`,
+  including repos this job must not write to. A shared clone reads the object store and writes
+  nothing.
+- *Moving the shared code into a new module* (the first plan): it would churn a tested script for
+  no change in behaviour. An import gives the same reuse.
+
+**Verified.** 2026-11-16:
+- `./test.sh latestdeps` → 9 offline cases OK. They cover every verdict, the skip rules
+  (including a do-not-touch fixture left byte-identical), `--ci` passed only when supported, a
+  timeout, holds, the real checkout and its `.git` byte-identical with an emptied cache, mode 600,
+  `--summary` and its age WARN, and `--apply` refusing broken, dirty and moved pins and taking
+  only patch/minor.
+- `./test.sh templates` is unchanged and OK. `tools` covers section 10 with a stub. `daily`
+  covers verdict counts with no project names leaking. The full `./test.sh` run passed 23 suites
+  (`restore` skipped, since it needs `--docker`). Ruff failed on one unused variable in the new
+  daily case. After the fix, `./test.sh ruff` and `./test.sh daily` both passed.
+- Real dry run: 50 in scope, 64 skipped, each with its reason. The 9 do-not-touch repos and the
+  one other-owner repo are among the skips.
+- Real run on two projects (npm and PyPI): `2 ok`. `find -newer` shows nothing written in
+  either project. `git worktree list` is unchanged, and the cache is empty afterwards.
+- **NOT YET** (`TODO.md`): the agent installed and its first Saturday run (2026-11-21), then
+  section 10 in the Sunday audit of 2026-11-22.
+
+## D77 — Claude skills may live outside dotfiles: the workflow skills are in a private repo · 2026-11-16
+
+**Problem.** D75 put a Claude skill in this repo, under `claude/skills/`, so that it is backed up
+and others can copy it. Four more skills followed the same day (`log`, `test-sh`, `ship`,
+`go-live`: the session's records, `test.sh` coverage, commit and push through the gate, deploy).
+The owner wants those kept private, and this repo is public.
+
+**Decision.** D75's rule becomes: a skill lives in a git repo and reaches `~/.claude/skills` by
+symlink; *which* repo depends on whether it is meant to be copied. `mobile-vetting` stays here.
+The four workflow skills live in a private repo at `~/dev/skills`, with their own `init.sh`
+(creates the links, replaces nothing), `test.sh` and decision log. `claude/dev-CLAUDE.md`
+§ Session workflow names `log` and `ship` at the steps they carry out, so a session that has the
+skills uses them and one that does not still has the rule.
+
+**Rejected.**
+- *Keeping them here*: public, against the owner's choice.
+- *Moving `mobile-vetting` out as well*: it is already published, and it passes this repo's test
+  for what belongs here (someone would copy it).
+- *`~/.claude/skills` only*: not backed up, as in D75.
+- *Having this repo's `init.sh` or `restore` create the links*: `init.sh` never writes into
+  `$HOME`, and the private repo's own `init.sh` does exactly this. Whether `restore` should call
+  it is open (the private repo's `TODO.md`).
+
+**Cost.** Skills now come from two repos, so a new machine needs both cloned and the second
+repo's `./init.sh` run. Nothing in this repo tests the private skills; their repo does.
+
+**Verified.** 2026-11-16: `~/dev/skills/test.sh` → `All checks passed  8 step(s), 0 skipped`
+(shell, skills, check-ids, lint, preflight, init, repo, gate). `cmp claude/dev-CLAUDE.md
+~/dev/CLAUDE.md` → identical after the edit. After confirmation: `~/dev/skills/init.sh --check`
+→ four `ok`, exit 0; the repo's visibility on GitHub → `PRIVATE`; its CI and security runs →
+success. `./test.sh docs` and `./test.sh claudemd` here → passed. **NOT YET** (`TODO.md`): a
+fresh session loading the skills unasked; `codex-agents-sync` after the `dev-CLAUDE.md` edit.
+
+## D78 — Expo follows latest stable and is applied unattended; the daily report lists every launchd job · 2026-11-16
+
+**Problem.** Pieter asked for the maintenance jobs to keep Expo on the latest stable version, with
+`test.sh` proving it works, and for "anything launchd" in the report. Two things fell short. First,
+D55 (templates) and D76 (projects) kept Expo inside its pinned SDK major, so a project on SDK 51 or
+53 was never moved. D76 also skipped range pins and reported without writing anything. On
+2026-11-16, eu27's `test.sh` failed on eight Expo packages one patch behind, which nobody had seen.
+Second, the daily report only knew the agents in the launchd register. Leftover jobs from
+uninstalled apps were invisible.
+
+**Decision.**
+- *Expo rule* (`template-versions.py` `expo_latest`, used by both scripts): expo goes to npm's
+  `latest`, a new SDK major included. Each package that release's `bundledNativeModules.json`
+  names goes to the version it names. An `expo` hold row keeps a template or project inside a
+  bound, for an SDK migration that isn't done yet.
+- *Expo phase* in `latest-deps.py`. It runs after the D76 run on the same Saturday agent;
+  `--no-expo` leaves it out and `--expo-only` runs only it. Every Expo app is covered, at the
+  root or up to two levels down (`mobile/`, `apps/mobile/`), plus `LATEST_DEPS_EXPO_EXTRA`
+  (default: the `rn-supabase` template). Range pins become exact. The bump is tested in a
+  throwaway clone first. If that passes and the real checkout is clean, the bump is written there,
+  uncommitted, and `./init.sh` (or `npm ci`) and `./test.sh` run in the checkout. On failure,
+  `package.json` and `package-lock.json` are restored byte for byte (a lock the bump created is
+  deleted) and set up again. It never commits. A dirty checkout gets `passed-dirty` and nothing
+  is written. Report: `expo-DATE.{md,tsv}` beside the D76 one.
+- *Owners and args registers* (private, because they name repos): `latest-deps-owners.txt` adds
+  GitHub owners besides `pieteradejong` (eu27's organisation). `latest-deps-args.tsv` replaces the
+  `--ci` guess for one project (eu27: `--no-live`, so the weekly run doesn't call production
+  `/ask`, and `--ci` is an unknown option there).
+- *Daily report, "All launchd jobs"*: every plist in `~/Library/LaunchAgents`,
+  `/Library/LaunchAgents` and `/Library/LaunchDaemons`, with state and last exit (`launchctl
+  list`, and `launchctl print system/…` for daemons, no sudo) and the program path. Needs action
+  gets a job that is new since the previous report, an own agent missing from the register, and a
+  job whose program no longer exists. Expo verdict counts join the latest-deps line (counts only,
+  no names, as in D76).
+
+**Rejected.**
+- *Newest patch of the pinned SDK* (D55 and D76 as they were): it leaves SDK 51 on 51, which is
+  not "latest stable".
+- *Report-only for Expo, with `--apply` by hand* (offered 2026-11-16, recommended): Pieter chose
+  unattended application. D76's no-write rule stays in force for every package except Expo's.
+- *Committing the bump*: no unattended commits, as in D76. A human still reads the diff and writes
+  the CHANGELOG line.
+- *Applying to a dirty checkout*: it would mix an automated bump with someone's unfinished work.
+- *Listing only our own agents* (the D70 table): leftovers from removed apps are exactly what it
+  missed.
+- *Flagging every non-zero exit of a third-party job*: vendors' jobs exit non-zero routinely, so
+  that would be noise every day. The exit is shown in the table, not raised.
+
+**Cost.** Saturday's run now writes into real checkouts. A setup step that rewrites other tracked
+files is reported, not reverted, because latest-deps never runs a writing git command in a real
+repo. SDK-major jumps (edgeapp 53, flowshow 51) will mostly come back `broken-by-latest` until
+someone does the migration. That is the point of reporting them.
+
+**Verified.** 2026-11-16:
+- `scripts/test-template-versions.py` → 13 OK. The Expo case now expects `59.0.1` (major) from
+  `latest` and the SDK-59 native modules, and the beta is never a target. With an `expo <59.0.0`
+  hold it expects `58.0.22` and SDK 58's modules.
+- `scripts/test-latest-deps.py` → 14 OK, 5 of them new Expo cases:
+  - `applied`, with the checkout's `mobile/package.json` exact and no commit;
+  - `reverted`, with the manifest byte-identical and no stray lock;
+  - `broken-by-latest` (checkout byte-identical), `passed-dirty`, `current`, and a hold;
+  - a range pin made exact, an extra owner, and the args register;
+  - `--dry-run` cloning nothing.
+- `scripts/test-daily-report.py` → 16 OK. The new case covers user agents, a system daemon read
+  through `launchctl print`, a missing program, an unregistered own agent, the first run as
+  baseline, and a job new on the second run. The Expo counts case leaks no names. The fixtures no
+  longer read the real `/Library`.
+- Real `latest-deps.py --dry-run`: 51 in scope. Expo: edgeapp `^53.0.0→58.0.25` (11 packages),
+  flowshow `~51.0.24→58.0.25` (22); davec, eu27 `mobile/` and `rn-supabase` 0 bumps.
+- Real `daily-report.py --stdout`: 35 launchd jobs, 6 flagged `program missing` (two Homebrew
+  agents and four daemons of removed apps).
+- Agent `com.pieterdejong.latestdeps` installed: `launchctl bootstrap` exit 0, `launchctl print`
+  shows Weekday 6, Hour 22; the launchd register row is `yes`.
+- **NOT YET**: the first unattended Saturday run with the Expo phase (2026-11-21), and its
+  `expo-2026-11-21.md`.
