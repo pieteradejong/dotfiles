@@ -111,7 +111,17 @@ n_now="$(find "$H/Library/Caches" -mindepth 1 -maxdepth 1 | wc -l | tr -d ' ')"
 [ -z "$(find "$H/.Trash" -mindepth 1)" ] && pass "--dry-run put nothing in Trash" || fail "--dry-run put nothing in Trash"
 [ -z "$(find "$H" -maxdepth 1 -name 'maintenance-*.log')" ] && pass "--dry-run writes no log" || fail "--dry-run writes no log"
 [ "$(notify_calls)" = 0 ] && pass "--dry-run shows no notification" || fail "--dry-run notified ($(notify_calls) call(s))"
-for h in UPTIME MEMORY DISK 'LAST WEEKLY CLEANUP' 'LIBRARY CACHES'; do
+grep -q 'dev/projects/media/s3-report.sh not found, skipped' "$OUT" \
+  && pass "the S3 media section is skipped when the media repo's report is missing" \
+  || fail "the S3 media section is skipped when the media repo's report is missing"
+MEDIA_STUB="$T/media-report-stub"
+printf '#!/bin/sh\necho "s3://stub-bucket: 3 objects, 1.0 GB"\nexit 1\n' > "$MEDIA_STUB"; chmod +x "$MEDIA_STUB"
+: > "$OUT"
+HOME="$H" MEDIA_REPORT_BIN="$MEDIA_STUB" "$MAINT" --dry-run > "$OUT" 2>&1; rc=$?
+grep -A1 -- '--- S3 MEDIA ARCHIVE' "$OUT" | grep -q 's3://stub-bucket: 3 objects' \
+  && pass "the S3 media section prints the media repo's report" || fail "the S3 media section prints the media repo's report"
+[ "$rc" = 0 ] && pass "a failing S3 report does not fail the run" || fail "a failing S3 report does not fail the run (rc=$rc)"
+for h in UPTIME MEMORY DISK 'LAST WEEKLY CLEANUP' 'S3 MEDIA ARCHIVE' 'LIBRARY CACHES'; do
   grep -q -- "--- $h" "$OUT" && pass "report has the $h section" || fail "report has the $h section"
 done
 

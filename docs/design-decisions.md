@@ -2774,3 +2774,26 @@ had never run anywhere: they were first exercised by whichever new project was p
 - **NOT YET**: the canary repo does not exist, so no template has run on GitHub. Creating it and
   the first real run wait for Pieter (`TODO.md`). Also not yet run: the first weekly audit with
   section 11 (2026-11-22), and CI on GitHub for this repo with `actionlint` installed by brew.
+
+## D80 — The S3 media report lives in the media repo; `mac-maintenance.sh` only calls it · 2026-11-17
+
+**Context.** Pieter asked for "a report of what is in there", meaning the S3 media archive, in a
+maintenance script. Earlier the same day a read-only survey had found 55 large videos missing from the
+archive, because nothing had uploaded since 2026-11-03.
+
+**Decision.** The report is `s3-report.sh` in the private media repo, which owns the bucket, its
+layout and its prices. `scripts/mac-maintenance.sh` runs it as the `S3 MEDIA ARCHIVE` section, in the
+same way it runs `weekly-cleanup-check` (D46: the media logic stays in the media repo). It makes one
+read-only `list-objects-v2` call and prints folder names, never file names, so the maintenance log holds
+no personal titles. When the media repo is not cloned the section is skipped, and a failing report never
+fails the run (no `set -e`, `|| true`).
+
+**Rejected.** Putting the listing in this public repo: it would hard-code the bucket name and the media
+layout here, and duplicate the prices kept in the media repo. Adding it to `maintenance-status` (the
+session-start line): that runs on every new terminal, and an AWS call there is too slow and needs
+credentials.
+
+**Verified.** `./test.sh maint` → `mac-maintenance: all 59 tests passed` (new: the section is skipped
+without the media repo, a stub report is printed in it, and a failing report leaves exit 0).
+`scripts/mac-maintenance.sh --dry-run` on this Mac prints the real section (1,862 objects, 355.3 GB,
+about $0.35/month at that moment). `shellcheck -S warning` is clean.

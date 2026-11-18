@@ -4,7 +4,8 @@
 #
 # Usage: mac-maintenance.sh [--dry-run] [--no-notify]
 #
-#   (no args)   report uptime, memory, disk and the last weekly cleanup, then
+#   (no args)   report uptime, memory, disk, the last weekly cleanup and what
+#               is in the S3 media archive (media repo s3-report.sh), then
 #               move every entry of ~/Library/Caches no app holds open into one
 #               dated folder in ~/.Trash. Prints, logs to
 #               ~/maintenance-YYYYMMDD.log and shows a macOS notification with
@@ -23,6 +24,7 @@
 #
 # Env:  NOTIFY_BIN       the notifier (default: ../bin/notify-local)
 #       WEEKLY_CHECK_BIN the weekly-cleanup check (default: ../bin/weekly-cleanup-check)
+#       MEDIA_REPORT_BIN the S3 media report (default: ~/dev/projects/media/s3-report.sh)
 #
 # Exit: 0 done, 2 bad usage. A notification that cannot be shown never fails the run.
 
@@ -104,6 +106,19 @@ if [ -x "$check_bin" ]; then
   "$check_bin" 2>&1 | sed '1d'
 else
   echo "$check_bin not found, skipped"
+fi
+echo ""
+
+# --- S3 media archive -------------------------------------------------------
+# The media repo's s3-report.sh: what is in the S3 media bucket per prefix and
+# per root, its monthly cost, and a warning when uploads have stalled. One
+# read-only list call; folder names only, so the log holds no file names.
+echo "--- S3 MEDIA ARCHIVE ---"
+media_report="${MEDIA_REPORT_BIN:-$HOME/dev/projects/media/s3-report.sh}"
+if [ -x "$media_report" ]; then
+  "$media_report" 2>&1 || true
+else
+  echo "$media_report not found, skipped"
 fi
 echo ""
 

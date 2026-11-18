@@ -341,7 +341,11 @@ appended to the log and shown in the notification. It is also the exit code (1 o
 `launchctl print gui/$(id -u)/com.pieterdejong.weeklycleanup` shows `last exit code = 1` after a
 bad run. Run without arguments, `weekly-cleanup-check` checks the last run in the log and also
 whether that run is older than 8 days, which means the job is not running. `mac-maintenance.sh`
-prints this as its `LAST WEEKLY CLEANUP` section.
+prints this as its `LAST WEEKLY CLEANUP` section. Its next section, `S3 MEDIA ARCHIVE`, is the
+media repo's `s3-report.sh`: objects, size and storage class per prefix and per root, the monthly
+cost, and a ⚠ when uploads have stalled while the daily pipeline agent is not loaded. It makes one
+read-only list call and prints folder names only. The section is skipped when the media repo is
+not cloned (`MEDIA_REPORT_BIN` overrides the path).
 
 ```zsh
 weekly-cleanup-check                 # last run in ~/.weekly-disk-cleanup.log, plus its age
@@ -465,8 +469,8 @@ scheduled job needs non-interactive AWS credentials, which is an open item
 A real run ends with a notification: the `Moved: N item(s)` count and the weekly cleanup's
 Self-check verdict ([Reports](#reports)).
 
-Reports uptime, memory, disk and the last weekly cleanup (`weekly-cleanup-check`: did the
-launchd job run in the last 8 days, and did every step work), then moves every entry of `~/Library/Caches` into one dated
+Reports uptime, memory, disk, the last weekly cleanup (`weekly-cleanup-check`: did the
+launchd job run in the last 8 days, and did every step work) and the S3 media archive (media repo `s3-report.sh`), then moves every entry of `~/Library/Caches` into one dated
 folder in `~/.Trash` (`mac-maintenance-caches-YYYYMMDD-HHMMSS`) — a restore window, instead of
 `rm -rf`; the weekly cleanup's 7-day Trash rule reclaims the space later. Entries the weekly
 cleanup already empties in place (`pip`, `pip-tools`, `Homebrew`) are left to it. An entry in

@@ -4,6 +4,20 @@ One dated section per session that changed this repo, newest first (`~/dev/CLAUD
 workflow, step 6; D68). This repo is public: nothing private goes here. Workspace-level sessions
 are logged outside it.
 
+## 2026-11-17 (evening) — `mac-maintenance.sh` reports the S3 media archive
+
+**Asked:** "add to a maintenance script a report of what is in there" (the S3 media archive), after a disk survey and
+a video backup catch-up in the media repo.
+
+**Changed:** `scripts/mac-maintenance.sh` gets a `S3 MEDIA ARCHIVE` section that runs the media repo's `s3-report.sh`
+(`MEDIA_REPORT_BIN`). There are 4 new checks in `scripts/test-mac-maintenance.sh`, and `docs/maintenance.md`,
+CHANGELOG and D80 are updated.
+
+**Verified:** `./test.sh maint` → 59 passed; `shellcheck -S warning` clean; a real `--dry-run` prints the section.
+
+**Not verified / open:** nothing new here. The media-side open items are in the media repo's `TODO.md`. Not
+committed: this tree also holds other uncommitted work from today.
+
 ## 2026-11-17 — CI tested in three layers: actionlint, real run status, a template canary (D79)
 
 **Asked:** is there any way to test CI/CD for the templates and all other repos? Then: plan it, test
