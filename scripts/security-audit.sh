@@ -67,6 +67,7 @@ QUICK=0; FORCE_HISTORY=0; NOTIFY=1; TEMPLATES=0
 TEMPLATE_VERSIONS="${TEMPLATE_VERSIONS:-$SCRIPT_DIR/template-versions.py}"
 MODEL_VERSIONS="${MODEL_VERSIONS:-$SCRIPT_DIR/model-versions.py}"
 LATEST_DEPS="${LATEST_DEPS:-$SCRIPT_DIR/latest-deps.py}"
+CI_STATUS="${CI_STATUS:-$SCRIPT_DIR/ci-status.py}"
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -287,6 +288,23 @@ done < "$WORK/latest"
 [ -s "$WORK/latest" ] || warn_ "latest-deps.py --summary printed nothing: $(head -1 "$WORK/latest.err")"
 # shellcheck disable=SC2016 # the backticks are markdown code spans, not expansions
 info_ "full table: \`~/dev/audit-reports/latest-deps/\`; take a passing set with \`latest-deps.py --apply NAME\`"
+
+# --- 11. CI status ---------------------------------------------------------------------
+# D79: what GitHub actually ran on each own repo's default branch. A red security workflow
+# is a FAIL, any other red repo a WARN. Runs under --quick too: it only reads the API.
+section "11. CI status"
+"$CI_STATUS" --summary --out "$OUT_DIR/ci-status" > "$WORK/ci" 2> "$WORK/ci.err"
+crc=$?
+while IFS="$(printf '\t')" read -r level text; do
+  case "$level" in
+    FAIL) fail_ "$text" ;;
+    WARN) warn_ "$text" ;;
+    INFO) info_ "$text" ;;
+  esac
+done < "$WORK/ci"
+[ -s "$WORK/ci" ] || warn_ "ci-status.py --summary printed nothing (exit $crc): $(head -1 "$WORK/ci.err")"
+# shellcheck disable=SC2016 # the backticks are markdown code spans, not expansions
+info_ "full table: \`~/dev/audit-reports/ci-status/ci-status-$STAMP.md\`"
 
 # --- since last run ---------------------------------------------------------------------------------
 # FAIL/WARN lines of this run against the newest *full* report in OUT_DIR (a

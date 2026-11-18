@@ -67,7 +67,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Install tools
-        run: brew install git gitleaks shellcheck jq ruff pre-commit
+        run: brew install git gitleaks shellcheck jq ruff actionlint pre-commit
       - name: Run all tests
         run: |
           export PATH="$(brew --prefix)/bin:$PATH"

@@ -2688,3 +2688,89 @@ someone does the migration. That is the point of reporting them.
   shows Weekday 6, Hour 22; the launchd register row is `yes`.
 - **NOT YET**: the first unattended Saturday run with the Expo phase (2026-11-21), and its
   `expo-2026-11-21.md`.
+
+## D79 — CI is tested in three layers: actionlint at commit, the real run status of every repo, and a canary repo for the templates · 2026-11-17
+
+**Problem.** Pieter asked whether CI/CD can be tested for the templates and every other repo.
+Nothing read what CI did. The gate and dotaudit checked that a workflow *exists*
+(`no-security-ci`) and that its actions are pinned (`unpinned-action`), never that it is valid or
+that it passes. A read of GitHub on 2026-11-17 found 17 of 154 own repos red on their default
+branch. One of them was the `rn-supabase` template's repo, whose weekly scheduled run had failed
+three Mondays in a row unnoticed. A first survey that looked only at each repo's single newest
+run found 8; a newer green run of another workflow hid the rest. Six of the seven curated
+template directories are not git repos, so their `ci.yml` and its `security-reusable.yml` call
+had never run anywhere: they were first exercised by whichever new project was pushed from them.
+
+**Decision.** Three layers, cheapest first.
+- *Static, at every commit and push*: the gate runs `actionlint` on each changed
+  `.github/workflows/*.yml` (`check_workflows`, rule `workflow-lint`). It blocks only errors the
+  change **adds**, compared without line:col, the same "new offenders only" rule as
+  `unpinned-dependency`. Shellcheck and pyflakes on `run:` blocks are off: style nits there are
+  not broken CI. No actionlint (a CI runner, another machine): one `actionlint-missing` warning,
+  never a block. dotaudit reports the existing debt as WARN `workflow-lint`. `./test.sh
+  actionlint` lints this repo's workflows and, on this machine, every curated template's. Flags
+  and the file pattern live in `security/patterns.sh` (`ACTIONLINT_ARGS`, `WORKFLOW_FILE_ERE`).
+- *What GitHub ran*: `scripts/ci-status.py` reads, through `gh api` GETs only, each own,
+  non-fork, non-archived repo's active workflows and its last 50 default-branch runs. It takes
+  the newest counted run **per workflow**, ignoring cancelled and skipped, and gives the repo one
+  status: `red`, `stale` (no counted run in 90 days, or never), `none`, `green` or `error`. A red
+  row names the workflow, each failed job and its first failed step. The weekly audit runs it as
+  section 11 (FAIL for a red security, gitleaks or codeql workflow, WARN for other red, INFO
+  counts; no run dates in those lines, so a repo that stays red is not "new" every week). The
+  daily report shows its counts and asks for action only on the day a new report lands. Skip-list
+  `skip:` repos are left out.
+- *Templates on real runners*: `scripts/template-canary.sh` copies each of the 7 non-repo
+  templates the way a new project starts. It commits the copy as one orphan commit on
+  `canary/<stack>-<variant>` through the normal gate, adds `'canary/**'` to the copy's
+  `branches: [main]` filters (never the template's), and force-pushes that branch, never `main`,
+  to a private canary repo (`pieteradejong/template-ci-canary`; refused unless `gh` says
+  PRIVATE). Then it waits for every run on the commit. `rn-supabase` is left out: it is its own
+  repo, its CI already runs weekly, and `ci-status.py` reads it. `--dry-run` builds and gates the
+  branches and pushes nothing.
+
+**Rejected.**
+- *`act`* (run workflows locally in Docker): it differs from GitHub exactly where the templates
+  could break: reusable-workflow calls, runner images, caching, `setup-*` with `.nvmrc`. A green
+  `act` run would prove less than the canary, so Pieter chose the canary repo (2026-11-17).
+- *One canary repo per template*: seven repos to keep at the GitHub baseline instead of one.
+- *Only the newest run per repo* (the first survey): it misses a red workflow whenever another
+  workflow ran later, which hid 9 of the 17.
+- *Blocking every actionlint error in a touched workflow*: an unrelated edit would be held to old
+  breakage; the debt is dotaudit's to report.
+- *The canary as a step of the weekly audit, now*: every unattended run pushes to GitHub.
+  `~/dev/CLAUDE.md` asks for confirmation before a push, so wiring it in waits for Pieter's
+  standing OK and for the repo to exist (`TODO.md`).
+
+**Verified:**
+- `./scripts/test-security-gate.sh` → 212 passed, 0 failed, including 5 new workflow-lint cases:
+  a job without `runs-on` blocks, an existing error does not block an unrelated edit, an undefined
+  expression property blocks, a valid workflow passes, and no actionlint gives a warning only.
+- `./scripts/test-dev-audit.sh` → 107 passed (`standards-bad` → WARN `workflow-lint`, `clean-repo`
+  silent).
+- `scripts/test-ci-status.py` → 32 OK; 14 deliberate mutations of `ci-status.py` (cancelled
+  counted, `timed_out` not red, inactive or dynamic workflows counted, oldest run wins, forks
+  kept, skip list ignored, never stale, `--out` refusal late, files not 600, error exits 0,
+  security red as WARN, wrong step, no `--source`): every one fails the suite.
+- `bash scripts/test-template-canary.sh` → 56 passed, through the real gate to a local stand-in
+  remote. 14 mutations (env files or `node_modules` copied, rewrite no-op or unchecked, push to
+  `main`, dry run pushes, PUBLIC repo allowed, no wait, no timeout, report 644, red exits 0,
+  `.gitignore` ignored, not orphan): every one fails it (the no-timeout one by hanging, which
+  CI's 20-minute job timeout ends).
+- `scripts/test-security-tools.sh` → 176 passed (section 11 with a stub); `scripts/test-daily-report.py`
+  → 18 OK; `./test.sh actionlint` → clean, this repo and 8 curated templates.
+- Real `scripts/ci-status.py` (read-only): 154 own repos, 17 red, 5 stale, 56 none, 76 green in
+  31 s. Spot-checked against `gh run list`: a red `Python CI` hidden behind a newer green
+  `security` run, and a `ci.yml` that never ran on `main`.
+- Real `scripts/template-canary.sh --dry-run`: 7 branches built and committed through the gate
+  (16–59 files each), nothing pushed. The kept scratch repo shows `branches: [main,
+  'canary/**']`, one orphan commit, the noreply author, no env file but `.env.template`.
+- Full `./test.sh` (775 s): 25 of 27 suites passed, `restore` skipped (needs `--docker`). Two
+  failed on this session's code and were fixed. `scan`: the gate read `${CANARY_REMOTE:-git@github…}`
+  as an email address, because the `-` defeats the `^git@github.` placeholder, so the default
+  remote moved into its own variable. `ruff`: an f-string without placeholders in `daily-report.py`.
+  After the fix, `./test.sh scan`, `ruff` and `shellcheck` pass, as do `test-template-canary.sh`
+  (56) and `test-daily-report.py` (18 OK). The other 23 suites were not rerun; neither edit
+  touches them.
+- **NOT YET**: the canary repo does not exist, so no template has run on GitHub. Creating it and
+  the first real run wait for Pieter (`TODO.md`). Also not yet run: the first weekly audit with
+  section 11 (2026-11-22), and CI on GitHub for this repo with `actionlint` installed by brew.

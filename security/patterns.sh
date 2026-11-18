@@ -171,6 +171,12 @@ ACTION_PINNED_ERE='^(\./|docker://.*@sha256:[0-9a-f]{64}$)|@[0-9a-f]{40}$'
 # alone is secrets-only and no longer satisfies the rule.
 SECURITY_CI_ERE='security-reusable\.yml'
 
+# GitHub workflow files that actionlint checks: the gate blocks new errors in
+# them, dotaudit warns on any (docs/design-decisions.md D79). Shellcheck and
+# pyflakes on `run:` blocks are off: style nits there are not broken CI.
+WORKFLOW_FILE_ERE='^\.github/workflows/[^/]+\.ya?ml$'
+ACTIONLINT_ARGS='-oneline -no-color -shellcheck= -pyflakes='
+
 # The GitHub owner whose repos these standards bind. Everything else is a fork or
 # a clone of someone else's code: secrets and privacy still apply, standards not.
 OWN_GITHUB_OWNER='pieteradejong'

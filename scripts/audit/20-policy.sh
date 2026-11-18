@@ -71,6 +71,7 @@ audit_policy() {
     check_media       "$repo" "$name" "$tracked"
     check_data        "$repo" "$name" "$tracked"
     check_actions     "$repo" "$name" "$tracked"
+    check_workflow_lint "$repo" "$name" "$tracked"
     check_logs_audit  "$repo" "$name" "$tracked"
     check_docs_dupes  "$repo" "$name"
     check_scripts     "$repo" "$name" "$tracked"
@@ -466,5 +467,29 @@ $(_files "$tracked" '^\.github/workflows/[^/]+\.ya?ml$|(^|/)action\.ya?ml$')
 EOF
   [ "$total" -gt 0 ] && \
     finding FAIL "$CAT" "$name" unpinned-action "$total action reference(s) not pinned to a commit SHA in: $(_list "$files")"
+  return 0
+}
+
+# --- workflows that actionlint rejects ------------------------------------------
+# D79: a workflow can exist (no-security-ci passes) and still never run green — a
+# job without runs-on, an undefined expression, an action whose runtime GitHub
+# has retired. WARN, not FAIL: the gate already blocks new errors; this is the
+# debt. Reads the tracked file as committed (git show HEAD:), not the work tree.
+check_workflow_lint() {
+  local repo="$1" name="$2" tracked="$3" f n total=0 files=""
+  command -v actionlint >/dev/null 2>&1 || return 0
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    # shellcheck disable=SC2086 # ACTIONLINT_ARGS is a list of flags
+    n="$(git_ro "$repo" show "HEAD:$f" 2>/dev/null \
+         | (cd "$repo" && actionlint $ACTIONLINT_ARGS -stdin-filename "$f" - 2>/dev/null) \
+         | LC_ALL=C grep -c ':[0-9]*:[0-9]*: ')" || true
+    n="${n:-0}"
+    [ "$n" -gt 0 ] 2>/dev/null && { total=$((total + n)); files="$files$f"$'\n'; }
+  done <<EOF
+$(_files "$tracked" "$WORKFLOW_FILE_ERE")
+EOF
+  [ "$total" -gt 0 ] && \
+    finding WARN "$CAT" "$name" workflow-lint "$total actionlint error(s) in: $(_list "$files") — run actionlint in the repo for details"
   return 0
 }

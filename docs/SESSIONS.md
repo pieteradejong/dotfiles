@@ -4,6 +4,34 @@ One dated section per session that changed this repo, newest first (`~/dev/CLAUD
 workflow, step 6; D68). This repo is public: nothing private goes here. Workspace-level sessions
 are logged outside it.
 
+## 2026-11-17 — CI tested in three layers: actionlint, real run status, a template canary (D79)
+
+**Asked:** is there any way to test CI/CD for the templates and all other repos? Then: plan it, test
+it thoroughly, document everything in markdown. Pieter chose a private canary repo over `act`.
+
+**Changed here:**
+- The gate runs `actionlint` on changed workflows and blocks new errors (`workflow-lint`), and
+  dotaudit WARNs on existing ones.
+- New `scripts/ci-status.py`, which reads every own repo's default-branch CI, run per workflow.
+  It feeds audit section 11 and the daily report's `## CI`.
+- New `scripts/template-canary.sh`, which runs the 7 non-repo templates' workflows on GitHub
+  through a private canary repo.
+- `actionlint` added to `init.sh`, `test.sh` and CI. New suites `actionlint`, `cistatus`,
+  `canary`.
+- Docs: D79, a changelog line, `docs/maintenance.md` (*CI status*, *Template canary*, section
+  11, two job rows), `scripts/README.md`, the check tables in `docs/dev-audit.md` and
+  `repo-standards.md`, and `claude/templates-CLAUDE.md` (copied to `~/dev/templates/CLAUDE.md`).
+
+**Verified:** gate 212 passed; dotaudit 107; ci-status 32 OK, with 14 of 14 mutations caught;
+canary 56 passed through the real gate, with 14 of 14 mutations caught; tools 176; daily 18 OK;
+`./test.sh actionlint` clean across 8 templates. Full `./test.sh`: 25 of 27 suites passed; `scan` and `ruff` caught two bugs in this session's code, both fixed and rerun (D79). The real `ci-status.py` read 154 repos: 17 red,
+5 stale, 56 none, 76 green. A real `template-canary.sh --dry-run` built all 7 branches through the
+gate and pushed nothing.
+
+**Open (`TODO.md`):** create the canary repo and do its first real run; whether the audit runs the
+canary unattended; commit and push this work; check section 11 after the 2026-11-22 audit. The red
+repos are workspace items, outside this repo.
+
 ## 2026-11-16 — Workflow skills live in a private repo (D77)
 
 **Asked:** more Claude skills for the most repeated requests, kept in a private repo.

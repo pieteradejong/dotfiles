@@ -430,6 +430,44 @@ check_standards() {
   done < "$list"
   [ -s "$TMPD/std-locks" ] && locks="$(LC_ALL=C sort -u "$TMPD/std-locks" > "$TMPD/std-locks2"; join_lines "$TMPD/std-locks2")" && \
     block multiple-lockfiles "one package manager per project — $locks"
+  check_workflows "$old" "$new" "$list"
+  return 0
+}
+
+# check_workflows <old> <new> <file of changed paths> — actionlint over changed
+# GitHub workflow files (docs/design-decisions.md D79). Only errors the change
+# ADDS block, compared without line:col, so an edit to a workflow that was
+# already broken is not held hostage to the old breakage. No actionlint (CI
+# runners, other machines): one warning, never a block.
+check_workflows() {
+  local old="$1" new="$2" list="$3" f wfs="" added
+  : > "$TMPD/wf-hits"
+  wfs="$(grep -E "$WORKFLOW_FILE_ERE" "$list" 2>/dev/null)" || return 0
+  if ! command -v actionlint >/dev/null 2>&1; then
+    warn actionlint-missing "actionlint is not installed, so changed workflows were not linted (brew install actionlint)"
+    return 0
+  fi
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    show_at "$new" "$f" | lint_workflow "$f" > "$TMPD/wf-new"
+    [ -s "$TMPD/wf-new" ] || continue
+    if [ "$old" = EMPTY ] || ! show_at "$old" "$f" | grep -q .; then : > "$TMPD/wf-old"
+    else show_at "$old" "$f" | lint_workflow "$f" > "$TMPD/wf-old"; fi
+    added="$(LC_ALL=C comm -23 "$TMPD/wf-new" "$TMPD/wf-old")"
+    [ -n "$added" ] && printf '%s\n' "$added" >> "$TMPD/wf-hits"
+  done <<EOF
+$wfs
+EOF
+  [ -s "$TMPD/wf-hits" ] && block workflow-lint \
+    "actionlint finds $(wc -l < "$TMPD/wf-hits" | tr -d ' ') new error(s) — run 'actionlint <file>' for line numbers: $(join_lines "$TMPD/wf-hits" 3)"
+  return 0
+}
+
+# lint_workflow <path> — stdin: workflow text; stdout: sorted "path: message [kind]".
+lint_workflow() {
+  # shellcheck disable=SC2086 # ACTIONLINT_ARGS is a list of flags
+  actionlint $ACTIONLINT_ARGS -stdin-filename "$1" - 2>/dev/null \
+    | sed -E 's/^([^:]+):[0-9]+:[0-9]+: /\1: /' | cut -c1-240 | LC_ALL=C sort -u
   return 0
 }
 

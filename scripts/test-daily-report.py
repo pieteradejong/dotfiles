@@ -204,6 +204,53 @@ class DailyReport(unittest.TestCase):
         self.assertTrue(any("Expo on latest stable: 1 applied" in a for a in data["needs_action"]))
         self.assertNotIn("secret-app", md + json.dumps(data))
 
+    def ci_report(self, name, rows, ts):
+        out = self.dev / "audit-reports/ci-status"
+        out.mkdir(parents=True, exist_ok=True)
+        f = out / name
+        f.write_text("repo\tvisibility\tbranch\tstatus\tworkflows\tlast_run\tdetail\n"
+                     + "".join(f"{r}\tprivate\tmain\t{s}\t1\t2026-11-13\tsecret detail {r}\n" for r, s in rows))
+        os.utime(f, (ts, ts))
+        return out
+
+    def test_ci_status_counts_only_and_acts_only_on_a_fresh_report(self):
+        _r, md, data = self.report()
+        self.assertEqual(data["ci"]["result"], "no report yet")
+        self.assertIn("## CI", md)
+        self.assertFalse(any(a.startswith("CI on default branches") for a in data["needs_action"]))
+        # A fresh report (inside the 24 h window) with red and error rows: one act line, counts only.
+        self.ci_report("ci-status-2026-11-13.tsv", [("secret-red", "red"), ("secret-red2", "red"), ("secret-err", "error"),
+                                                    ("secret-stale", "stale"), ("secret-ok", "green")], 1794600000)
+        (self.t / "state/state.json").unlink()
+        _r, md, data = self.report()
+        self.assertEqual(data["ci"]["result"], "2 red · 1 error · 1 stale · 1 green")
+        self.assertEqual(data["ci"]["counts"], {"red": 2, "error": 1, "stale": 1, "green": 1})
+        self.assertIn("CI on default branches: 2 red, 1 error — ~/dev/audit-reports/ci-status/ci-status-2026-11-13.md",
+                      data["needs_action"])
+        self.assertIn("**2 red · 1 error · 1 stale · 1 green**", md)
+        blob = md + json.dumps(data)
+        for secret in ("secret-red", "secret-err", "secret-ok", "secret detail"):
+            self.assertNotIn(secret, blob)
+        # The same report a day later is standing state: counted, no act line.
+        _r, md, data = self.report_at("2026-11-15T07:00:00")
+        self.assertEqual(data["ci"]["result"], "2 red · 1 error · 1 stale · 1 green")
+        self.assertFalse(any(a.startswith("CI on default branches") for a in data["needs_action"]))
+
+    def test_ci_status_newest_report_wins_and_all_green_never_acts(self):
+        self.ci_report("ci-status-2026-11-06.tsv", [("a", "red")], 1794000000)
+        self.ci_report("ci-status-2026-11-13.tsv", [("a", "green"), ("b", "none")], 1794600000)
+        _r, _md, data = self.report()
+        self.assertEqual(data["ci"]["result"], "1 none · 1 green")
+        self.assertFalse(any(a.startswith("CI on default branches") for a in data["needs_action"]))
+
+    def report_at(self, when):
+        env = dict(self.env, NOW=when)
+        self.run_report("--no-notify", env=env)
+        day = when[:10]
+        md = (self.dev / f"audit-reports/daily/daily-{day}.md").read_text()
+        data = json.loads((self.dev / f"audit-reports/daily/daily-{day}.json").read_text())
+        return None, md, data
+
     def plist(self, d, label, **keys):
         import plistlib
         with open(d / f"{label}.plist", "wb") as fh:

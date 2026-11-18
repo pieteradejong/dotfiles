@@ -67,6 +67,7 @@ CLEANUP_LOG = Path(os.environ.get("CLEANUP_LOG") or HOME / ".weekly-disk-cleanup
 BACKUP_REPORT = Path(os.environ.get("BACKUP_REPORT") or HOME / "docs/.backup/reports/latest.md")
 BACKUP_REGISTER = Path(os.environ.get("BACKUP_REGISTER") or REPO / "private" / "registers" / "backup-state.md")
 LATEST_DEPS_OUT = Path(os.environ.get("LATEST_DEPS_OUT") or DEV_ROOT / "audit-reports" / "latest-deps")
+CI_STATUS_OUT = Path(os.environ.get("CI_STATUS_OUT") or DEV_ROOT / "audit-reports" / "ci-status")
 BACKUP_STALE = timedelta(hours=36)
 BACKUP_BAD = ("failed", "missing", "stale")
 RCDEV_LOGS = Path(os.environ.get("RCDEV_LOG_DIR") or HOME / "Library/Logs/claude-remote-control")
@@ -341,6 +342,31 @@ def ev_latestdeps():
     if acts:
         ev["act"] = "; ".join(acts)
     return ev
+
+
+def ci_status(since):
+    """The newest ci-status report (D79): status counts only, never repo names. Red CI is
+    standing state, so it is counted every day but asks for action only on the day a new
+    report lands (the weekly audit writes it)."""
+    reps = sorted(CI_STATUS_OUT.glob("ci-status-????-??-??.tsv"))
+    if not reps:
+        return {"report": None, "ran": None, "counts": {}, "result": "no report yet"}, None
+    lines = reps[-1].read_text().splitlines()
+    cols = lines[0].split("\t") if lines else []
+    n = {}
+    for ln in lines[1:]:
+        s = dict(zip(cols, ln.split("\t"))).get("status", "")
+        n[s] = n.get(s, 0) + 1
+    order = ("red", "error", "stale", "none", "green")
+    ran = mtime(reps[-1])
+    ci = {"report": rel(reps[-1].with_suffix(".md")), "ran": ran.isoformat(sep=" ", timespec="minutes"),
+          "counts": {s: n[s] for s in order if n.get(s)},
+          "result": " · ".join(f"{n[s]} {s}" for s in order if n.get(s)) or "empty report"}
+    bad = [f"{n[s]} {s}" for s in ("red", "error") if n.get(s)]
+    act = None
+    if bad and ran > since:
+        act = f"CI on default branches: {', '.join(bad)} — {ci['report']}"
+    return ci, act
 
 
 def ev_logfile(path, since):
@@ -715,6 +741,14 @@ def collect(since=None, state=None):
         if a:
             act.append(a)
 
+    try:
+        ci, a = ci_status(since)
+    except OSError:
+        ci, a = {"report": None, "ran": None, "counts": {}, "result": "unreadable"}, None
+        incomplete.append("ci-status report")
+    if a:
+        act.append(a)
+
     skip = skip_names()
     repos, n_other = find_repos(skip)
     # Git work is today's commits. Standing dirty/unpushed state is the weekly dotaudit's job, so it
@@ -745,6 +779,7 @@ def collect(since=None, state=None):
         "date": until.date().isoformat(), "generated": until.isoformat(sep=" "),
         "window": {"since": since.isoformat(sep=" "), "until": until.isoformat(sep=" ")},
         "needs_action": act, "incomplete": incomplete, "jobs": jobs, "launchd": launchd, "backups": backups,
+        "ci": ci,
         "admin": admin, "git": git_rows,
         "repos_scanned": len(repos), "repos_not_own": n_other, "repos_skipped": sorted(skip),
         "standing": standing,
@@ -819,6 +854,12 @@ def render_md(d):
                  f"{md_cell(b['result'])} |")
     if not d.get("backups"):
         L.append("| — | — | — | — | — | — | — | no backup targets found |")
+    ci = d.get("ci") or {}
+    L += ["", "## CI", "",
+          ("Default-branch CI of every own GitHub repo (D79), from the newest ci-status report"
+           + (f", written {ci['ran']}: **{ci['result']}** — `{ci['report']}`." if ci.get("report")
+              else f": {ci.get('result', 'no report yet')}.")
+           + " Counts only; the report names the repos.")]
     L += ["", "## Administrative work", ""]
     if a["baseline"]:
         L += [("First run: the snapshot was recorded now, so TODO, CHANGELOG and register changes are "

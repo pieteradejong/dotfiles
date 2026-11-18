@@ -13,6 +13,8 @@ Replaces the old `weekly-cleanup.md` and `mac-maintenance.md`.
 | [Template drift](#template-dependency-drift) | `scripts/template-versions.py` | section 8 of each audit (check only) | `scripts/template-versions.py --quiet` | read-only; `--apply` bumps, needs the Node of the template's `.nvmrc` | `~/dev/audit-reports/template-versions-YYYY-MM-DD.{md,tsv}` | `./test.sh templates`, `ruff` | — | D55 |
 | [Latest-stable test run](#latest-stable-test-run-of-the-projects) | `scripts/latest-deps.py` | Saturdays 22:00 | `scripts/latest-deps.py --project NAME` | `--dry-run` clones nothing; read-only toward the projects, except the Expo phase, which writes a passing Expo bump into a clean checkout, uncommitted (D78); `--apply NAME` writes a passing set, uncommitted | `~/dev/audit-reports/latest-deps/latest-deps-YYYY-MM-DD.{md,tsv}` and `expo-YYYY-MM-DD.{md,tsv}` · `~/Library/Logs/latest-deps/launchd.out` · section 10 of the audit · the daily report | `./test.sh latestdeps`, `ruff` | `macos/com.pieterdejong.latestdeps.plist` | D76, D78 |
 | [Model lineup drift](#local-model-lineup) | `scripts/model-versions.py` | section 9 of each audit (check only), `--quick` included | `scripts/model-versions.py` | read-only always; never pulls | `~/dev/audit-reports/model-versions-YYYY-MM-DD.md` | `./test.sh models`, `ruff` | — | D61 |
+| [CI status](#ci-status) | `scripts/ci-status.py` | section 11 of each audit, `--quick` included | `scripts/ci-status.py --only REPO` | read-only always (`gh api` GETs) | `~/dev/audit-reports/ci-status/ci-status-YYYY-MM-DD.{md,tsv}` · the daily report's `## CI` | `./test.sh cistatus`, `ruff` | — | D79 |
+| [Template canary](#template-canary) | `scripts/template-canary.sh` | by hand, after a template change | `scripts/template-canary.sh --dry-run` | `--dry-run` pushes nothing; otherwise pushes `canary/*` branches to the private canary repo only | `~/dev/audit-reports/template-canary/template-canary-YYYY-MM-DD.{md,tsv}` | `./test.sh canary` | — | D79 |
 | [Daily report](#daily-report-and-web-app) | `scripts/daily-report.py` | daily 07:00 | `scripts/daily-report.py --stdout` | `--stdout`/`--json` write nothing | `~/dev/audit-reports/daily/daily-YYYY-MM-DD.{md,json}` · [notification and status line](#reports) · Drive via the nightly `dev` backup | `./test.sh daily`, `ruff` | `macos/com.pieterdejong.dailyreport.plist` | D70 |
 | [Web app](#daily-report-and-web-app) | `bin/maintenance-app` → `scripts/maintenance-app.py` | on demand | `maintenance-app` | read-only always; `127.0.0.1`, per-run token | browser (it opens the URL) | `./test.sh app`, `ruff` | — | D71 |
 | [Notes search](#notes-search) | `bin/notes-app` → `scripts/notes-app.py` | on demand | `notes-app` | read-only always; `127.0.0.1`, per-run token | browser (it opens the URL) | `./test.sh notes`, `ruff` | — | D73 |
@@ -64,6 +66,7 @@ Read-only toward every repo. Why it is built this way: [design decisions D15](de
 | 7 | Account | SSH keys on the GitHub account, `gh` token scopes | remove any key you cannot place |
 | 8 | Templates | `template-versions.py --summary --out <report dir>` over the eight curated templates; skipped under `--quick` unless `--templates` | a template has bumps to take, or a runner/action to update by hand — see [Template dependency drift](#template-dependency-drift) |
 | 10 | Latest stable | `latest-deps.py --summary`: reads the newest Saturday report, runs nothing; also under `--quick` | a project is `broken-by-latest`, `needs-ci`, `already-failing` or `error`, or the newest report is over 8 days old — see [Latest-stable test run](#latest-stable-test-run-of-the-projects) |
+| 11 | CI status | `ci-status.py --summary --out <report dir>/ci-status`: the newest default-branch run of each workflow in every own GitHub repo (read-only); also under `--quick` | a repo's CI is red (FAIL when the red workflow is a security, gitleaks or codeql one) or could not be read — see [CI status](#ci-status) |
 
 The report lands in `~/dev/audit-reports/` (mode 600, never inside a git repo) with the
 dotaudit and sweep reports from the same run beside it. A notification shows counts only:
@@ -113,6 +116,59 @@ models on ollama.com that run locally, have real use, and fit the role's size ra
 Read the model card, measure it here (prefill speed, memory next to the models that stay resident, answer
 quality on the role's own checks), then change the lineup and run `llm update`. Thresholds: `MODEL_MAX_GB`,
 `EMBED_MAX_GB`, `MODEL_MIN_RATIO`, `MODEL_MIN_DOWNLOADS`. Why: [D61](design-decisions.md#d61--the-weekly-audit-names-newer-local-models-for-the-llm-lineup-it-never-swaps-one--2026-11-10).
+
+### CI status
+
+Section 11 runs [`scripts/ci-status.py`](../scripts/ci-status.py), which reads through `gh api` (GET
+only) what GitHub actually ran on each own repo's default branch. Forks, archived repos and skip-list
+`skip:` repos are left out. For each active workflow it takes the newest run that finished (cancelled
+and skipped runs don't count), so a red workflow can't hide behind a newer green one. The full table goes
+to `~/dev/audit-reports/ci-status/ci-status-YYYY-MM-DD.{md,tsv}` (mode 600).
+
+| Status | Means | What to do |
+|---|---|---|
+| `red` | The newest run of at least one workflow failed (also `timed_out`, `startup_failure`, `action_required`). The row names the workflow, each failed job and its first failed step. | Fix it in that repo, with its own CHANGELOG line. A red **security / gitleaks / codeql** workflow is a FAIL in the audit: read it as a possible leak first (`security-and-privacy.md` § leaks). |
+| `stale` | Workflows exist, but none finished a run in the last 90 days (`CI_STALE_DAYS`), or ever. | Run it once (`gh workflow run`, or push). A workflow that never triggers is usually a branch filter that doesn't match the default branch. |
+| `none` | No active workflow file. | The same gap dotaudit reports as `no-security-ci`; fix it there. |
+| `error` | The API failed for this repo, so the report is incomplete (exit 2). | Rerun with `--only NAME`. Check `gh auth status`. |
+
+```zsh
+~/dev/dotfiles/scripts/ci-status.py                    # the full table on stdout
+~/dev/dotfiles/scripts/ci-status.py --only REPO        # one repo
+```
+
+In the audit, a red security workflow is a FAIL and any other red repo a WARN. The counts are INFO.
+Run dates are left out of those lines, so a repo that stays red counts as unchanged in *Since last
+run*. The daily report shows the counts, and asks for action only on the day a new report lands. Why:
+[D79](design-decisions.md#d79--ci-is-tested-in-three-layers-actionlint-at-commit-the-real-run-status-of-every-repo-and-a-canary-repo-for-the-templates--2026-11-17).
+
+### Template canary
+
+Six of the seven curated template directories are not git repos, so their own workflows never run until
+a new project is pushed from them. [`scripts/template-canary.sh`](../scripts/template-canary.sh) runs
+them on GitHub's runners in the private repo `pieteradejong/template-ci-canary`. For each template it:
+
+1. copies it the way a new project starts, without `.git`, `node_modules`, venvs, build output or env
+   files (`.env.example`/`.env.template` stay; the template's own `.gitignore` decides the rest);
+2. commits the copy as one orphan commit on `canary/<stack>-<variant>`, **through the gate**, after
+   adding `'canary/**'` to the copy's `branches: [main]` filters (the template is never changed);
+3. force-pushes only that branch, never `main`, and only when `gh` says the repo is PRIVATE;
+4. waits for every run on the commit (`CANARY_TIMEOUT`, 2400 s) and writes
+   `~/dev/audit-reports/template-canary/template-canary-YYYY-MM-DD.{md,tsv}`.
+
+`rn-supabase` is left out: it is its own repo with weekly CI, and section 11 reads that.
+
+```zsh
+~/dev/dotfiles/scripts/template-canary.sh --list       # templates and branches; touches nothing
+~/dev/dotfiles/scripts/template-canary.sh --dry-run    # build and gate every branch; push nothing
+~/dev/dotfiles/scripts/template-canary.sh --only ts-web/minimal-mvp
+~/dev/dotfiles/scripts/template-canary.sh              # all 7, after any template change
+```
+
+A red row means that template's CI would fail in the next new project. Fix the template, run its
+`./test.sh`, then rerun the canary for it. `commit blocked:` means the gate refused the copy, and
+`cannot add a canary/** push trigger` means the workflow's filter isn't in the `[main]` form. It runs by
+hand for now. Making it a weekly audit step waits on the repo being created (`TODO.md`).
 
 ### Install / operate
 

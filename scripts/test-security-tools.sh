@@ -297,6 +297,19 @@ printf 'INFO\tlatest-deps 2030-01-05: 1 broken-by-latest · 3 ok\n'
 EOF2
 chmod +x "$A/bin/latest-deps"
 export LATEST_DEPS="$A/bin/latest-deps"
+# Stub ci-status.py: section 11 asks for --summary --out <dir>; one security red (FAIL), one
+# other red (WARN), the counts (INFO). Logs its args so the test can check the out dir.
+cat > "$A/bin/ci-status" <<EOF2
+#!/bin/bash
+echo "\$*" >> "$A/ci-status.calls"
+[ "\$1" = --summary ] && [ "\$2" = --out ] || exit 9
+printf 'FAIL\tCI red: leaky — security (failure: security / gitleaks → Scan full history)\n'
+printf 'WARN\tCI red: webapp — CI (failure: tests → Test suite)\n'
+printf 'INFO\tCI: 2 red · 5 green (of 7 own repos)\n'
+exit 1
+EOF2
+chmod +x "$A/bin/ci-status"
+export CI_STATUS="$A/bin/ci-status"
 printf 'recovery\n' > "$A/dev/github-recovery-codes.txt"
 git init -q "$A/dev/projects/app"
 printf 'x\n' > "$A/dev/projects/app/deploy.key"
@@ -358,6 +371,11 @@ grep -q 'WARN\*\* template-versions.py exit 2 — the check is incomplete: fetch
 grep -q '^## 9. Local model lineup$' "$report" 2>/dev/null && pass "report has the model lineup section, under --quick too" || fail "section 9 missing"
 grep -q '^## 10. Projects against latest stable$' "$report" 2>/dev/null && pass "report has the latest-stable section, under --quick too" || fail "section 10 missing"
 grep -q '^- \*\*WARN\*\* web: broken-by-latest' "$report" 2>/dev/null && pass "a project broken by latest stable is a WARN" || fail "latest-deps WARN missing"
+grep -q '^## 11. CI status$' "$report" 2>/dev/null && pass "report has the CI status section, under --quick too" || fail "section 11 missing"
+grep -q '^- \*\*FAIL\*\* CI red: leaky — security' "$report" 2>/dev/null && pass "a red security workflow is a FAIL" || fail "CI security FAIL missing"
+grep -q '^- \*\*WARN\*\* CI red: webapp — CI' "$report" 2>/dev/null && pass "another red repo is a WARN" || fail "CI red WARN missing"
+grep -q '^- CI: 2 red · 5 green (of 7 own repos)$' "$report" 2>/dev/null && pass "CI counts are info" || fail "CI counts missing"
+grep -q -- "--summary --out $A/out/ci-status" "$A/ci-status.calls" 2>/dev/null && pass "ci-status writes under the audit's out dir" || fail "ci-status out dir: $(cat "$A/ci-status.calls" 2>/dev/null)"
 # shellcheck disable=SC2016 # the backticks are literal markdown
 grep -q '^- \*\*WARN\*\* embed `vec:0.6b`: newer local candidate(s): vec-2:740m' "$report" 2>/dev/null \
   && pass "a newer local model candidate is a WARN" || fail "model candidate WARN missing"

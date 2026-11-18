@@ -6,6 +6,8 @@ only; this file is public. Workspace-wide items: `~/dev/TODO.md`. Decisions: `do
 
 ## Verify after the next scheduled runs
 
+- [ ] D79, 2026-11-17: after the Sunday audit (2026-11-22), check section 11 *CI status*: counts match a by-hand `scripts/ci-status.py`, `~/dev/audit-reports/ci-status/ci-status-2026-11-22.{md,tsv}` exist at mode 600, and red security workflows are FAIL lines. Check the next daily report's `## CI` line and its one Needs-action line. Record it in D79's `Verified:`.
+
 - [ ] D78, 2026-11-16: after the first Saturday run with the Expo phase (2026-11-21), read `~/dev/audit-reports/latest-deps/expo-2026-11-21.md`. Commit any `applied` bump in its repo with a CHANGELOG line (and a DECISIONS entry for an SDK major). Check that `reverted` and `broken-by-latest` checkouts are byte-identical. Check the daily report's *All launchd jobs* section and its Expo counts the next morning. Record it in D78's `Verified:`.
 - [ ] D76, 2026-11-16: check the `latestdeps` agent's first Saturday run (2026-11-21): the report in `~/dev/audit-reports/latest-deps/`, how long it took, nothing left in `~/Library/Caches/latest-deps`, `git status` clean in the projects. Then section 10 in the Sunday audit (2026-11-22) and the daily report's `latestdeps` row. Record it in D76's `Verified:`.
 - [ ] D76, 2026-11-16: add a `--ci` flag (skip the local gate scan) to every project the first report marks `needs-ci`, and fix or skip-list the `already-failing` ones. Each is a change in that project's repo, with its own CHANGELOG line.
@@ -62,6 +64,10 @@ only; this file is public. Workspace-wide items: `~/dev/TODO.md`. Decisions: `do
       PATH (no errors in that section). Record in D47's `Verified:`.
 
 ## Needs Pieter
+
+- [ ] D79, 2026-11-17: approve creating the private canary repo: `gh repo create pieteradejong/template-ci-canary --private --description "Generated: curated template CI runs (dotfiles D79)"`, with a README saying it is generated and the GitHub baseline (`github-security-sweep.sh --check`). Then run `scripts/template-canary.sh --only ts-web/minimal-mvp`, check the run in `gh run list -R pieteradejong/template-ci-canary`, then run all 7. Record the result in D79's `Verified:`. A red template there is fixed in `~/dev/templates`, with its own changelog line.
+- [ ] D79, 2026-11-17: decide whether the weekly audit runs the template canary unattended (each run pushes 7 `canary/*` branches to the private repo). If yes, make it a section 12 behind the existing `--templates`-style flag and record the standing OK in D79. Until then it runs by hand after a template change.
+- [ ] D79, 2026-11-17: this session's work is uncommitted on branch `daily-report`: the gate, dotaudit, `ci-status.py`, `template-canary.sh`, audit section 11, daily report, `test.sh` suites, docs. Commit and push through `ship` once Pieter OKs it (public repo). After the push, check that this repo's CI goes green with `actionlint` in the brew install.
 
 - [ ] D78, 2026-11-16: six launchd plists point at programs that no longer exist (the daily report's *All launchd jobs*, flag `program missing`): two Homebrew agents in `~/Library/LaunchAgents` (mongodb-community@5.0, rabbitmq) and four daemons in `/Library/LaunchDaemons` (an old postgresql@14, istatmenus installer helper, an ExpressVPN daemon, an Edge updater). Decide which to remove. The `/Library` ones need `sudo` (`launchctl bootout system/<label>`, then the plist to the Trash), and every removal is one approval per step.
 - [x] D76, 2026-11-16: approve installing the launch agent `com.pieterdejong.latestdeps` (Saturdays 22:00): `cp macos/com.pieterdejong.latestdeps.plist ~/Library/LaunchAgents/ && launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.pieterdejong.latestdeps.plist`, then flip its row in the launchd register to `yes` with a dated § Changes line. Done 2026-11-16 (D78 session): installed, register row `yes`, `launchctl list` shows it.

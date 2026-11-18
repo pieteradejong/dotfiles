@@ -24,7 +24,7 @@ OUT="$T/out"
 # A PATH with every required tool except gitleaks: symlinks to the real ones, then the
 # system dirs (which hold no gitleaks).
 mkdir -p "$T/bin"
-for t in git shellcheck jq ruff python3 zsh; do
+for t in git shellcheck jq ruff python3 zsh actionlint; do
   p="$(command -v "$t" 2>/dev/null)" && ln -s "$p" "$T/bin/$t"
 done
 printf '#!/bin/sh\necho "$@" >> "%s/brew.calls"\nexit 0\n' "$T" > "$T/brew"; chmod +x "$T/brew"

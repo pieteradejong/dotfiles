@@ -606,6 +606,13 @@ assert_finding "$TSV12" FAIL standards-bad   tracked-media
 assert_finding "$TSV12" FAIL standards-bad   tracked-data
 assert_finding "$TSV12" WARN data-warn       tracked-data
 assert_finding "$TSV12" FAIL standards-bad   unpinned-action
+# workflow-lint (D79): the fixture's ci.yml has no `on:` and a job without runs-on.
+if command -v actionlint >/dev/null 2>&1; then
+  assert_finding "$TSV12" WARN standards-bad workflow-lint
+  assert_no_finding "$TSV12" clean-repo workflow-lint
+else
+  echo "  - SKIP: actionlint not installed: workflow-lint"
+fi
 assert_finding "$TSV12" FAIL standards-bad   gitignore-env
 assert_finding "$TSV12" WARN standards-bad   gitignore-gaps
 # no-project-scripts: a nested web/package.json counts as a code manifest; a

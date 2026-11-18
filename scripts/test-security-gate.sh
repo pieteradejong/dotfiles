@@ -502,11 +502,35 @@ else
 fi
 
 mkdir -p .github/workflows
-printf 'jobs:\n  a:\n    steps:\n      - uses: actions/checkout@v4\n      - uses: ./local-action\n' > .github/workflows/ci.yml; git add .github
+printf 'on: push\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - uses: ./local-action\n' > .github/workflows/ci.yml; git add .github
 expect 1 "tag-pinned action is blocked" git commit -qm wf
 out_has 'BLOCK unpinned-action.*actions/checkout' "unpinned-action names the action"
-printf 'jobs:\n  a:\n    steps:\n      - uses: actions/checkout@%s # v4.2.0\n      - uses: ./local-action\n' "$SHA40" > .github/workflows/ci.yml; git add .github
+printf 'on: push\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@%s # v4.2.0\n      - uses: ./local-action\n' "$SHA40" > .github/workflows/ci.yml; git add .github
 expect 0 "SHA-pinned and local actions pass" git commit -qm wf
+
+# actionlint (D79): new errors in a changed workflow block; errors already there do not.
+if command -v actionlint >/dev/null 2>&1; then
+  printf 'on: push\njobs:\n  a:\n    steps:\n      - run: echo hi\n' > .github/workflows/lint.yml; git add .github
+  expect 1 "a workflow job without runs-on is blocked" git commit -qm lint
+  out_has 'BLOCK workflow-lint.*lint.yml.*runs-on' "workflow-lint names the file and the error"
+  git commit -n -qm legacy-lint >/dev/null 2>&1
+  printf 'on: push\njobs:\n  a:\n    steps:\n      - run: echo hello\n' > .github/workflows/lint.yml; git add .github
+  expect 0 "an existing actionlint error does not block an unrelated edit" git commit -qm lint2
+  # shellcheck disable=SC2016 # a literal GitHub expression, not a shell one
+  printf 'on: push\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo ${{ github.nope }}\n' > .github/workflows/lint.yml; git add .github
+  expect 1 "an undefined expression property is blocked" git commit -qm lint3
+  out_has 'BLOCK workflow-lint.*nope' "the bad property is named"
+  printf 'on: push\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo ok\n' > .github/workflows/lint.yml; git add .github
+  expect 0 "a valid workflow passes" git commit -qm lint4
+  PATH="$(printf '%s' "$PATH" | tr ':' '\n' | grep -v '^/opt/homebrew/bin$' | paste -sd: -)" \
+    sh -c 'printf "on: push\n" > .github/workflows/lint.yml; git add .github; command -v actionlint >/dev/null && exit 9; git commit -qm lint5' > "$OUT" 2>&1
+  rc=$?
+  if [ "$rc" = 9 ]; then skip "actionlint is not only in /opt/homebrew/bin: missing-actionlint case"
+  else out_has 'WARN *actionlint-missing' "no actionlint: a warning, not a block"; fi
+  git checkout -q HEAD -- .github   # back to the valid lint.yml, nothing staged
+else
+  skip "actionlint not installed: workflow-lint checks"
+fi
 
 printf '{}\n' > package-lock.json; git add package-lock.json; git commit -qm lock >/dev/null 2>&1
 printf '# yarn\n' > yarn.lock; git add yarn.lock
@@ -538,7 +562,7 @@ expect 0 "media rule does not apply to someone else's repo either" git commit -q
 header "standards at push: LICENSE and security CI"
 security_ci() {
   mkdir -p .github/workflows
-  printf 'jobs:\n  security:\n    uses: pieteradejong/dotfiles/.github/workflows/security-reusable.yml@%s\n' "$SHA40" > .github/workflows/security.yml
+  printf 'on: push\njobs:\n  security:\n    uses: pieteradejong/dotfiles/.github/workflows/security-reusable.yml@%s\n' "$SHA40" > .github/workflows/security.yml
   git add .github; git commit -qm ci >/dev/null 2>&1
 }
 newrepo std-push

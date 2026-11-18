@@ -7,7 +7,7 @@
 #   ./init.sh -h         this help
 #
 # Steps, each reported as ok / installed / MISSING / WARN:
-#   1. tools    git 2.54+, gitleaks, shellcheck, jq, ruff, python3, zsh: the ones test.sh
+#   1. tools    git 2.54+, gitleaks, shellcheck, jq, ruff, python3, zsh, actionlint: the ones test.sh
 #               needs, the same list CI installs (.github/workflows/ci.yml). A missing tool
 #               is installed with Homebrew; one that is present is never upgraded. An old
 #               git is reported, not upgraded. pre-commit is optional and only reported.
@@ -35,7 +35,7 @@ case "${1:-}" in
   *)          echo "init.sh: unknown option: $1 (see ./init.sh --help)" >&2; exit 2 ;;
 esac
 
-TOOLS="git gitleaks shellcheck jq ruff python3 zsh"
+TOOLS="git gitleaks shellcheck jq ruff python3 zsh actionlint"
 GIT_MIN="2.54"
 BREW="${BREW:-brew}"
 PROBLEMS=0

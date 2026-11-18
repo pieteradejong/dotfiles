@@ -4,9 +4,10 @@
 #
 #   ./test.sh                 all suites
 #   ./test.sh gate            one suite: toolchain | coverage | scan | shellcheck |
-#                                        zsh-syntax | ruff | bin | gate | tools |
+#                                        actionlint | zsh-syntax | ruff | bin | gate | tools |
 #                                        dotaudit | containers | maint | pwdgen | logs |
-#                                        docs | claudemd | templates | latestdeps | models |
+#                                        docs | claudemd | templates | latestdeps | models | cistatus |
+#                                        canary |
 #                                        entry |
 #                                        restore
 #   ./test.sh --verbose       pass --verbose through to each suite
@@ -27,6 +28,8 @@
 #                file (.env, keys) in the working tree
 #   [shellcheck] security-relevant shell scripts at default severity, the rest at
 #                -S warning (repo-standards.md § Scripts)
+#   [actionlint] actionlint over .github/workflows here and, when ~/dev/templates exists,
+#                over each curated template's workflows (D79)
 #   [zsh-syntax] zsh -n over the zsh scripts and shell/ rc files — shellcheck cannot parse zsh
 #   [ruff]       ruff check over every Python script
 #   bin         scripts/test-bin.sh             (bin/llm routing + zero-cloud
@@ -56,6 +59,10 @@
 #   latestdeps  scripts/test-latest-deps.py     (latest-deps.py over fixture git repos and
 #                                                PyPI: scope and skips, every verdict, the real
 #                                                checkout untouched, --summary, --apply; offline)
+#   cistatus    scripts/test-ci-status.py       (every own repo's CI result from a stub gh:
+#                                                statuses, scope, errors, read-only; offline)
+#   canary      scripts/test-template-canary.sh (template-canary.sh through the real gate to a
+#                                                local stand-in remote, stub gh; offline)
 #   models      scripts/test-model-versions.py (newer local models vs the llm lineup,
 #                                                against fixture ollama.com pages; offline)
 #   daily       scripts/test-daily-report.py    (the daily report over a fake HOME and ~/dev:
@@ -88,7 +95,7 @@ for a in "$@"; do
     --verbose) VERBOSE="--verbose" ;;
     --docker)  DOCKER=1 ;;
     --list)    LIST=1 ;;
-    toolchain|coverage|scan|shellcheck|zsh-syntax|ruff|bin|gate|tools|dotaudit|containers|maint|pwdgen|logs|docs|claudemd|templates|latestdeps|models|daily|app|notes|mobile|entry|restore) ONLY="$a" ;;
+    toolchain|coverage|scan|shellcheck|actionlint|zsh-syntax|ruff|bin|gate|tools|dotaudit|containers|maint|pwdgen|logs|docs|claudemd|templates|latestdeps|models|cistatus|canary|daily|app|notes|mobile|entry|restore) ONLY="$a" ;;
     -h|--help) awk 'NR > 2 && /^#/ { sub(/^# ?/, ""); print; next } NR > 2 { exit }' "$0"; exit 0 ;;
     *) echo "unknown argument: $a" >&2; exit 2 ;;
   esac
@@ -120,6 +127,8 @@ scripts/github-security-sweep.sh
 scripts/mac-maintenance.sh
 scripts/security-audit.sh
 scripts/sync-dotfiles.sh
+scripts/template-canary.sh
+scripts/test-template-canary.sh
 scripts/test-security-gate.sh
 scripts/test-security-tools.sh
 scripts/test-containers-doctor.sh
@@ -176,7 +185,12 @@ MANUAL_TESTS="
 scripts/test-dotfiles-setup.sh  ./run.sh doctor (checks the installed dotfiles in \$HOME)
 "
 
-REQUIRED_TOOLS="git gitleaks shellcheck jq ruff python3 zsh"
+REQUIRED_TOOLS="git gitleaks shellcheck jq ruff python3 zsh actionlint"
+
+# Curated templates whose workflows the actionlint suite checks — the list in
+# scripts/template-versions.py (CURATED). Only on this machine: CI has no ~/dev/templates.
+TEMPLATES_ROOT="${TEMPLATES_ROOT:-$HOME/dev/templates}"
+CURATED_TEMPLATES="py-fastapi/minimal-mvp py-fastapi/production-ready ts-web/minimal-mvp ts-web/production-ready node-express/minimal-mvp node-express/production-ready rn-supabase vercel-stack"
 GIT_MIN="2.54"
 
 # Python scripts (stdlib only, per scripts/README.md), linted with ruff.
@@ -194,6 +208,8 @@ scripts/latest-deps.py
 scripts/test-latest-deps.py
 scripts/model-versions.py
 scripts/test-model-versions.py
+scripts/ci-status.py
+scripts/test-ci-status.py
 scripts/daily-report.py
 scripts/test-daily-report.py
 scripts/maintenance-app.py
@@ -222,6 +238,7 @@ suite_what() {
     coverage)   echo "every script is in exactly one lint list; every scripts/test-* runs in a suite" ;;
     scan)       echo "the gate finds no secret, personal value or forbidden file in the tree" ;;
     shellcheck) echo "shellcheck is clean: security scripts at default severity, the rest at -S warning" ;;
+    actionlint) echo "actionlint is clean over this repo's workflows and, on this machine, the curated templates' (D79)" ;;
     zsh-syntax) echo "zsh -n parses the zsh scripts and the shell/ rc files" ;;
     ruff)       echo "ruff check is clean over every Python script" ;;
     bin)        echo "bin/llm routing and zero-cloud guards; the weekly cleanup, asserted statically" ;;
@@ -237,6 +254,8 @@ suite_what() {
     templates)  echo "template dependency drift, against fixture registries (offline)" ;;
     latestdeps) echo "projects against latest stable in throwaway clones: scope, verdicts, --apply (offline)" ;;
     models)     echo "newer local models against the llm lineup, from fixture pages (offline)" ;;
+    cistatus)   echo "CI status of every own repo from a stub gh: green/red/stale/none/error, scope, read-only (offline)" ;;
+    canary)     echo "template canary through the real gate to a local stand-in remote: copy, rewrite, push, wait (offline)" ;;
     daily)      echo "the daily report over a fake HOME and ~/dev: jobs, repos, TODO diff, privacy (offline)" ;;
     app)        echo "the local web app on a loopback port: token, Host check, paths, escaping, CSP" ;;
     notes)      echo "notes search on a loopback port: AND/phrase/ranking, escaping, ids, token, Host, CSP" ;;
@@ -366,6 +385,27 @@ shellcheck_all() {
 }
 
 # shellcheck disable=SC2329 # invoked through run_suite
+actionlint_all() {
+  command -v actionlint >/dev/null 2>&1 || { echo "actionlint is not installed"; return 1; }
+  local rc=0 t n=0 skipped=""
+  actionlint -shellcheck= -pyflakes= || rc=1
+  if [ -d "$TEMPLATES_ROOT" ]; then
+    for t in $CURATED_TEMPLATES; do
+      if ! ls "$TEMPLATES_ROOT/$t"/.github/workflows/*.y*ml >/dev/null 2>&1; then
+        echo "  no workflows: templates/$t — every template ships .github/workflows/ci.yml"; rc=1; continue
+      fi
+      # Explicit files: most templates are not git repos, so actionlint cannot find a project.
+      (cd "$TEMPLATES_ROOT/$t" && actionlint -shellcheck= -pyflakes= .github/workflows/*.y*ml) || { echo "  ^ templates/$t"; rc=1; }
+      n=$((n + 1))
+    done
+  else
+    skipped=" (templates skipped: no $TEMPLATES_ROOT, as in CI)"
+  fi
+  [ "$rc" = 0 ] && echo "actionlint: clean (this repo + $n curated templates)$skipped"
+  return "$rc"
+}
+
+# shellcheck disable=SC2329 # invoked through run_suite
 zsh_syntax_all() {
   command -v zsh >/dev/null 2>&1 || { echo "zsh is not installed"; return 1; }
   local f rc=0
@@ -387,6 +427,7 @@ run_suite toolchain toolchain_check
 run_suite coverage coverage_check
 run_suite scan     scan_tree
 run_suite shellcheck shellcheck_all
+run_suite actionlint actionlint_all
 run_suite zsh-syntax zsh_syntax_all
 run_suite ruff     ruff_all
 run_suite bin      bash scripts/test-bin.sh $VERBOSE
@@ -402,6 +443,8 @@ run_suite claudemd python3 scripts/test-claude-md-check.py $VERBOSE
 run_suite templates python3 scripts/test-template-versions.py $VERBOSE
 run_suite latestdeps python3 scripts/test-latest-deps.py $VERBOSE
 run_suite models   python3 scripts/test-model-versions.py $VERBOSE
+run_suite cistatus python3 scripts/test-ci-status.py $VERBOSE
+run_suite canary   bash scripts/test-template-canary.sh $VERBOSE
 run_suite daily    python3 scripts/test-daily-report.py $VERBOSE
 run_suite app      python3 scripts/test-maintenance-app.py $VERBOSE
 run_suite notes    python3 scripts/test-notes-app.py $VERBOSE

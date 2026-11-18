@@ -305,6 +305,7 @@ this existed.
 | Exact version pins | [dependencies](#dependencies) | `unpinned-dependency` block / block | gate | `unpinned-deps`, `unpinned-deps-skipped` |
 | One package manager per project | [dependencies](#dependencies) | `multiple-lockfiles` block / block | gate | `multiple-lockfiles` |
 | Actions pinned by commit SHA | [tier B5](#tier-b--additionally-any-repo-pushed-within-12-months) | `unpinned-action` block / block | gate | `unpinned-action` |
+| Workflows pass actionlint | [design-decisions D79](../design-decisions.md) | `workflow-lint` block (new errors only; `actionlint-missing` warn) / same | — (no actionlint on the runner: warn) | `workflow-lint` (WARN) |
 | Security CI in every repo | [security §9](security-and-privacy.md#9-secret-scanning-in-ci--the-standard-for-every-repo) | — / `no-security-ci` block | — | `no-security-ci` |
 | Public ⇒ LICENSE naming the canonical holder | [licensing](#licensing) | — / `no-license`, `license-holder` block | gate | `no-license`, `license-malformed`, `copyright-drift`, `license-mismatch` |
 | `.gitignore` baseline | [baseline](#gitignore-baseline) | — | — | `no-gitignore`, `gitignore-env`, `gitignore-env-uncommitted`, `gitignore-gaps` |

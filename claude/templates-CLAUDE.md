@@ -34,7 +34,9 @@ node-express) · rn-supabase: Expo QR code, `w` for web.
 - **rn-supabase** needs Node 26 (`.nvmrc`), the Supabase CLI and a running Docker daemon (`colima start`); `./init.sh` starts local Supabase at `http://localhost:54321`. Every check: `./test.sh` (`--integration` for the live Supabase round-trip, `--scaffold` for the new-app test). Releases: its `docs/RELEASE.md`.
 - Every template's `./test.sh` names each step, what it proves and the command it runs; `./test.sh --list`
   prints the steps without running them and `./test.sh <step>` runs one (`repo-standards.md` § Scripts).
-- Every template ships `.github/workflows/ci.yml`; it runs once the new project is pushed.
+- Every template ships `.github/workflows/ci.yml`. The gate and `dotfiles/./test.sh actionlint` lint it.
+  `~/dev/dotfiles/scripts/template-canary.sh` runs it on GitHub's runners in the private
+  `template-ci-canary` repo (`--dry-run` pushes nothing). Run it after changing a template (D79).
 - **Version drift:** `~/dev/dotfiles/scripts/template-versions.py` (check; `--apply` bumps behind each
   template's own tests, majors included). Held versions and why: `templates/VERSION_HOLDS.tsv`. The weekly
   security audit runs the check (section 8). Run `--apply` under the `.nvmrc` Node (`docs/maintenance.md`).
