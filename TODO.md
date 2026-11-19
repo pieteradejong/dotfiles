@@ -347,3 +347,4 @@ Weaken". Built on 2026-11-04 (the edits went through), except the GitHub setting
       `~/dev/audit-reports/security-audit-2026-11-15.md` § 9 (one line per lineup role) and
       `model-versions-2026-11-15.md` beside it, and that a markup change on ollama.com shows as
       "check incomplete", not as "nothing newer". Record it in D61's `Verified:` — 2026-11-10, D61
+- [ ] Pieter: push `83830af` (SESSIONS note on the 2026-11-19 ship of D79/D80) on `daily-report`, or leave it for the next push, 2026-11-19 — docs/SESSIONS.md 2026-11-17 (evening)

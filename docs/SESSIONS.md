@@ -15,8 +15,11 @@ CHANGELOG and D80 are updated.
 
 **Verified:** `./test.sh maint` → 59 passed; `shellcheck -S warning` clean; a real `--dry-run` prints the section.
 
-**Not verified / open:** nothing new here. The media-side open items are in the media repo's `TODO.md`. Not
-committed: this tree also holds other uncommitted work from today.
+**Not verified / open:** nothing new here. The media-side open items are in the media repo's `TODO.md`.
+
+**Shipped (2026-11-19):** the earlier D79 work (`3098be8`) and this change (`1d234a6`) were committed separately
+after a full `./test.sh` (all suites passed, `restore` skipped). They were pushed to `daily-report`
+(`f242d15..1d234a6`). The sweep `--check` exited 0, after `--apply` enabled Dependabot alerts on one private repo.
 
 ## 2026-11-17 — CI tested in three layers: actionlint, real run status, a template canary (D79)
 
