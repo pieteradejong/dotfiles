@@ -161,6 +161,21 @@ Planned additions, each with its reference doc. Nothing here is built yet. Sourc
 
 ## Tooling
 
+- [x] 2026-11-19 (D38): `pwd-gen` hardening review. (1) no `-I`, (2) unpinned wordlist,
+      (3) clipboard never cleared → done 2026-11-19, D83. (5) no uniformity test → done, D82.
+      (4) weak-output floor → now suggestion 3 below.
+- [ ] 2026-11-19 (D83): live-check `pwd-gen --copy` on the real clipboard: paste works, the
+      clipboard is empty after 30 s, and something copied in between survives. Also check whether
+      the clear reaches Universal Clipboard on another Apple device. Record it in D83's `Verified:`.
+- [ ] 2026-11-19 (`docs/pwd-gen.md` § Suggested changes): pick from the seven suggestions. They are:
+      copy by default on a TTY, a concealed pasteboard type, a strength floor, a
+      double-click-safe preset, `--copy` with `-n` > 1, `passwordrules` input, and site-safe
+      passphrases. Each is its own change with a CHANGELOG line.
+- [ ] 2026-11-19 (test-sh skill lint): `test.sh` has `set -u` but no `pipefail` (lint `strict`).
+      Add `set -uo pipefail` as its own change, and check that no suite relies on a failing pipe
+      stage being ignored. The lint's `cd-first`, `summary` and `step-what` FAILs are naming
+      mismatches (`BASH_SOURCE`, the `════ summary` table, `suite_what`), so either teach
+      `testsh-lint.sh` those names (skills repo) or rename here.
 - [ ] 2026-11-16 (D77): confirm in a fresh session that the workflow skills load unasked (they are
       linked and their private repo is pushed). Open items for the skills themselves:
       `~/dev/skills/TODO.md`.

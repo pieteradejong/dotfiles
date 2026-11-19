@@ -42,8 +42,9 @@
 #   containers  scripts/test-containers-doctor.sh (Colima / no-Docker-Desktop doctor)
 #   maint       scripts/test-mac-maintenance.sh  (report + cache quarantine, on a
 #                                                fake HOME; notifier stubbed)
-#   pwdgen      scripts/test-pwd-gen.py          (bin/pwd-gen: lengths, classes,
-#                                                wordlist, exit codes; fake pbcopy)
+#   pwdgen      scripts/test-pwd-gen.py          (bin/pwd-gen: contract, plus chi-square
+#                                                randomness, isolation, pin, clipboard
+#                                                clear; fake pbcopy/pbpaste)
 #   logs        scripts/test-logs.sh            (decision log + changelog coverage:
 #                                                security/lib/logs.sh, bin/whatsup,
 #                                                the SessionStart and Stop hooks, the
@@ -247,7 +248,7 @@ suite_what() {
     dotaudit)   echo "the read-only workspace audit reports what its fixtures hold" ;;
     containers) echo "the Colima doctor (no Docker Desktop)" ;;
     maint)      echo "the maintenance report and cache quarantine, on a fake HOME" ;;
-    pwdgen)     echo "bin/pwd-gen: lengths, classes, wordlist, exit codes" ;;
+    pwdgen)     echo "bin/pwd-gen: contract, randomness, isolation, wordlist pin, clipboard clear" ;;
     logs)       echo "decision log and changelog coverage: whatsup, the hooks, the gate's log rules" ;;
     docs)       echo "policy doc links, anchors and index; workspace CLAUDE.md in sync; mermaid diagrams" ;;
     claudemd)   echo "the CLAUDE.md fact check, against stub tools" ;;

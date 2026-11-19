@@ -4,6 +4,30 @@ One dated section per session that changed this repo, newest first (`~/dev/CLAUD
 workflow, step 6; D68). This repo is public: nothing private goes here. Workspace-level sessions
 are logged outside it.
 
+## 2026-11-19 — `pwd-gen` review and randomness tests (D82)
+
+**Asked:** where `pwd-gen` lives, whether it is hardened against tampering, what else to
+optimize it for, then to fix the missing randomness test.
+
+**Changed:** `scripts/test-pwd-gen.py` gains three chi-square tests on the real tool (exact
+character distribution, position-by-class independence, passphrase word uniformity), all at
+α ≈ 1e-9, and two power tests on known-bad generators. `test.sh` labels updated. D82 and a
+CHANGELOG line added. `bin/pwd-gen` itself is unchanged.
+
+**Verified:** 34 tests OK. A modulo-biased `secrets.py` planted beside a copy of the tool fails
+the character and word tests. Five clean runs sit near their df.
+
+**Then (same session), D83.** Asked: write down the goal (almost impossible to hack, easy to
+paste), suggest changes, clear the clipboard, make `test.sh` thorough, then commit and push all.
+- New `docs/pwd-gen.md`: the goal, a three-part threat model (guessing, tampering at generation,
+  leakage afterwards), status against it, and seven ranked suggestions.
+- `bin/pwd-gen` clears the clipboard after 30 s if unchanged (`--clear-after`), runs under
+  `python3 -I`, and pins the wordlist by SHA-256.
+- 10 new tests. Each new behaviour was mutated once and its test went red.
+
+**Open:** a live clipboard check, the seven suggestions, and `pipefail` in `test.sh`. All are in
+`TODO.md` § Tooling.
+
 ## 2026-11-19 — `notes-app` always on (D81)
 
 **Asked:** keep the notes search available as a local web app at all times. In the same session,

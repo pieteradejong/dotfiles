@@ -2840,3 +2840,100 @@ is manual: delete the file and restart the agent.
   file is mode 600, and the log holds no part of the token (`grep -c` → 0).
 - **NOT YET:** that the agent comes back after a reboot, and that the bookmark is used in the
   browser (`TODO.md`).
+
+## D82 — `pwd-gen` randomness is tested: exact chi-square at a 1e-9 false-alarm rate, with power tests · 2026-11-19
+
+**Problem.** `scripts/test-pwd-gen.py` checked the contract (lengths, classes, the entropy line)
+but not the draws. A biased or replaced random source still passed every test while the entropy
+line reported full strength. The 2026-11-19 review reproduced that with a `secrets.py` planted
+beside a copy of the script (`TODO.md` § Tooling).
+
+**Decision.** Three goodness-of-fit tests on the real `bin/pwd-gen`, stdlib only:
+- *Characters.* One character per default password, at position `i % 20`, from 20,000
+  passwords, so the samples are independent. They are tested against the **exact** expected
+  distribution. Every-class rejection makes small classes more common (`!` is more likely
+  than `a`), so a uniform expectation would be wrong. Chi-square over 69 df.
+- *Positions.* The same samples as a 20 × 4 position-by-class table, tested for independence
+  (57 df). This catches the fixed-position class guarantee D38 rejected, which the pooled test
+  cannot see.
+- *Words.* 40,000 passphrase words, bucketed into 64 index ranges of the filtered list, against
+  uniform (63 df).
+
+Each test rejects at chi-square > Wilson–Hilferty quantile for z = 6 (α ≈ 1e-9), so a correct
+generator fails by chance about once in 10⁹ runs. Two power tests run the same checks on a
+modulo-biased (`byte % 70`) generator and on fixed-position classes, and require rejection.
+
+**Rejected.**
+- *A fixed seed*: `secrets` cannot be seeded, and seeding a stand-in would test the stand-in,
+  not the tool.
+- *A conventional α of 0.01 or 0.001*: with three tests per run that is a flake every few hundred
+  runs, and this suite has been flaky before (TODO.md, 2026-11-04). At these sample sizes the
+  1e-9 threshold still rejects both known-bad generators by a wide margin.
+- *Uniform per-character expectation*: wrong under the class rule.
+- *Pooling all 20 characters of each password*: they are not independent under rejection, so the
+  chi-square would be approximate.
+- *NIST SP 800-22 or dieharder*: these test the OS CSPRNG, which is not in question. The risk
+  is the code between it and the output.
+
+**Cost.** About 3 s more for `./test.sh pwdgen` (8 s in all).
+
+**Verified.** 2026-11-19:
+- `python3 scripts/test-pwd-gen.py` → `Ran 34 tests … OK`, 6 of them new. `./test.sh ruff`
+  clean.
+- Against a scratchpad copy of `pwd-gen` with a modulo-biased `secrets.py` beside it, the
+  character test failed (χ² 278.0, critical 165.0) and the word test failed (χ² 1,122,074,
+  critical 156.0). The position test passed, which is correct because that bias is not
+  positional.
+- Five runs on the real tool: χ² 62.8–102.9 against 165.0 (characters) and 43.8–72.0 against
+  146.8 (positions). Both sit near their df, which shows the exact expectation is right.
+
+## D83 — `pwd-gen` hardening: isolated interpreter, pinned wordlist, clipboard cleared after 30 s · 2026-11-19
+
+**Problem.** The goal is now written down (`docs/pwd-gen.md`): passwords that are almost impossible
+to hack and easy to paste into a web form. Measured against it, the 2026-11-19 review found three
+gaps. First, the shebang let a `secrets.py` beside the script, or on `PYTHONPATH`, replace the RNG,
+while the entropy line still reported full strength (reproduced). Second, the shipped wordlist could
+be swapped without notice. Third, `--copy` left the password on the clipboard indefinitely.
+
+**Decision.**
+- *Isolation.* The shebang is `#!/usr/bin/env -S python3 -I`. Isolated mode leaves the script
+  directory off `sys.path` and ignores `PYTHON*` variables and user site-packages.
+- *Wordlist pin.* The default wordlist is checked against a SHA-256 constant in the script. A
+  mismatch exits 1 and names the fix (restore it with git). `PWD_GEN_WORDLIST` remains the
+  deliberate way to use another list.
+- *Clipboard clear.* After `--copy`, a detached `python3 -I` child sleeps `--clear-after` seconds
+  (default 30; `0` never clears; the flag needs `--copy`). It then empties the clipboard **only if**
+  `pbpaste` still hashes to the copied value, so anything copied since is left alone. The child gets
+  only the SHA-256 on stdin, never the value, so the process list and the child's memory hold no
+  password. If the child cannot start, the tool exits 1 and says the clipboard holds the password.
+
+**Rejected.**
+- *An absolute interpreter path (`/opt/homebrew/bin/python3`)*: breaks on Intel Macs and in CI, and
+  `-I` closes the import hijack, which is the actual hole. A writable `python3` earlier on `PATH` is
+  out of scope: an attacker who can do that can also rewrite the script.
+- *Hash-checking the script itself*: the check would live in the file it checks. Git and the gate
+  cover edits to `bin/pwd-gen`.
+- *Clearing unconditionally*: it would wipe whatever the user copied in those 30 seconds.
+- *Passing the value to the clearer*: argv is visible in `ps`, and holding the secret in a
+  long-lived process is what clearing is meant to end.
+- *Waiting in the foreground*: blocks the terminal for 30 s.
+- *A shorter default (10 s)*: too short when the password manager or the form needs a moment to
+  open.
+- *Marking the copy concealed now*: needs an ObjC bridge (`osascript -l JavaScript`) and a check of
+  how Universal Clipboard treats it. That is suggestion 2 in `docs/pwd-gen.md`.
+
+**Cost.** One background Python process per `--copy`, alive for 30 s. `./test.sh pwdgen` goes from
+8 s to about 17 s, because the clear tests wait for real time to pass.
+
+**Verified: PARTIAL.** 2026-11-19:
+- `python3 scripts/test-pwd-gen.py` → `Ran 44 tests … OK` (10 new). They cover: the clear after
+  1 s; a replaced clipboard left alone; `0` never clearing; `ps` holding no password while the
+  clearer waits; `--clear-after` usage errors; a planted `secrets.py` beside a copy ignored when run
+  through the shebang; `PYTHONPATH` ignored; a changed wordlist refused; an untouched copy accepted;
+  the pin matching the shipped file.
+- Every behaviour was mutated once on a scratchpad copy, and its test went red: shebang without
+  `-I`, pin check removed, clearer not started, clear without the hash check, value in the
+  clearer's argv, default 0, modulo-biased draw. `./test.sh ruff` is clean.
+- **NOT YET:** a live `pwd-gen --copy` against the real clipboard (the tests use a fake
+  `pbcopy`/`pbpaste`; I did not overwrite the user's clipboard). Also not checked: whether the clear
+  reaches Universal Clipboard on other devices (`TODO.md`).

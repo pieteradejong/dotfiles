@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S python3 -I
 """pwd-gen — generate strong passwords and passphrases. Generates only; never
 stores, logs or remembers one. The password manager is the store.
 
@@ -8,6 +8,10 @@ Usage:  pwd-gen                        one 20-character password
         pwd-gen -n 5                   five candidates, one per line
         pwd-gen --copy                 clipboard only (pbcopy); nothing on stdout
         pwd-gen -h | --help
+
+Isolation: the shebang runs `python3 -I`, so PYTHONPATH, PYTHON* variables,
+user site-packages and modules beside this script (a planted `secrets.py`)
+are never imported. The shipped wordlist is checked against its SHA-256.
 
 Random password (default): every character drawn with the OS CSPRNG
 (`secrets`) from lower, upper, digits and symbols; each class present at least
@@ -31,7 +35,14 @@ Passphrase: N words drawn from the wordlist, joined by the separator.
 Both modes:
 
   -n, --count N       how many to generate (default 1), one per line
-      --copy          send the result to the clipboard with pbcopy; print nothing
+      --copy          send the result to the clipboard with pbcopy; print nothing.
+                      The clipboard is cleared after --clear-after seconds, but
+                      only if it still holds this value (so something copied
+                      since is left alone)
+      --clear-after S seconds before that clear (default 30; 0 never clears).
+                      Needs --copy. The clear runs in a detached background
+                      process that holds only a SHA-256 of the value, never the
+                      value itself
   -q, --quiet         no entropy line on stderr
 
 Output: the password(s) on stdout, one per line, nothing else. One line on
@@ -47,9 +58,12 @@ Env:  PWD_GEN_WORDLIST  wordlist, one word per line (`#` comments and the EFF
 
 Exit: 0 generated · 1 cannot generate (wordlist unreadable or too small, pbcopy
 missing or failing) · 2 bad usage.
+
+Goal and threat model: docs/pwd-gen.md.
 """
 
 import argparse
+import hashlib
 import math
 import os
 import re
@@ -66,9 +80,29 @@ DEFAULT_SYMBOLS = "!@#$%*-_"  # accepted by almost every website form (D64)
 AMBIGUOUS = "0O1lI|"
 REPO = Path(__file__).resolve().parent.parent
 DEFAULT_WORDLIST = REPO / "config" / "pwd-gen" / "wordlist.txt"
+# SHA-256 of the shipped EFF list. A changed file is refused, not used (D83):
+# a swapped list would still print an honest entropy for itself, but not the
+# 12.9 bits a word that was reviewed.
+DEFAULT_WORDLIST_SHA256 = "6d557f0693958fb5e650b68b5bee585eb82cf4da32965505c789e924743bc522"
 SYSTEM_DICT = Path("/usr/share/dict/words")
 SYSTEM_DICT_WORD = re.compile(r"^[a-z]{4,8}$")
 MIN_WORDLIST = 1024  # below this a passphrase is not worth the name
+DEFAULT_CLEAR_AFTER = 30  # seconds: long enough to paste, short enough to forget (D83)
+
+# The clearer: a detached `python3 -I` that reads a SHA-256 hex digest on stdin,
+# sleeps, and empties the clipboard only if pbpaste still hashes to it. It never
+# sees the value, so a `ps` listing or a core dump of it holds no password.
+CLEARER = r"""
+import hashlib, subprocess, sys, time
+digest, delay = sys.stdin.readline().strip(), float(sys.argv[1])
+time.sleep(delay)
+try:
+    now = subprocess.run(["pbpaste"], capture_output=True, check=True).stdout
+except Exception:
+    sys.exit(0)
+if hashlib.sha256(now).hexdigest() == digest:
+    subprocess.run(["pbcopy"], input=b"", check=False)
+"""
 
 
 def die(code, msg):
@@ -101,6 +135,7 @@ def parse_args(argv):
     p.add_argument("--sep", default=DEFAULT_WORDS_SEP)
     p.add_argument("-n", "--count", type=int, default=1)
     p.add_argument("--copy", action="store_true")
+    p.add_argument("--clear-after", type=int, default=None)
     p.add_argument("-q", "--quiet", action="store_true")
     args = p.parse_args(argv)
 
@@ -118,6 +153,13 @@ def parse_args(argv):
             die(2, "--symbols must be a non-empty set of printable, non-space characters")
     if args.words is None and args.length < 1:
         die(2, "--length must be at least 1")
+    if args.clear_after is not None:
+        if not args.copy:
+            die(2, "--clear-after needs --copy")
+        if args.clear_after < 0:
+            die(2, "--clear-after must be 0 (never) or more seconds")
+    else:
+        args.clear_after = DEFAULT_CLEAR_AFTER
     return args
 
 
@@ -197,6 +239,10 @@ def load_wordlist(args):
             die(1, f"PWD_GEN_WORDLIST points at no readable file: {path}")
         words, source = read_wordlist(path), str(path)
     elif DEFAULT_WORDLIST.is_file():
+        actual = hashlib.sha256(DEFAULT_WORDLIST.read_bytes()).hexdigest()
+        if actual != DEFAULT_WORDLIST_SHA256:
+            die(1, f"{DEFAULT_WORDLIST} is not the shipped EFF list (SHA-256 {actual[:12]}…); "
+                   "restore it with git, or point PWD_GEN_WORDLIST at a list on purpose")
         words, source = read_wordlist(DEFAULT_WORDLIST), "EFF large wordlist"
     elif SYSTEM_DICT.is_file():
         words = [w for w in read_wordlist(SYSTEM_DICT) if SYSTEM_DICT_WORD.match(w)]
@@ -236,13 +282,35 @@ def emit(args, results):
     if not args.copy:
         sys.stdout.write(text)
         return
+    value = text.rstrip("\n")
     try:
-        subprocess.run(["pbcopy"], input=text.rstrip("\n"), text=True, check=True)
+        subprocess.run(["pbcopy"], input=value, text=True, check=True)
     except FileNotFoundError:
         die(1, "pbcopy not found; run without --copy")
     except subprocess.CalledProcessError as exc:
         die(1, f"pbcopy failed with exit {exc.returncode}")
-    note(args, f"copied {len(results)} to the clipboard; nothing printed")
+    if args.clear_after == 0:
+        note(args, f"copied {len(results)} to the clipboard; nothing printed; not cleared")
+        return
+    schedule_clear(value, args.clear_after)
+    note(args, f"copied {len(results)} to the clipboard; nothing printed; "
+               f"cleared in {args.clear_after}s unless replaced")
+
+
+def schedule_clear(value, delay):
+    """Start the detached clearer and hand it only the value's SHA-256."""
+    digest = hashlib.sha256(value.encode("utf-8")).hexdigest()
+    try:
+        child = subprocess.Popen(
+            [sys.executable, "-I", "-c", CLEARER, str(delay)],
+            stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            start_new_session=True, close_fds=True,
+        )
+        child.stdin.write(f"{digest}\n".encode())
+        child.stdin.close()
+    except OSError as exc:
+        # The password is already on the clipboard; say so rather than fail.
+        die(1, f"copied, but could not start the clipboard clear ({exc}); clear it by hand")
 
 
 def main(argv):
