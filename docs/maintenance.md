@@ -17,7 +17,7 @@ Replaces the old `weekly-cleanup.md` and `mac-maintenance.md`.
 | [Template canary](#template-canary) | `scripts/template-canary.sh` | by hand, after a template change | `scripts/template-canary.sh --dry-run` | `--dry-run` pushes nothing; otherwise pushes `canary/*` branches to the private canary repo only | `~/dev/audit-reports/template-canary/template-canary-YYYY-MM-DD.{md,tsv}` | `./test.sh canary` | — | D79 |
 | [Daily report](#daily-report-and-web-app) | `scripts/daily-report.py` | daily 07:00 | `scripts/daily-report.py --stdout` | `--stdout`/`--json` write nothing | `~/dev/audit-reports/daily/daily-YYYY-MM-DD.{md,json}` · [notification and status line](#reports) · Drive via the nightly `dev` backup | `./test.sh daily`, `ruff` | `macos/com.pieterdejong.dailyreport.plist` | D70 |
 | [Web app](#daily-report-and-web-app) | `bin/maintenance-app` → `scripts/maintenance-app.py` | on demand | `maintenance-app` | read-only always; `127.0.0.1`, per-run token | browser (it opens the URL) | `./test.sh app`, `ruff` | — | D71 |
-| [Notes search](#notes-search) | `bin/notes-app` → `scripts/notes-app.py` | on demand | `notes-app` | read-only always; `127.0.0.1`, per-run token | browser (it opens the URL) | `./test.sh notes`, `ruff` | — | D73 |
+| [Notes search](#notes-search) | `bin/notes-app` → `scripts/notes-app.py`; launchd `com.pieterdejong.notesapp` | always on (`KeepAlive`), or on demand | `notes-app` | read-only always; `127.0.0.1:8749`, token in `~/.config/notes-app/token` (600) | browser bookmark (`--print-url`) | `./test.sh notes`, `ruff` | `~/Library/Logs/notes-app/launchd.out` | D73, D81 |
 | [Dashboard](#dashboard) | `scripts/audit-dashboard.py` | after each audit | `scripts/audit-dashboard.py` | reads reports, writes one HTML file | `~/dev/audit-reports/dashboard.html` | `./test.sh tools`, `ruff` | — | D28 |
 | [Disk cleanup](#weekly-disk-cleanup) | `bin/weekly-disk-cleanup.sh` | Sundays 09:00 | `weekly-disk-cleanup.sh` | `--dry-run` | `~/.weekly-disk-cleanup.log` · [notification and status line](#reports) | `./test.sh bin` (static + `--dry-run`, never a real run) | `macos/com.pieterdejong.weeklycleanup.plist` | D18, D20, D27, D60 |
 | [Mac maintenance](#mac-maintenance-manual) | `scripts/mac-maintenance.sh` | by hand | `scripts/mac-maintenance.sh` | `--dry-run` | `~/maintenance-YYYYMMDD.log` · [notification](#reports) | `./test.sh maint` (real run on a fake HOME, notifier stubbed) | — | D29, D60 |
@@ -269,6 +269,28 @@ free port, behind a per-run token. Every term must match, `"quoted words"` match
 title matches come first. It reads the folder and nothing else, writes nothing, and stops with
 Ctrl-C. Why it is built this way:
 [D73](design-decisions.md#d73--notes-app-local-read-only-full-text-search-over-the-notes-folder-on-maintenance-apps-handler--2026-11-15).
+
+**Always on (D81).** The launch agent `com.pieterdejong.notesapp` keeps it running on
+`http://127.0.0.1:8749/`. The token is stored in `~/.config/notes-app/token`, mode 600, created on
+first start, and it never appears in the log.
+
+```zsh
+notes-app --port 8749 --token-file ~/.config/notes-app/token --print-url   # bookmark URL, open once
+launchctl kickstart -k gui/$(id -u)/com.pieterdejong.notesapp              # restart
+launchctl bootout gui/$(id -u)/com.pieterdejong.notesapp                   # stop (manual mode still works)
+```
+
+The first visit to the bookmark sets the `na` cookie. After that, `http://127.0.0.1:8749/` works on its
+own. Delete the token file and restart the agent to rotate the token. The plist is
+`macos/com.pieterdejong.notesapp.plist`.
+
+```mermaid
+flowchart LR
+  B["Browser bookmark<br/>127.0.0.1:8749/?t=…"] -->|"token → HttpOnly cookie na"| A["notes-app.py<br/>(launchd notesapp, KeepAlive)"]
+  T[("~/.config/notes-app/token<br/>mode 600")] -->|read at start| A
+  A -->|"read only, re-index on change"| N["~/notes and the sources file"]
+  A -.->|"start line, no token"| L["~/Library/Logs/notes-app/launchd.out"]
+```
 
 ## Weekly disk cleanup
 

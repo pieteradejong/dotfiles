@@ -2797,3 +2797,46 @@ credentials.
 without the media repo, a stub report is printed in it, and a failing report leaves exit 0).
 `scripts/mac-maintenance.sh --dry-run` on this Mac prints the real section (1,862 objects, 355.3 GB,
 about $0.35/month at that moment). `shellcheck -S warning` is clean.
+
+## D81 — `notes-app` always on: launchd `KeepAlive`, a fixed port and a token kept in a mode-600 file · 2026-11-19
+
+**Context.** Pieter wants his notes "searchable [in a] local web app" at any moment. D73's
+`notes-app` does the searching, but it is started by hand on a random port with a new token each
+run, so no bookmark keeps working. He chose "always on" (2026-11-19). In the same session the notes
+folder started syncing to the cloud on every save, a backup change recorded in the private backup doc.
+
+**Decision.**
+- The launch agent `macos/com.pieterdejong.notesapp.plist` (`RunAtLoad`, `KeepAlive`,
+  `ThrottleInterval 60`) runs `notes-app.py --port 8749 --no-open --token-file
+  ~/.config/notes-app/token`. Paths go through `$HOME`, as in the dailyreport plist.
+- `--token-file`: the token is read from the file, or created once with `secrets.token_urlsafe(24)`
+  through `O_CREAT|O_EXCL` at mode 600, in a folder made at 700. Startup is refused (exit 2, reason
+  on stderr) when the file is group- or world-accessible, a symlink, or not a token.
+- With a stable token the start line never prints it: a launchd log would keep it for good.
+  `--print-url` prints the bookmark once, on demand.
+- The guards are D73's, unchanged: loopback bind, token then HttpOnly `na` cookie, Host allowlist,
+  CSP, GET/HEAD only, read-only. A long-running process only keeps the in-memory index warm. It
+  still re-reads a source when its listing changes.
+- Port 8749. 8765 was the first choice, but another local server already held it. 8766 also had a
+  listener.
+
+**Rejected.**
+- *No token on loopback:* any local process or web page could then read the notes through the
+  app (DNS rebinding is stopped by the Host check, but a local process is not).
+- *A new token per start and a launcher that opens it:* every reboot would break the bookmark.
+- *The token in the plist or an environment variable:* plists in `macos/` are public, and
+  `launchctl print` shows the environment.
+- *Port 0 and a discovery file:* a bookmark needs a fixed address.
+
+**Cost.** One more always-running Python process, idle until a request comes in. Rotating the token
+is manual: delete the file and restart the agent.
+
+**Verified: PARTIAL.** 2026-11-19:
+- `./test.sh notes` → 40 tests OK, 6 of them new: the file is created at 600 in a 700 folder,
+  reused, the same after a restart, never printed, and refused at 644, as garbage and as a
+  symlink; `--print-url` needs `--port`. `./test.sh app` still passes.
+- Live: `launchctl print` shows `state = running`. `curl` gives 403 with no token and with a wrong
+  token, and 200 with the cookie. `/api/search?q="sync test"` finds a freshly saved note. The token
+  file is mode 600, and the log holds no part of the token (`grep -c` → 0).
+- **NOT YET:** that the agent comes back after a reboot, and that the bookmark is used in the
+  browser (`TODO.md`).

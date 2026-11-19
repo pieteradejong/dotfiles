@@ -4,6 +4,31 @@ One dated section per session that changed this repo, newest first (`~/dev/CLAUD
 workflow, step 6; D68). This repo is public: nothing private goes here. Workspace-level sessions
 are logged outside it.
 
+## 2026-11-19 — `notes-app` always on (D81)
+
+**Asked:** keep the notes search available as a local web app at all times. In the same session,
+the notes folder started syncing to the cloud on every save; that backup change is outside this repo.
+
+**Changed:**
+- `scripts/notes-app.py` gains `--token-file` (a mode-600 token, made once and never printed) and
+  `--print-url`.
+- New launch agent `macos/com.pieterdejong.notesapp.plist` (`KeepAlive`, `127.0.0.1:8749`),
+  installed.
+- `scripts/test-notes-app.py` gains `TokenFileTest` (6 cases).
+- Docs: D81, `docs/maintenance.md` § Notes search (Mermaid flowchart), `bin/README.md`,
+  `CHANGELOG.md`, `TODO.md`.
+
+**Verified:**
+- `./test.sh notes` → 40 OK; `./test.sh app` OK.
+- Live: 403 without the token and with a wrong one, 200 with the cookie; a search finds a newly
+  saved note; the token is in no log.
+
+**Open (`TODO.md`):**
+- After a reboot, check that the agent comes back with the same token.
+- D73's first use in the browser.
+
+Not committed or pushed: dotfiles changes wait for Pieter's OK.
+
 ## 2026-11-17 (evening) — `mac-maintenance.sh` reports the S3 media archive
 
 **Asked:** "add to a maintenance script a report of what is in there" (the S3 media archive), after a disk survey and

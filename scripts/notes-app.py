@@ -31,7 +31,12 @@ and its path or export id) looked up in the in-memory index, so a request path n
 file path. In folders, symlinks, dot-files, binary files and files over 2 MB are skipped; in an
 export, lines without a string title and text are skipped and counted.
 
-Usage:  notes-app [--port N] [--no-open] [--source PATH ...] [--notes DIR]
+Always on (D81): launchd com.pieterdejong.notesapp runs `--port 8749 --no-open --token-file
+~/.config/notes-app/token`. The token is then kept in that file (mode 600, made on first start,
+refused if others can read it) and never printed; `notes-app --port 8749 --token-file ... --print-url`
+gives the bookmark URL.
+
+Usage:  notes-app [--port N] [--no-open] [--source PATH ...] [--notes DIR] [--token-file F [--print-url]]
 Exit:   0 on Ctrl-C · 2 usage error, port taken, or no source found
 """
 
@@ -389,10 +394,42 @@ class NotesApp(MA.App):
         return self.send(404, "not found\n", "text/plain; charset=utf-8")
 
 
+TOKEN_MIN = 32  # secrets.token_urlsafe(24) is 32 characters
+
+
+def load_token(path):
+    """The always-on token (D81): read from `path`, or created there once at mode 600 (folder 700).
+    Refused if group- or world-accessible or too short; the error says why. Returns (token, error)."""
+    path = path.expanduser()
+    if not path.exists():
+        path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        token = secrets.token_urlsafe(24)
+        try:
+            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        except FileExistsError:  # another start won the race; read theirs
+            return load_token(path)
+        with os.fdopen(fd, "w") as f:
+            f.write(token + "\n")
+        return token, None
+    if path.is_symlink() or not path.is_file():
+        return None, f"{path} is not a regular file"
+    if path.stat().st_mode & 0o077:
+        return None, f"{path} is readable by others (mode {path.stat().st_mode & 0o777:o}); chmod 600 it"
+    token = path.read_text(encoding="utf-8").strip()
+    if len(token) < TOKEN_MIN or not re.fullmatch(r"[A-Za-z0-9_-]+", token):
+        return None, f"{path} does not hold a token; delete it and a new one is made"
+    return token, None
+
+
 def main(argv):
     p = argparse.ArgumentParser(description="Local read-only search over plain-text notes and JSON Lines exports.")
     p.add_argument("--port", type=int, default=0, help="0 (default): any free port")
     p.add_argument("--no-open", action="store_true")
+    p.add_argument("--token-file", type=Path,
+                   help="keep the token in this file (mode 600, created if missing) instead of a new one "
+                        "per run, so a bookmark keeps working; the token is then never printed")
+    p.add_argument("--print-url", action="store_true",
+                   help="with --token-file and --port: print the bookmark URL (token included) and exit")
     p.add_argument("--source", type=Path, action="append", default=[],
                    help="a notes folder or a .jsonl export; repeat for more")
     p.add_argument("--notes", type=Path, help="one notes folder (same as NOTES_DIR)")
@@ -400,6 +437,18 @@ def main(argv):
         args = p.parse_args(argv)
     except SystemExit as e:
         return 0 if e.code == 0 else 2
+    token = None
+    if args.token_file:
+        token, err = load_token(args.token_file)
+        if err:
+            print(f"notes-app: {err}", file=sys.stderr)
+            return 2
+    if args.print_url:
+        if not (token and args.port):
+            print("notes-app: --print-url needs --token-file and --port", file=sys.stderr)
+            return 2
+        print(f"http://127.0.0.1:{args.port}/?t={token}")
+        return 0
     sources_file = Path(os.environ.get("NOTES_APP_SOURCES") or Path.home() / ".config" / "notes-app" / "sources")
     if args.source:
         paths = args.source
@@ -422,12 +471,15 @@ def main(argv):
         print(f"notes-app: cannot listen on 127.0.0.1:{args.port} ({e.strerror}); leave out --port", file=sys.stderr)
         return 2
     port = srv.server_address[1]
-    token = secrets.token_urlsafe(24)
+    stable = token is not None
+    token = token or secrets.token_urlsafe(24)
     srv.cfg = {"token": token, "cookie": "na", "csp": CSP, "index": idx,
                "hosts": {f"127.0.0.1:{port}", f"localhost:{port}"}}
     url = f"http://127.0.0.1:{port}/?t={token}"
     counts = ", ".join(f"{src.name} {len(src.notes)}" for src in idx.sources)
-    print(f"notes-app: {url}  ({len(idx.notes)} notes: {counts}; Ctrl-C stops it)", flush=True)
+    # A stable token would sit in a launchd log for good, so it is never printed; --print-url gives it.
+    shown = f"http://127.0.0.1:{port}/ (token in {args.token_file})" if stable else url
+    print(f"notes-app: {shown}  ({len(idx.notes)} notes: {counts}; Ctrl-C stops it)", flush=True)
     if not args.no_open:
         subprocess.run(["open", url], check=False)
     try:

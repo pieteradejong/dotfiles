@@ -6,7 +6,9 @@ dir: awkward file names (colon, question mark, spaces, parentheses, non-ASCII), 
 a dot-file, a binary file, a symlink pointing outside, and a note holding a <script> tag. Checks
 search (AND, phrase, title-first ranking, case), the note page, escaping, the guards (token,
 cookie name, Host, ids, POST, CSP, loopback bind), the index refresh, and that nothing in the
-folder changes. No network beyond loopback.
+folder changes. TokenFileTest covers --token-file (always-on mode, D81): created at 600 in a 700
+folder, reused across restarts, never printed, refused when loose, garbage or a symlink. No network
+beyond loopback.
 
 Usage:  scripts/test-notes-app.py [--verbose]     Exit: 0 all passed, 1 otherwise.
 """
@@ -410,6 +412,98 @@ class SourcesFile(unittest.TestCase):
                                 "--source", f"{d}/nope"], capture_output=True, text=True, timeout=30, check=False)
             self.assertEqual(r.returncode, 2)
             self.assertEqual(r.stderr.count("is not a folder or a .jsonl file"), 2)
+
+
+class TokenFileTest(unittest.TestCase):
+    """--token-file (always-on mode, D81): created at 600, reused, refused when loose, never printed."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.t = Path(self.tmp.name)
+        (self.t / "n").mkdir()
+        (self.t / "n" / "zebra note").write_text("striped zebra text\n")
+        self.tf = self.t / "cfg" / "token"
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def run_app(self, *extra):
+        return subprocess.run([sys.executable, str(SCRIPT), "--no-open", "--notes", str(self.t / "n"),
+                               "--token-file", str(self.tf), *extra],
+                              capture_output=True, text=True, timeout=30, check=False)
+
+    def serve(self):
+        p = subprocess.Popen([sys.executable, str(SCRIPT), "--port", "0", "--no-open", "--notes",
+                              str(self.t / "n"), "--token-file", str(self.tf)],
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+        def stop():
+            p.terminate()
+            p.wait(timeout=10)
+            p.stdout.close()
+            p.stderr.close()
+        self.addCleanup(stop)
+        return p, p.stdout.readline()
+
+    def get(self, port, token):
+        c = http.client.HTTPConnection("127.0.0.1", port, timeout=30)
+        c.request("GET", "/?q=zebra", headers={"Host": f"127.0.0.1:{port}", "Cookie": f"na={token}"})
+        r = c.getresponse()
+        body = r.read().decode()
+        c.close()
+        return r.status, body
+
+    def test_created_600_in_700_folder_and_reused(self):
+        r = self.run_app("--port", "8749", "--print-url")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.tf.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(self.tf.parent.stat().st_mode & 0o777, 0o700)
+        token = self.tf.read_text().strip()
+        self.assertGreaterEqual(len(token), 32)
+        self.assertEqual(r.stdout.strip(), f"http://127.0.0.1:8749/?t={token}")
+        self.assertEqual(self.run_app("--port", "8749", "--print-url").stdout.strip(), r.stdout.strip())
+
+    def test_serves_with_file_token_never_prints_it(self):
+        _, line = self.serve()
+        token = self.tf.read_text().strip()
+        self.assertNotIn(token, line)
+        self.assertNotIn("?t=", line)
+        port = int(re.search(r"127\.0\.0\.1:(\d+)/", line).group(1))
+        status, body = self.get(port, token)
+        self.assertEqual(status, 200)
+        self.assertIn("zebra", body)
+        self.assertEqual(self.get(port, "wrong" * 8)[0], 403)
+
+    def test_same_token_after_restart(self):
+        self.serve()
+        first = self.tf.read_text()
+        _, line2 = self.serve()
+        self.assertEqual(self.tf.read_text(), first)
+        port = int(re.search(r"127\.0\.0\.1:(\d+)/", line2).group(1))
+        self.assertEqual(self.get(port, first.strip())[0], 200)
+
+    def test_loose_mode_refused(self):
+        self.run_app("--port", "8749", "--print-url")
+        os.chmod(self.tf, 0o644)
+        r = self.run_app("--port", "8749", "--print-url")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("readable by others", r.stderr)
+        self.assertNotIn(self.tf.read_text().strip(), r.stdout + r.stderr)
+
+    def test_garbage_and_symlink_refused(self):
+        self.tf.parent.mkdir(mode=0o700)
+        fd = os.open(self.tf, os.O_WRONLY | os.O_CREAT, 0o600)
+        os.write(fd, b"short\n")
+        os.close(fd)
+        self.assertEqual(self.run_app("--port", "1", "--print-url").returncode, 2)
+        self.tf.unlink()
+        self.tf.symlink_to(self.t / "n" / "zebra note")
+        r = self.run_app("--port", "1", "--print-url")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("not a regular file", r.stderr)
+
+    def test_print_url_needs_port(self):
+        self.assertEqual(self.run_app("--print-url").returncode, 2)
 
 
 if __name__ == "__main__":

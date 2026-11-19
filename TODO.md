@@ -17,6 +17,11 @@ only; this file is public. Workspace-wide items: `~/dev/TODO.md`. Decisions: `do
       `missing` until its remote is set up (`~/dev/TODO.md`). Record it in D72's `Verified:`.
 - [ ] D73, 2026-11-15: use `notes-app` in the browser: search a word, a phrase, open a note, and
       check the highlighting and the light/dark styling. Record it in D73's `Verified:`.
+      2026-11-19: now always on at `127.0.0.1:8749` (D81). Get the bookmark with
+      `notes-app --port 8749 --token-file ~/.config/notes-app/token --print-url`.
+- [ ] D81, 2026-11-19: after the next reboot or login, check that `com.pieterdejong.notesapp` came
+      back up (`launchctl print gui/$(id -u)/com.pieterdejong.notesapp | grep state`) and that the
+      bookmark still works with the same token. Record it in D81's `Verified:`.
 - [ ] D70, 2026-11-14: check the first scheduled 07:00 run of `com.pieterdejong.dailyreport` (Sun
       2026-11-15): `~/dev/audit-reports/daily/daily-2026-11-15.md` exists, its window starts at the
       2026-11-14 run, Administrative work is a real diff (no baseline note), the notification

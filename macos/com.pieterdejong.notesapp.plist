@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  notes-app always on: local read-only notes search on http://127.0.0.1:8749/ (D73, D81).
+  The token is kept in ~/.config/notes-app/token (mode 600, made on first start) and never logged.
+  Bookmark URL:  notes-app --port 8749 --token-file ~/.config/notes-app/token --print-url
+  Install:   cp macos/com.pieterdejong.notesapp.plist ~/Library/LaunchAgents/
+             launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.pieterdejong.notesapp.plist
+  Restart:   launchctl kickstart -k gui/$(id -u)/com.pieterdejong.notesapp
+  Remove:    launchctl bootout gui/$(id -u)/com.pieterdejong.notesapp; rm ~/Library/LaunchAgents/com.pieterdejong.notesapp.plist
+  Logs:      ~/Library/Logs/notes-app/launchd.out (start line and errors; no token, no note text)
+  Paths go through $HOME so no absolute home path is published here.
+  Register: private/registers/launchd.md (D69).
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.pieterdejong.notesapp</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>-c</string>
+        <string>mkdir -p "$HOME/Library/Logs/notes-app" &amp;&amp; exec /opt/homebrew/bin/python3 "$HOME/dev/dotfiles/scripts/notes-app.py" --port 8749 --no-open --token-file "$HOME/.config/notes-app/token" &gt;&gt; "$HOME/Library/Logs/notes-app/launchd.out" 2&gt;&amp;1</string>
+    </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>60</integer>
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>Nice</key>
+    <integer>10</integer>
+</dict>
+</plist>
