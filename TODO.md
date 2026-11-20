@@ -6,6 +6,7 @@ only; this file is public. Workspace-wide items: `~/dev/TODO.md`. Decisions: `do
 
 ## Verify after the next scheduled runs
 
+- [ ] D84, 2026-11-20: in a new Claude Code session, check that a finished turn shows a "Finished in <dir>" Mac banner right away, and that a finished task sends a push to the phone while Remote Control is connected. If no banner appears, check System Settings → Notifications for Script Editor. Record it in D84's `Verified:`.
 - [ ] D79, 2026-11-17: after the Sunday audit (2026-11-22), check section 11 *CI status*: counts match a by-hand `scripts/ci-status.py`, `~/dev/audit-reports/ci-status/ci-status-2026-11-22.{md,tsv}` exist at mode 600, and red security workflows are FAIL lines. Check the next daily report's `## CI` line and its one Needs-action line. Record it in D79's `Verified:`.
 
 - [ ] D78, 2026-11-16: after the first Saturday run with the Expo phase (2026-11-21), read `~/dev/audit-reports/latest-deps/expo-2026-11-21.md`. Commit any `applied` bump in its repo with a CHANGELOG line (and a DECISIONS entry for an SDK major). Check that `reverted` and `broken-by-latest` checkouts are byte-identical. Check the daily report's *All launchd jobs* section and its Expo counts the next morning. Record it in D78's `Verified:`.

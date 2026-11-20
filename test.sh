@@ -114,6 +114,7 @@ claude/hooks/guard-github-write.sh
 claude/hooks/session-start.sh
 claude/hooks/stop-log-check.sh
 claude/hooks/prompt-followup.sh
+claude/hooks/stop-notify.sh
 scripts/dev-audit.sh
 scripts/audit/lib.sh
 scripts/audit/10-git-hygiene.sh

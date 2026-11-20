@@ -621,6 +621,21 @@ out_lacks 'auditclean +(no-changelog|decisions-unverified)' "a fully logged repo
 out_lacks 'someones +(no-changelog|decisions-unverified)' "a fork: skip-list row is skipped"
 
 # ================================================================================
+header "8b. claude/hooks/stop-notify.sh — Mac banner when a turn ends"
+NOTIFY_HOOK="$DOTFILES_DIR/claude/hooks/stop-notify.sh"
+NSTUB="$T/notify-stub"; NLOG="$T/notify.log"
+printf '#!/bin/sh\nprintf "%%s|%%s\\n" "$1" "$2" >> "%s"\n' "$NLOG" > "$NSTUB"; chmod +x "$NSTUB"
+rm -f "$NLOG"
+out="$(printf '{"cwd":"/a/b/myproj","stop_hook_active":false}' | NOTIFY_LOCAL="$NSTUB" "$NOTIFY_HOOK")"; rc=$?
+[ "$rc" = 0 ] && [ -z "$out" ] && pass "stop-notify exits 0 and prints nothing on stdout" || fail "stop-notify rc=$rc out=$out"
+grep -qx 'Claude Code|Finished in myproj' "$NLOG" 2>/dev/null && pass "stop-notify names only the directory" || fail "unexpected notification: $(cat "$NLOG" 2>/dev/null)"
+rm -f "$NLOG"
+out="$(printf 'not json' | NOTIFY_LOCAL="$NSTUB" "$NOTIFY_HOOK")"; rc=$?
+[ "$rc" = 0 ] && [ -z "$out" ] && [ -s "$NLOG" ] && pass "stop-notify still notifies, silently, on bad JSON" || fail "bad JSON: rc=$rc out=$out"
+out="$(printf '{}' | NOTIFY_LOCAL=/nonexistent/notifier "$NOTIFY_HOOK")"; rc=$?
+[ "$rc" = 0 ] && [ -z "$out" ] && pass "a missing notifier never fails the turn" || fail "missing notifier: rc=$rc"
+
+# ================================================================================
 header "9. Registration and docs"
 SET="$DOTFILES_DIR/claude/settings.json"
 jq -e '[.hooks.Stop[] | .hooks[].command] | any(test("stop-log-check\\.sh$"))' "$SET" >/dev/null \
@@ -629,7 +644,9 @@ jq -e '[.hooks.SessionStart[] | .hooks[].command] | any(test("session-start\\.sh
   && pass "settings.json registers session-start.sh under SessionStart" || fail "SessionStart hook not registered"
 jq -e '[.hooks.UserPromptSubmit[] | .hooks[].command] | any(test("prompt-followup\\.sh$"))' "$SET" >/dev/null \
   && pass "settings.json registers prompt-followup.sh under UserPromptSubmit" || fail "UserPromptSubmit hook not registered"
-for f in security/lib/logs.sh bin/whatsup bin/doc-dupes claude/hooks/session-start.sh claude/hooks/prompt-followup.sh claude/hooks/stop-log-check.sh scripts/test-logs.sh; do
+jq -e '[.hooks.Stop[] | .hooks[].command] | any(test("stop-notify\\.sh$"))' "$SET" >/dev/null \
+  && pass "settings.json registers stop-notify.sh under Stop" || fail "stop-notify hook not registered"
+for f in security/lib/logs.sh bin/whatsup bin/doc-dupes claude/hooks/session-start.sh claude/hooks/prompt-followup.sh claude/hooks/stop-log-check.sh claude/hooks/stop-notify.sh scripts/test-logs.sh; do
   grep -qx "$f" "$DOTFILES_DIR/test.sh" && pass "test.sh shellchecks $f" || fail "test.sh does not shellcheck $f"
 done
 grep -q 'run_suite logs' "$DOTFILES_DIR/test.sh" && pass "test.sh runs this suite (./test.sh logs)" || fail "suite not wired"

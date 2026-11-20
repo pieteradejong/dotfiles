@@ -2937,3 +2937,43 @@ be swapped without notice. Third, `--copy` left the password on the clipboard in
 - **NOT YET:** a live `pwd-gen --copy` against the real clipboard (the tests use a fake
   `pbcopy`/`pbpaste`; I did not overwrite the user's clipboard). Also not checked: whether the clear
   reaches Universal Clipboard on other devices (`TODO.md`).
+
+## D84 — Task-finished notifications: a Stop hook for the Mac, Remote Control push for the phone · 2026-11-20
+
+**Problem.** Pieter wants a notification on the Mac and on his phone as soon as a Claude Code task
+finishes. The built-in desktop alert comes from the Notification event, which for a finished turn
+fires only after about 60 s of idle (`idle_prompt`). Claude Code has no setting that pushes to the
+phone on every completion; the Remote Control docs say there is "no per-event configuration" beyond
+"Push when Claude decides" and "Push when actions required".
+
+**Decision.**
+- *Mac.* A `Stop` hook, `claude/hooks/stop-notify.sh`, calls `bin/notify-local "Claude Code"
+  "Finished in <directory>"` on every finished turn. It never prints to stdout and always exits 0,
+  so it cannot block or alter a turn. The banner carries no prompt or transcript text.
+- *Phone.* `agentPushNotifEnabled` (push when Claude decides) and `inputNeededNotifEnabled` (push
+  when Claude waits on you) are on, with `remoteControlAtStartup`. `claude/CLAUDE.md`
+  § Notifications tells Claude to send one push at the end of each task Pieter asked for, with a
+  one-line outcome and no private details.
+
+**Rejected.**
+- *A third-party push service (ntfy, Pushover) from the Stop hook.* It would fire every time, but
+  each push goes to an outside service, which the privacy rules in `~/CLAUDE.md` keep to a
+  minimum, and it needs an account or a secret topic. Pieter chose the Claude app route.
+- *Only turns over ~30 s on the Mac.* Needs a timestamp handed from UserPromptSubmit to Stop; Pieter
+  chose every turn for simplicity.
+
+**Cost.** The phone push depends on Claude following the rule. It arrives only while Remote Control
+is connected, and Claude Code skips it while Pieter is typing at the Mac. When `stop-log-check.sh`
+blocks a turn to ask for log entries, the Mac can show two banners for one task.
+
+**Verified: PARTIAL.** 2026-11-20:
+- `./test.sh` → all 27 suites passed in 780 s (`restore` skipped: needs `--docker`).
+- `./test.sh logs` → 285 passed, 0 failed. Four new cases: the right title and message reach a
+  stub notifier, stdout is empty and the exit is 0, bad JSON still notifies silently, and a missing
+  notifier never fails the turn. Two more: the hook is registered under Stop and is in the
+  shellcheck list.
+- `shellcheck claude/hooks/stop-notify.sh` is clean; a real run against `bin/notify-local` exits 0.
+- The live `~/.claude/settings.json` has the hook and `inputNeededNotifEnabled`, and `jq` validates it.
+  The live `~/.claude/CLAUDE.md` is byte-identical to `claude/CLAUDE.md`.
+- **NOT YET:** a banner seen on screen and a push received on the phone in a new session.
+

@@ -119,6 +119,7 @@ dotfiles/
 ├── claude/
 │   ├── hooks/guard-git-bypass.sh   # Claude Code hook: the assistant cannot bypass the gate
 │   ├── hooks/guard-github-write.sh # Claude Code hook: no content writes through the GitHub API
+│   ├── hooks/stop-notify.sh        # Claude Code hook: Mac banner the moment a turn ends
 │   └── skills/mobile-vetting/      # Claude skill: mobile audit for any web UI (D75; symlinked into
 │                                   #   ~/.claude/skills; npm ci --prefix there; ./test.sh mobile)
 ├── bin/            # On PATH - general commands, run in place from here

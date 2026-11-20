@@ -81,6 +81,15 @@ When opening files or projects for the user, prefer `code` unless the user indic
 - Custom scripts: `~/dev/dotfiles/bin` is in PATH (commands are run in place from the repo)
 - When constructing paths to Homebrew tools, use `/opt/homebrew/bin/` not `/usr/local/bin/`
 
+## Notifications
+
+- The Mac gets a banner on every finished turn from the `Stop` hook `claude/hooks/stop-notify.sh`.
+- The phone: when you finish a task Pieter asked for, send one push notification with a one-line
+  outcome. Do this at the end of the task, not after each intermediate turn or a quick answer. Keep
+  family, credential and other private details out of the push text. It arrives only while Remote
+  Control is connected, and Claude Code skips it while Pieter is typing at the Mac. Rationale:
+  `~/dev/dotfiles/docs/design-decisions.md` D84.
+
 ## Workspace do-not-touch register
 
 Repos under `~/dev` that must not be modified. Imported here, not in `~/dev/CLAUDE.md`, so that it

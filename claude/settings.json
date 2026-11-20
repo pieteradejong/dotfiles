@@ -88,7 +88,19 @@
             "timeout": 10
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/dev/dotfiles/claude/hooks/stop-notify.sh",
+            "timeout": 5
+          }
+        ]
       }
     ]
-  }
+  },
+  "remoteControlAtStartup": true,
+  "agentPushNotifEnabled": true,
+  "inputNeededNotifEnabled": true
 }
